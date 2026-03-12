@@ -105,12 +105,13 @@ export class FirestoreOAuthStore {
    * @param providerId - The Google provider ID (Firebase UID from Google sign-in)
    * @param entry - The token entry to save
    */
-  async saveToken(providerId: string, entry: TokenEntry): Promise<void> {
+  async saveToken(providerId: string, email: string, entry: TokenEntry): Promise<void> {
     const response = await authFetch(`${AUTH_URL}/oauth-tokens`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
       body: JSON.stringify({
         provider_id: providerId,
+        email,
         access_token: entry.access_token,
         refresh_token: entry.refresh_token,
         firebase_id_token: entry.firebase_id_token,
