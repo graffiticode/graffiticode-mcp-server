@@ -199,7 +199,7 @@ Create a new item in any Graffiticode language. Describe what you want in natura
 
 **Returns:** An object containing `item_id` (for subsequent calls), `task_id`, `language`, `data` (the compiled output), and `react_usage` (instructions for rendering).
 
-**What makes a good description?** Be specific about what you want. Include domain-relevant details. Think about describing the *end result* you want to see, not implementation details. The language-specific AI understands domain terminology.
+**What makes a good description?** Be specific about what you want. Include domain-relevant details. Describe the *end result* you want to see, not implementation details. The language-specific AI understands domain terminology. Call `get_language_info` for guidance on what a particular language can do.
 
 ---
 
@@ -234,231 +234,26 @@ Retrieve an existing item by its ID.
 
 ---
 
-## Language Guide: L0169 — Concept Web Assessments
+## Available Languages
 
-L0169 creates **interactive concept web assessment diagrams** — educational tools where students engage with interconnected concept nodes arranged in a radial layout around a central hub. Students demonstrate understanding by dragging concepts from a tray into the correct positions on the web.
+The language catalog is dynamic — call `list_languages` to discover what's currently available, and `get_language_info` for details on any specific language. Each language has its own specification page, source repository, and usage documentation.
 
-### What You Can Create
+| Language | Description | Spec | Repository |
+|---|---|---|---|
+| L0002 | Simple programs with text rendering and theming | [spec](https://l0002.graffiticode.org/spec.html) | [github](https://github.com/graffiticode/l0002) |
+| L0159 | Flashcards, Match, and Memory card games | [spec](https://l0159.graffiticode.org/spec.html) | [github](https://github.com/graffiticode/l0159) |
+| L0166 | Spreadsheets and tabular data with formulas | [spec](https://l0166.graffiticode.org/spec.html) | [github](https://github.com/graffiticode/l0166) |
+| L0169 | Interactive concept web assessment diagrams | [spec](https://l0169.graffiticode.org/spec.html) | [github](https://github.com/graffiticode/l0169) |
 
-- Concept webs with a central topic and radiating connected concepts
-- Drag-and-drop assessments where learners place concepts correctly
-- Themed interfaces (light or dark)
-- Image-augmented concepts with visual resources
-- Configurable concept tray positions (right, left, top, bottom)
-- Self-grading assessments that check learner responses
-
-### Creating a Concept Web Assessment
-
-To create a concept web assessment, call `create_item` with `language: "L0169"` and describe your assessment in natural language:
-
-```
-create_item(
-  language: "L0169",
-  description: "Create a concept web assessment about photosynthesis.
-    The central concept is 'Light Reactions'. Connected concepts are
-    'Calvin Cycle', 'Chlorophyll', 'ATP Production', and 'Water Splitting'.
-    Each concept should be assessed by matching its label. Use a dark theme
-    with the concept tray on the right side."
-)
-```
-
-The L0169 backend understands educational assessment terminology. Here are more examples of effective descriptions:
-
-**A simple concept web:**
-
-```
-create_item(
-  language: "L0169",
-  description: "Create a concept web about the water cycle. The central
-    concept is Evaporation. Connected concepts: Condensation, Precipitation,
-    Collection, and Transpiration."
-)
-```
-
-**A complex assessment with images:**
-
-```
-create_item(
-  language: "L0169",
-  description: "Create a concept web assessment about the solar system.
-    The Sun is the central concept. Connected concepts are Mercury, Venus,
-    Earth, Mars, Jupiter, Saturn, Uranus, and Neptune. Add a planet image
-    to each concept. Assess each concept by matching its name. Place the
-    concept tray at the bottom and use a light theme."
-)
-```
-
-**An assessment for younger learners:**
-
-```
-create_item(
-  language: "L0169",
-  description: "Create a concept web for elementary students about
-    animal classification. The central concept is 'Animals'. Connected
-    concepts are 'Mammals', 'Birds', 'Fish', 'Reptiles', and 'Amphibians'.
-    Keep it simple with no assessment — just the web structure."
-)
-```
-
-### Modifying a Concept Web
-
-Use `update_item` to refine your assessment iteratively. You don't need to redescribe the entire web — just say what you want to change:
-
-**Adding concepts:**
-
-```
-update_item(
-  item_id: "abc123",
-  modification: "Add a new connected concept called 'Carbon Fixation'
-    between Calvin Cycle and ATP Production."
-)
-```
-
-**Changing the theme:**
-
-```
-update_item(
-  item_id: "abc123",
-  modification: "Switch to a light theme and move the concept tray
-    to the bottom."
-)
-```
-
-**Adjusting assessment configuration:**
-
-```
-update_item(
-  item_id: "abc123",
-  modification: "Remove the assessment from the central concept but
-    keep it on all the connected concepts."
-)
-```
-
-### What L0169 Can Express
-
-L0169 has 14 core operations that cover the full domain of concept web assessments:
-
-| Capability | What It Means |
-|---|---|
-| **Topic labeling** | Give the overall concept web a title or subject label |
-| **Central concept (anchor)** | Define the hub node that all other concepts radiate from |
-| **Connected concepts** | Add peripheral nodes that connect to the central concept with auto-generated edges |
-| **Assessment configuration** | Attach evaluation parameters to any concept node specifying what constitutes a correct response |
-| **Assessment methods** | Define how responses are evaluated (e.g., by matching a value) |
-| **Concept tray** | A draggable tray of concept labels that learners place onto the web |
-| **Tray alignment** | Position the tray on any side: right, left, top, or bottom |
-| **Image attachment** | Add visual resources (images) to any concept node |
-| **Theming** | Switch between light and dark interface themes |
-
-### What L0169 Cannot Express
-
-L0169 is specialized for radial concept webs. It does not support free-form quizzes, multiple-choice questions, text-input fields, hierarchical trees, or linear sequences. For tabular data and spreadsheets, use L0166. For flashcards and matching games, use L0159.
-
----
-
-## Language Guide: L0166 — Spreadsheets and Tabular Data
-
-L0166 creates **interactive spreadsheets** with formatted cells, formulas, and structured tabular data.
-
-### Creating a Spreadsheet
-
-```
-create_item(
-  language: "L0166",
-  description: "Create a spreadsheet with two columns: Term and Definition.
-    Add three rows: Photosynthesis / The process by which plants convert
-    sunlight to energy, Mitosis / Cell division producing two identical
-    cells, Osmosis / Movement of water across a semipermeable membrane.
-    Make the header row bold with a light blue background."
-)
-```
-
-### Modifying a Spreadsheet
-
-```
-update_item(
-  item_id: "xyz789",
-  modification: "Add a fourth row: Homeostasis / The body's ability to
-    maintain a stable internal environment. Make the header background
-    color light green instead of light blue."
-)
-```
-
----
-
-## Language Guide: L0159 — Flashcards, Match, and Memory Games
-
-L0159 creates **interactive flashcard sets** and card-matching games for learning and review.
-
-### Creating Flashcards
-
-```
-create_item(
-  language: "L0159",
-  description: "Create a set of flashcards for Spanish vocabulary.
-    Include: House / Casa, Dog / Perro, Cat / Gato, Book / Libro,
-    Water / Agua. The front of each card shows the English word and
-    the back shows the Spanish translation."
-)
-```
+For language-specific capabilities, natural language prompting tips, and domain documentation, see the individual language spec pages linked above.
 
 ---
 
 ## Rendering Items in Your Application
 
-Every Graffiticode language has a corresponding React component published on npm. When you call `create_item`, `update_item`, or `get_item`, the response includes a `react_usage` field with everything you need to embed the item in a React application.
+Every Graffiticode language has a corresponding React component published on npm as `@graffiticode/<language-id>`. When you call `create_item`, `update_item`, or `get_item`, the response includes a `react_usage` field with installation instructions, a code example, and troubleshooting tips specific to that language.
 
-### Installation
-
-Each language has its own npm package following the pattern `@graffiticode/<language-id>`:
-
-```bash
-npm install @graffiticode/l0169  # for concept web assessments
-npm install @graffiticode/l0166  # for spreadsheets
-npm install @graffiticode/l0159  # for flashcards
-```
-
-### Usage Pattern (Universal)
-
-The pattern is the same for every language. Use the `data` field from the MCP response to hydrate the component:
-
-```jsx
-import React from 'react';
-import { Form } from '@graffiticode/l0169';
-import '@graffiticode/l0169/style.css';
-
-function createState(initialData) {
-  let data = initialData;
-  return {
-    get data() { return data; },
-    apply(action) {
-      if (action.args) {
-        data = { ...data, ...action.args };
-      }
-    }
-  };
-}
-
-function ConceptWebAssessment({ itemData }) {
-  // itemData is the COMPLETE 'data' field from create_item / update_item / get_item
-  const [state] = React.useState(() => createState(itemData));
-  return <Form state={state} />;
-}
-```
-
-The `state.data` object must be the complete `data` field from the API response, including its `validation.regions` structure. Pass the whole object — don't extract subsets.
-
-### Interactive Widgets
-
-When using the MCP server with Claude or ChatGPT, items render automatically as interactive widgets directly in the chat interface. No additional setup is needed — the server provides widget resources that these platforms use to display your items inline.
-
-### Troubleshooting
-
-| Issue | Solution |
-|---|---|
-| Multiple React versions error | Add `resolve.dedupe: ['react', 'react-dom']` to your Vite/webpack config |
-| Cannot read 'regions' of null | Pass the complete `data` object from the API response, not a subset |
-| CSS not loading | Import styles from `@graffiticode/<lang>/style.css` |
+When using the MCP server with Claude or ChatGPT, items render automatically as interactive widgets directly in the chat interface — no additional setup needed.
 
 ---
 
