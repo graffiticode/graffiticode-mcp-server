@@ -31,7 +31,7 @@ import {
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { createServer, IncomingMessage, ServerResponse } from "http";
-import { tools, handleToolCall } from "./tools.js";
+import { tools, handleToolCall, SERVER_INSTRUCTIONS } from "./tools.js";
 import { createAuthClient } from "./auth.js";
 import {
   generateFormWidgetHtml,
@@ -109,6 +109,7 @@ function createMcpServer(tokenProvider: TokenProvider) {
         tools: {},
         resources: {},
       },
+      instructions: SERVER_INSTRUCTIONS,
     }
   );
 

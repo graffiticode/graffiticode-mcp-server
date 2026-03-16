@@ -55,13 +55,23 @@ function buildContextualPrompt(
   return context + newMessage;
 }
 
+// --- Server Instructions (sent to agents at connection time) ---
+
+export const SERVER_INSTRUCTIONS = `Graffiticode is an open-ended platform of domain-specific tools for creating interactive content — assessments, spreadsheets, flashcards, and more. The catalog of available tools grows over time.
+
+When the user's request doesn't match another available tool, call list_languages() to check if Graffiticode has a language that fits. Use the search parameter to match by keyword. If a match exists, call get_language_info() to learn what the language can create and get its usage guide URL, then call create_item() with a natural language description.
+
+All requests to create_item and update_item must be natural language descriptions of what to create or change. A language-specific AI backend handles all code generation. Do not attempt to generate Graffiticode DSL code directly.
+
+Workflow: list_languages(search) → get_language_info(language) → create_item(language, description) → update_item(item_id, modification) to iterate.`;
+
 // --- Tool Definitions ---
 
 export const createItemTool = {
   name: "create_item",
-  description: `Create a new Graffiticode item in any language.
+  description: `Create interactive content in any Graffiticode language. Describe what you want in natural language — a language-specific AI generates the result.
 
-The language parameter specifies which DSL to use. Call list_languages() to discover available options.
+Call list_languages() first to discover available languages, then pass the language ID here. The description should be a natural language request, not code. Be specific about the content, structure, layout, theme, and any assessment or interaction requirements.
 
 Returns item_id for use in subsequent update_item or get_item calls.`,
   inputSchema: {
@@ -69,11 +79,11 @@ Returns item_id for use in subsequent update_item or get_item calls.`,
     properties: {
       language: {
         type: "string",
-        description: "Language ID (e.g., 'L0166'). Call list_languages() to see options.",
+        description: "Language ID (e.g., 'L0166'). Call list_languages() to discover options.",
       },
       description: {
         type: "string",
-        description: "Natural language description of what to create",
+        description: "Natural language description of what to create. Be specific about content, structure, and visual preferences.",
       },
       name: {
         type: "string",
@@ -93,13 +103,9 @@ Returns item_id for use in subsequent update_item or get_item calls.`,
 
 export const updateItemTool = {
   name: "update_item",
-  description: `Update an existing Graffiticode item.
+  description: `Modify an existing Graffiticode item by describing what to change in natural language.
 
-Args:
-  item_id: The item_id from a previous create_item call
-  modification: Natural language description of what to change
-
-Language is auto-detected from the item.`,
+The language is auto-detected from the item. Conversation history is preserved, so you can make incremental changes: "add another concept", "change the theme to dark", "make the header row blue".`,
   inputSchema: {
     type: "object",
     properties: {
@@ -154,19 +160,19 @@ Returns the item's data, code, and metadata.`,
 
 export const listLanguagesTool = {
   name: "list_languages",
-  description: `Discover available Graffiticode languages.
+  description: `Discover available Graffiticode languages. Use this to find a language that matches the user's needs.
 
-Returns list of languages with IDs, names, descriptions, and categories.`,
+The catalog is dynamic and grows over time. Use the search parameter to match by keyword (e.g., "spreadsheet", "assessment", "flashcard"). Returns language IDs, names, descriptions, and categories.`,
   inputSchema: {
     type: "object",
     properties: {
       category: {
         type: "string",
-        description: "Optional filter by category",
+        description: "Filter by category (e.g., 'data', 'general')",
       },
       search: {
         type: "string",
-        description: "Optional search by keyword",
+        description: "Search by keyword (e.g., 'assessment', 'spreadsheet', 'flashcard')",
       },
     },
   },
@@ -179,9 +185,11 @@ Returns list of languages with IDs, names, descriptions, and categories.`,
 
 export const getLanguageInfoTool = {
   name: "get_language_info",
-  description: `Get high-level information about a Graffiticode language.
+  description: `Get detailed information about a Graffiticode language, including what it can create and how to use it.
 
-Returns name, description, category, spec URL, and React usage instructions.`,
+Returns name, description, category, usage guide URL (what you can ask for in natural language), spec URL (full vocabulary reference), and React component instructions for embedding.
+
+Call this after list_languages() to learn about a specific language before using create_item().`,
   inputSchema: {
     type: "object",
     properties: {
@@ -507,11 +515,19 @@ export async function handleGetLanguageInfo(
 
   const reactUsage = getReactUsage(info.id);
 
+  // Derive usage guide URL from spec URL
+  // spec URL pattern: https://l0169.graffiticode.org/spec.html
+  // usage guide URL:  https://l0169.graffiticode.org/usage-guide.html
+  const usageGuideUrl = info.specUrl
+    ? info.specUrl.replace(/spec\.html$/, "usage-guide.html")
+    : null;
+
   return {
     id: `L${info.id}`,
     name: info.name,
     description: info.description,
     category: info.category,
+    usage_guide_url: usageGuideUrl,
     spec_url: info.specUrl,
     react_usage: reactUsage,
   };

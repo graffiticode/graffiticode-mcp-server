@@ -6,7 +6,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
-import { tools, handleToolCall } from "./tools.js";
+import { tools, handleToolCall, SERVER_INSTRUCTIONS } from "./tools.js";
 import { createAuthClient } from "./auth.js";
 
 async function main() {
@@ -29,6 +29,7 @@ async function main() {
       capabilities: {
         tools: {},
       },
+      instructions: SERVER_INSTRUCTIONS,
     }
   );
 
