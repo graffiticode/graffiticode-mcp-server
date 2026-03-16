@@ -340,6 +340,7 @@ async function exchangeGoogleTokenForFirebaseToken(googleIdToken: string): Promi
   firebaseIdToken: string;
   firebaseRefreshToken: string;
   providerId: string;
+  email: string;
   expiresAt: number;
 }> {
   // Step 1: Exchange Google ID token for Firebase custom token
@@ -404,10 +405,20 @@ async function exchangeGoogleTokenForFirebaseToken(googleIdToken: string): Promi
   // This is the same UID stored in the oauth-links collection
   const providerId = firebaseData.localId || authData.data.uid || "";
 
+  // Extract email from Google ID token (JWT payload)
+  let email = "";
+  try {
+    const payload = JSON.parse(Buffer.from(googleIdToken.split(".")[1], "base64").toString());
+    email = payload.email || "";
+  } catch {
+    // Ignore - email is optional
+  }
+
   return {
     firebaseIdToken: firebaseData.idToken,
     firebaseRefreshToken: firebaseData.refreshToken,
     providerId,
+    email,
     expiresAt,
   };
 }
@@ -547,7 +558,7 @@ async function handleAuthorizationCodeGrant(
 
   try {
     // Exchange Google ID token for Firebase ID token + refresh token
-    const { firebaseIdToken, firebaseRefreshToken, providerId, expiresAt } = await exchangeGoogleTokenForFirebaseToken(
+    const { firebaseIdToken, firebaseRefreshToken, providerId, email, expiresAt } = await exchangeGoogleTokenForFirebaseToken(
       authCode.google_id_token
     );
 
@@ -573,7 +584,7 @@ async function handleAuthorizationCodeGrant(
       created_at: Date.now(),
     };
 
-    await oauthStore.saveToken(providerId, tokenEntry);
+    await oauthStore.saveToken(providerId, email, tokenEntry);
 
     // Clean up auth code
     oauthStore.deleteAuthCode(code);
