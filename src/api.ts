@@ -3,6 +3,7 @@
  */
 
 const CONSOLE_API_URL = process.env.GRAFFITICODE_CONSOLE_URL || "https://graffiticode.org/api";
+const GC_API_URL = process.env.GRAFFITICODE_API_URL || "https://api.graffiticode.org";
 
 interface GraphQLResponse<T> {
   data?: T;
@@ -315,4 +316,16 @@ export async function getLanguageInfo(options: {
   );
 
   return result.language;
+}
+
+export async function getTemplate(language: string): Promise<string | null> {
+  const langId = language.replace(/^L/i, "");
+  try {
+    const response = await fetch(`${GC_API_URL}/L${langId}/template.gc`);
+    if (!response.ok) return null;
+    const text = await response.text();
+    return text || null;
+  } catch {
+    return null;
+  }
 }
