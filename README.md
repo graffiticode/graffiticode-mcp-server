@@ -292,6 +292,7 @@ For self-hosted deployments:
 - **Community:** [forum.graffiticode.org](https://forum.graffiticode.org)
 - **Bug reports:** [GitHub Issues](https://github.com/graffiticode/graffiticode-mcp-server/issues)
 - **Privacy policy:** [mcp.graffiticode.org/privacy](https://mcp.graffiticode.org/privacy)
+- **Terms of service:** [mcp.graffiticode.org/terms](https://mcp.graffiticode.org/terms)
 
 ---
 
