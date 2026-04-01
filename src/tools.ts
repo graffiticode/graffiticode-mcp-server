@@ -93,6 +93,12 @@ Returns item_id for use in subsequent update_item or get_item calls.`,
     },
     required: ["language", "description"],
   },
+  annotations: {
+    title: "Create Item",
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   _meta: {
     // ChatGPT Apps metadata
     "openai/outputTemplate": WIDGET_RESOURCE_URI,
@@ -121,6 +127,12 @@ The language is auto-detected from the item. Conversation history is preserved, 
     },
     required: ["item_id", "modification"],
   },
+  annotations: {
+    title: "Update Item",
+    readOnlyHint: false,
+    destructiveHint: false,
+    openWorldHint: true,
+  },
   _meta: {
     // ChatGPT Apps metadata
     "openai/outputTemplate": WIDGET_RESOURCE_URI,
@@ -146,6 +158,7 @@ Returns the item's data, code, and metadata.`,
     required: ["item_id"],
   },
   annotations: {
+    title: "Get Item",
     readOnlyHint: true,
     destructiveHint: false,
     openWorldHint: false,
@@ -178,6 +191,7 @@ The catalog is dynamic and grows over time. Use the search parameter to match by
     },
   },
   annotations: {
+    title: "List Languages",
     readOnlyHint: true,
     destructiveHint: false,
     openWorldHint: false,
@@ -202,6 +216,7 @@ Call this after list_languages() to learn about a specific language before using
     required: ["language"],
   },
   annotations: {
+    title: "Get Language Info",
     readOnlyHint: true,
     destructiveHint: false,
     openWorldHint: false,
