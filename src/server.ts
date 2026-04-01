@@ -161,6 +161,62 @@ const PRIVACY_HTML = `<!DOCTYPE html>
 </body>
 </html>`;
 
+const TERMS_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Terms of Service — Graffiticode MCP Server</title>
+<style>body{font-family:system-ui,-apple-system,sans-serif;max-width:720px;margin:0 auto;padding:2rem;line-height:1.6;color:#1a1a1a}h1{font-size:1.8rem;border-bottom:2px solid #c47a5a;padding-bottom:.5rem}h2{font-size:1.2rem;margin-top:2rem;color:#333}ul{padding-left:1.5rem}a{color:#c47a5a}</style>
+</head>
+<body>
+<h1>Terms of Service</h1>
+<p><strong>Graffiticode MCP Server</strong><br>Effective Date: April 1, 2026</p>
+
+<h2>Acceptance of Terms</h2>
+<p>By connecting to or using the Graffiticode MCP Server ("the Service"), you agree to these Terms of Service. If you do not agree, do not use the Service.</p>
+
+<h2>Description of Service</h2>
+<p>The Service provides a Model Context Protocol (MCP) server that enables AI assistants to create, update, and retrieve interactive content using the Graffiticode platform. The Service routes natural language requests to language-specific backends that generate structured output.</p>
+
+<h2>Account and Authentication</h2>
+<p>To use the Service, you must authenticate with a valid Graffiticode API key or through the OAuth 2.1 authorization flow. You are responsible for keeping your credentials secure and for all activity under your account.</p>
+
+<h2>Acceptable Use</h2>
+<p>You agree not to:</p>
+<ul>
+  <li>Use the Service to generate content that is illegal, harmful, or violates the rights of others</li>
+  <li>Attempt to bypass authentication or access other users' data</li>
+  <li>Overload the Service with excessive requests intended to degrade performance</li>
+  <li>Reverse-engineer, decompile, or attempt to extract the source code of the backend services</li>
+  <li>Use the Service in a way that violates any applicable law or regulation</li>
+</ul>
+
+<h2>Intellectual Property</h2>
+<p><strong>Your Content</strong> — You retain ownership of the content you create through the Service, including natural language descriptions and the resulting generated items.</p>
+<p><strong>Graffiticode Platform</strong> — The Service, its APIs, language backends, and underlying technology are owned by Graffiticode. Nothing in these terms grants you rights to the platform's intellectual property beyond the right to use the Service as described here.</p>
+<p><strong>Open Source</strong> — The MCP server source code is available under the terms of its open source license at <a href="https://github.com/graffiticode/graffiticode-mcp-server">github.com/graffiticode/graffiticode-mcp-server</a>.</p>
+
+<h2>Availability and Changes</h2>
+<p>The Service is provided on an "as-is" basis. We may modify, suspend, or discontinue the Service at any time without notice. We may also update these terms from time to time; continued use after changes constitutes acceptance.</p>
+
+<h2>Limitation of Liability</h2>
+<p>To the maximum extent permitted by law, Graffiticode shall not be liable for any indirect, incidental, special, consequential, or punitive damages arising from your use of the Service. The Service is provided without warranties of any kind, express or implied.</p>
+
+<h2>Termination</h2>
+<p>We may suspend or terminate your access to the Service at any time for violation of these terms or for any other reason at our discretion. You may stop using the Service at any time by revoking your API key or disconnecting the MCP server from your client.</p>
+
+<h2>Governing Law</h2>
+<p>These terms are governed by the laws of the State of California, without regard to conflict of law provisions.</p>
+
+<h2>Contact</h2>
+<ul>
+  <li>Email: <a href="mailto:support@graffiticode.org">support@graffiticode.org</a></li>
+  <li>GitHub: <a href="https://github.com/graffiticode/graffiticode-mcp-server">github.com/graffiticode/graffiticode-mcp-server</a></li>
+</ul>
+</body>
+</html>`;
+
 // Store active transports and servers by session
 const transports = new Map<string, StreamableHTTPServerTransport>();
 const servers = new Map<string, Server>();
@@ -374,6 +430,13 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
   if (url.pathname === "/privacy") {
     res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
     res.end(PRIVACY_HTML);
+    return;
+  }
+
+  // Terms of service
+  if (url.pathname === "/terms") {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(TERMS_HTML);
     return;
   }
 
