@@ -361,8 +361,6 @@ export async function handleCreateItem(
     app: "mcp",
   });
 
-  const reactUsage = getReactUsage(langId);
-
   return {
     item_id: item.id,
     task_id: generated.taskId,
@@ -371,8 +369,8 @@ export async function handleCreateItem(
     description: generated.description,
     code: generated.code,
     data,
-    react_usage: reactUsage,
     usage: generated.usage,
+    hint: "Call get_language_info() for React component usage and embedding instructions.",
     // Widget-only data (not exposed to model)
     _meta: {
       access_token: ctx.token,
@@ -441,8 +439,6 @@ export async function handleUpdateItem(
     help: updatedHelp,
   });
 
-  const reactUsage = getReactUsage(updatedItem.lang);
-
   return {
     item_id: updatedItem.id,
     task_id: generated.taskId,
@@ -450,8 +446,8 @@ export async function handleUpdateItem(
     name: updatedItem.name,
     description: generated.description,
     data,
-    react_usage: reactUsage,
     usage: generated.usage,
+    hint: "Call get_language_info() for React component usage and embedding instructions.",
     // Widget-only data (not exposed to model)
     _meta: {
       access_token: ctx.token,
@@ -481,8 +477,6 @@ export async function handleGetItem(
     taskId: item.taskId,
   });
 
-  const reactUsage = getReactUsage(item.lang);
-
   return {
     item_id: item.id,
     task_id: item.taskId,
@@ -490,9 +484,9 @@ export async function handleGetItem(
     name: item.name,
     code: item.code,
     data,
-    react_usage: reactUsage,
     created: item.created,
     updated: item.updated,
+    hint: "Call get_language_info() for React component usage and embedding instructions.",
     // Widget-only data (not exposed to model)
     _meta: {
       access_token: ctx.token,
