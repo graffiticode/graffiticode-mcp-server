@@ -31,6 +31,9 @@ import {
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { createServer, IncomingMessage, ServerResponse } from "http";
+import { readFileSync } from "fs";
+import { join, dirname } from "path";
+import { fileURLToPath } from "url";
 import { tools, handleToolCall, SERVER_INSTRUCTIONS } from "./tools.js";
 import { createAuthClient } from "./auth.js";
 import {
@@ -342,16 +345,21 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
 
   // Favicon
   if (url.pathname === "/favicon.ico") {
-    const FAVICON_ICO = Buffer.from(
-      "AAABAAEAEBAAAAAAIAAtAwAAFgAAAIlQTkcNChoKAAAADUlIRFIAAAAQAAAAEAgGAAAAH/P/YQAAAvRJREFUeJx1k11MW3UYxn/n+5y2h7ZCEUszsY6oZErMzAJCNhgmJsbbmsCN3HmDM8QrN5fgzLJLp/PeJS7OiIkXXrk4wbHpZNEs2RDdGMWM1tpV6AfQc3pOz98ra1zguXzz5PfmzfM+EntobmbSNBw/BeCa6vrozHlnN5/08ODKO+NHrGj83WjvcyNaOKr6boPA2/GrK7fmG7Xy+0OnP7uyK+CLTEZJPm2dfbR/aKr+Zw5ZV1AMi8WLl/Fdh+HXX0Xv6CB/Y+5cbrk+/drsbBNA/ReQ6gud7Xzh6FT2q09peh77xl5pbUk+k8b7aw2/eJ+ug0ffRFwWwFsAMsC1ExOHO/uHpgo/XsLuSSPLKu7GRgvQle5ACiRq2zusfPkJiWcHjl09PjHaAuh27GT5fh4tFMF3toj3HaCyehdZ1QjH2zBUiS3Po7x6ByOeoOk46G2x4wDSD9MZq31gpLrw8edqKN5G6vk0pikQzYDI4/upFyqIRgmnViWefgrF0Gm6dbR4ws8vLdoqhtEtaWFVC4XwXJ/s9Tsouk7PQB+abqCm2oEEtucigiYIUHQLPRJTdb/erQrVE1rI4ND42H/RyAqybiKCAJAoZddZu76E7zZansE3xgl8RajSdpD3tsp+03VU2TAIPJ9KdgktFEayOrA7H0ELqvQO7sNtKORuZtkubRJ4W75v6nn5xQ9m65WVW/OKFaL4yw3Wv/8GPWJjhyP88fPvSLKgXiwg/ADJLfHEwST9mZeoZn+dH50578gAbqV6SjEt3M0HxNK9hGQJxxNs/10m8Dzsnv2U7y6jmTbeTo1oqptGbfO9VozDZy4sPLj907nezCR2OIwQAYXVYuteqz0BAqpr93hs8GWKNxc+HD598er/PjG3XJ9GfCeSh8aOeRsl8pe+RtVNAHx3h66BI1idSQqL336U+815e88yXTsxcVizYyejTx4YUUxbVXUNt7rhV+7dnm9UqqeGz1xY2LVMD2tuZtLU/Xo3QEO1cnvV+R8ICDsWGMkG+gAAAABJRU5ErkJggg==",
-      "base64"
-    );
-    res.writeHead(200, {
-      "Content-Type": "image/x-icon",
-      "Content-Length": FAVICON_ICO.length.toString(),
-      "Cache-Control": "public, max-age=86400",
-    });
-    res.end(FAVICON_ICO);
+    try {
+      const __filename = fileURLToPath(import.meta.url);
+      const __dirname = dirname(__filename);
+      const faviconPath = join(__dirname, "..", "favicon.ico");
+      const faviconData = readFileSync(faviconPath);
+      res.writeHead(200, {
+        "Content-Type": "image/x-icon",
+        "Content-Length": faviconData.length.toString(),
+        "Cache-Control": "public, max-age=86400",
+      });
+      res.end(faviconData);
+    } catch {
+      res.writeHead(404);
+      res.end();
+    }
     return;
   }
 
