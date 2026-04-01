@@ -286,6 +286,15 @@ For self-hosted deployments:
 
 ---
 
+## Support
+
+- **Email:** [support@graffiticode.org](mailto:support@graffiticode.org)
+- **Community:** [forum.graffiticode.org](https://forum.graffiticode.org)
+- **Bug reports:** [GitHub Issues](https://github.com/graffiticode/graffiticode-mcp-server/issues)
+- **Privacy policy:** [mcp.graffiticode.org/privacy](https://mcp.graffiticode.org/privacy)
+
+---
+
 ## Source Code
 
 The MCP server is open source under the MIT license:
