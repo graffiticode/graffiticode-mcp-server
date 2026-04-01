@@ -53,6 +53,111 @@ import {
 
 const PORT = parseInt(process.env.PORT || "3001", 10);
 
+const PRIVACY_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Privacy Policy — Graffiticode MCP Server</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 720px; margin: 0 auto; padding: 2rem 1rem; line-height: 1.6; color: #1a1a1a; }
+  h1 { font-size: 1.8rem; margin-bottom: 0.25rem; }
+  h2 { font-size: 1.3rem; margin-top: 2rem; border-bottom: 1px solid #e0e0e0; padding-bottom: 0.3rem; }
+  h3 { font-size: 1.1rem; margin-top: 1.5rem; }
+  ul { padding-left: 1.5rem; }
+  li { margin-bottom: 0.5rem; }
+  a { color: #1a73e8; }
+  .subtitle { color: #555; font-size: 0.95rem; margin-bottom: 2rem; }
+</style>
+</head>
+<body>
+<h1>Privacy Policy</h1>
+<p class="subtitle">Graffiticode MCP Server &mdash; Effective Date: April 1, 2026</p>
+
+<h2>Overview</h2>
+<p>The Graffiticode MCP Server (&ldquo;the Service&rdquo;) is operated by Graffiticode. This policy describes how the Service collects, uses, and protects information when you connect to the Graffiticode MCP server through an MCP-compatible client such as Claude, ChatGPT, or other AI assistants.</p>
+
+<h2>Information We Collect</h2>
+
+<h3>Authentication Credentials</h3>
+<p>When you connect to the Service, you provide authentication credentials in one of two ways:</p>
+<ul>
+  <li><strong>OAuth 2.1 access tokens</strong> &mdash; issued during the OAuth authorization flow. These tokens are used to authenticate requests and are not stored persistently by the MCP server.</li>
+  <li><strong>API keys</strong> &mdash; passed as Bearer tokens. API keys are exchanged for short-lived session tokens and are not logged or stored beyond the authentication step.</li>
+</ul>
+
+<h3>Content You Create</h3>
+<p>When you use the Service&rsquo;s tools (create_item, update_item, get_item), the natural language descriptions you provide and the items you create are stored in the Graffiticode platform. This includes:</p>
+<ul>
+  <li>Natural language descriptions and modification requests</li>
+  <li>Generated code and compiled output data</li>
+  <li>Conversation history for iterative editing (stored per item)</li>
+  <li>Item metadata (creation and update timestamps, language, name)</li>
+</ul>
+
+<h3>Automatically Collected Information</h3>
+<p>The Service may collect standard server logs including:</p>
+<ul>
+  <li>IP addresses</li>
+  <li>Request timestamps</li>
+  <li>HTTP headers (excluding authorization tokens, which are redacted)</li>
+  <li>Error messages for debugging</li>
+</ul>
+
+<h2>How We Use Your Information</h2>
+<p>We use the information described above to:</p>
+<ul>
+  <li>Authenticate your requests and authorize access to your items</li>
+  <li>Generate, store, and retrieve content you create through the Service</li>
+  <li>Maintain conversation history to support iterative editing of items</li>
+  <li>Debug errors and maintain service reliability</li>
+  <li>Improve the Service</li>
+</ul>
+
+<h2>Data Sharing</h2>
+<p>We do not sell your personal information. We may share data only in the following circumstances:</p>
+<ul>
+  <li><strong>Service providers</strong> &mdash; We use Google Cloud Platform to host the Service. Data is processed in accordance with Google Cloud&rsquo;s data processing terms.</li>
+  <li><strong>Firebase Authentication</strong> &mdash; Authentication tokens are processed through Firebase. See Google&rsquo;s privacy policy for details.</li>
+  <li><strong>Legal requirements</strong> &mdash; We may disclose information if required by law or legal process.</li>
+</ul>
+
+<h2>Data Retention</h2>
+<ul>
+  <li><strong>Items and content</strong> &mdash; Retained as long as your Graffiticode account is active, or until you delete them.</li>
+  <li><strong>Authentication tokens</strong> &mdash; Cached in memory for up to 55 minutes and discarded when the server session ends.</li>
+  <li><strong>Server logs</strong> &mdash; Retained for up to 90 days for debugging purposes.</li>
+</ul>
+
+<h2>Security</h2>
+<p>We protect your data using:</p>
+<ul>
+  <li>HTTPS/TLS encryption for all data in transit</li>
+  <li>OAuth 2.1 with PKCE for secure authentication flows</li>
+  <li>Short-lived authentication tokens with automatic refresh</li>
+  <li>Deployment on Google Cloud Run with managed infrastructure security</li>
+</ul>
+
+<h2>Your Rights</h2>
+<p>You may:</p>
+<ul>
+  <li>Request access to or deletion of your data by contacting us</li>
+  <li>Delete items you&rsquo;ve created through the Graffiticode console at <a href="https://console.graffiticode.org">console.graffiticode.org</a></li>
+  <li>Revoke API keys at any time through your Graffiticode account settings</li>
+</ul>
+
+<h2>Changes to This Policy</h2>
+<p>We may update this policy from time to time. Changes will be posted to this page with an updated effective date.</p>
+
+<h2>Contact</h2>
+<p>For questions about this privacy policy or your data, contact:</p>
+<ul>
+  <li>Email: <a href="mailto:jeff@artcompiler.com">jeff@artcompiler.com</a></li>
+  <li>GitHub: <a href="https://github.com/graffiticode/graffiticode-mcp-server">github.com/graffiticode/graffiticode-mcp-server</a></li>
+</ul>
+</body>
+</html>`;
+
 // Store active transports and servers by session
 const transports = new Map<string, StreamableHTTPServerTransport>();
 const servers = new Map<string, Server>();
@@ -239,6 +344,13 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
   if (url.pathname === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ status: "ok" }));
+    return;
+  }
+
+  // Privacy policy
+  if (url.pathname === "/privacy") {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(PRIVACY_HTML);
     return;
   }
 
