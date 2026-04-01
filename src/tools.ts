@@ -7,6 +7,7 @@ import {
   updateItem as apiUpdateItem,
   listLanguages as apiListLanguages,
   getLanguageInfo as apiGetLanguageInfo,
+  getTemplate,
 } from "./api.js";
 import { WIDGET_RESOURCE_URI, WIDGET_CSP, CLAUDE_WIDGET_RESOURCE_URI } from "./widget/index.js";
 
@@ -303,24 +304,28 @@ export async function handleCreateItem(
   // Normalize language ID (remove "L" prefix if present)
   const langId = language.replace(/^L/i, "");
 
-  // Step 1: Generate code from description (routes to language-specific backend)
+  // Step 1: Fetch template for the language
+  const template = await getTemplate(langId);
+
+  // Step 2: Generate code from description (routes to language-specific backend)
   const generated = await generateCode({
     token: ctx.token,
     prompt: description,
     language: langId,
+    currentCode: template || undefined,
   });
 
   if (!generated.taskId) {
     throw new Error("No taskId returned from code generation");
   }
 
-  // Step 2: Get compiled data
+  // Step 3: Get compiled data
   const data = await getData({
     token: ctx.token,
     taskId: generated.taskId,
   });
 
-  // Step 3: Build help array with initial entry
+  // Step 4: Build help array with initial entry
   const helpEntry: HelpEntry = {
     user: description,
     help: { text: description },
@@ -330,7 +335,7 @@ export async function handleCreateItem(
   };
   const help = JSON.stringify([helpEntry]);
 
-  // Step 4: Create item with help context
+  // Step 5: Create item with help context
   const item = await apiCreateItem({
     token: ctx.token,
     lang: langId,
