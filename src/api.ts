@@ -45,7 +45,7 @@ async function graphqlRequest<T>(
 // --- Generate Code ---
 
 interface GenerateCodeResult {
-  code: string;
+  src: string;
   taskId: string;
   description: string;
   language: string;
@@ -60,14 +60,14 @@ export async function generateCode(options: {
   token: string;
   prompt: string;
   language: string;
-  currentCode?: string;
+  currentSrc?: string;
 }): Promise<GenerateCodeResult> {
-  const { token, prompt, language, currentCode } = options;
+  const { token, prompt, language, currentSrc } = options;
 
   const query = `
-    mutation GenerateCode($prompt: String!, $language: String, $currentCode: String) {
-      generateCode(prompt: $prompt, language: $language, currentCode: $currentCode) {
-        code
+    mutation GenerateCode($prompt: String!, $language: String, $currentSrc: String) {
+      generateCode(prompt: $prompt, language: $language, currentSrc: $currentSrc) {
+        src
         taskId
         description
         language
@@ -83,7 +83,7 @@ export async function generateCode(options: {
   const result = await graphqlRequest<{ generateCode: GenerateCodeResult }>(
     token,
     query,
-    { prompt, language, currentCode }
+    { prompt, language, currentSrc }
   );
 
   return result.generateCode;
@@ -112,6 +112,34 @@ export async function getData(options: {
   return JSON.parse(result.data);
 }
 
+// --- Get Task ---
+
+export async function getTask(options: {
+  token: string;
+  id: string;
+}): Promise<{ id: string; lang: string; code: string; src: string }> {
+  const { token, id } = options;
+
+  const query = `
+    query GetTask($id: String!) {
+      task(id: $id) {
+        id
+        lang
+        code
+        src
+      }
+    }
+  `;
+
+  const result = await graphqlRequest<{ task: { id: string; lang: string; code: string; src: string } }>(
+    token,
+    query,
+    { id }
+  );
+
+  return result.task;
+}
+
 // --- Item CRUD ---
 
 export interface Item {
@@ -119,7 +147,6 @@ export interface Item {
   name: string | null;
   taskId: string;
   lang: string;
-  code: string;
   help: string | null;
   isPublic: boolean;
   created: string;
@@ -132,20 +159,18 @@ export async function createItem(options: {
   lang: string;
   name?: string;
   taskId: string;
-  code: string;
   help?: string;
   app?: string;
 }): Promise<Item> {
-  const { token, lang, name, taskId, code, help, app } = options;
+  const { token, lang, name, taskId, help, app } = options;
 
   const mutation = `
-    mutation CreateItem($lang: String!, $name: String, $taskId: String, $help: String, $code: String, $app: String) {
-      createItem(lang: $lang, name: $name, taskId: $taskId, help: $help, code: $code, app: $app) {
+    mutation CreateItem($lang: String!, $name: String, $taskId: String, $help: String, $app: String) {
+      createItem(lang: $lang, name: $name, taskId: $taskId, help: $help, app: $app) {
         id
         name
         taskId
         lang
-        code
         help
         isPublic
         created
@@ -158,7 +183,7 @@ export async function createItem(options: {
   const result = await graphqlRequest<{ createItem: Item }>(
     token,
     mutation,
-    { lang, name, taskId, code, help, app }
+    { lang, name, taskId, help, app }
   );
 
   return result.createItem;
@@ -177,7 +202,6 @@ export async function getItem(options: {
         name
         taskId
         lang
-        code
         help
         isPublic
         created
@@ -201,19 +225,17 @@ export async function updateItem(options: {
   id: string;
   name?: string;
   taskId?: string;
-  code?: string;
   help?: string;
 }): Promise<Item> {
-  const { token, id, name, taskId, code, help } = options;
+  const { token, id, name, taskId, help } = options;
 
   const mutation = `
-    mutation UpdateItem($id: String!, $name: String, $taskId: String, $help: String, $code: String) {
-      updateItem(id: $id, name: $name, taskId: $taskId, help: $help, code: $code) {
+    mutation UpdateItem($id: String!, $name: String, $taskId: String, $help: String) {
+      updateItem(id: $id, name: $name, taskId: $taskId, help: $help) {
         id
         name
         taskId
         lang
-        code
         help
         isPublic
         created
@@ -226,7 +248,7 @@ export async function updateItem(options: {
   const result = await graphqlRequest<{ updateItem: Item }>(
     token,
     mutation,
-    { id, name, taskId, code, help }
+    { id, name, taskId, help }
   );
 
   return result.updateItem;

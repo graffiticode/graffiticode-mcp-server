@@ -2,6 +2,7 @@ import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import {
   generateCode,
   getData,
+  getTask as apiGetTask,
   createItem as apiCreateItem,
   getItem as apiGetItem,
   updateItem as apiUpdateItem,
@@ -327,7 +328,7 @@ export async function handleCreateItem(
     token: ctx.token,
     prompt: description,
     language: langId,
-    currentCode: template || undefined,
+    currentSrc: template || undefined,
   });
 
   if (!generated.taskId) {
@@ -356,7 +357,6 @@ export async function handleCreateItem(
     lang: langId,
     name,
     taskId: generated.taskId,
-    code: generated.code,
     help,
     app: "mcp",
   });
@@ -367,7 +367,7 @@ export async function handleCreateItem(
     language: `L${langId}`,
     name: item.name,
     description: generated.description,
-    code: generated.code,
+    code: generated.src,
     data,
     usage: generated.usage,
     hint: "Call get_language_info() for React component usage and embedding instructions.",
@@ -394,20 +394,24 @@ export async function handleUpdateItem(
     throw new Error(`Item not found: ${item_id}`);
   }
 
-  // Step 2: Parse existing help history and build contextual prompt
+  // Step 2: Get current source code from the task
+  const task = await apiGetTask({ token: ctx.token, id: existingItem.taskId });
+  const currentSrc = task.src;
+
+  // Step 3: Parse existing help history and build contextual prompt
   const existingHelp = parseHelp(existingItem.help);
   const contextualPrompt = buildContextualPrompt(
     existingHelp,
     modification,
-    existingItem.code
+    currentSrc
   );
 
-  // Step 3: Generate updated code with contextual prompt
+  // Step 4: Generate updated code with contextual prompt
   const generated = await generateCode({
     token: ctx.token,
     prompt: contextualPrompt,
     language: existingItem.lang,
-    currentCode: existingItem.code,
+    currentSrc,
   });
 
   if (!generated.taskId) {
@@ -430,12 +434,11 @@ export async function handleUpdateItem(
   };
   const updatedHelp = JSON.stringify([...existingHelp, newHelpEntry]);
 
-  // Step 6: Update item with new code and help history
+  // Step 6: Update item with new taskId and help history
   const updatedItem = await apiUpdateItem({
     token: ctx.token,
     id: item_id,
     taskId: generated.taskId,
-    code: generated.code,
     help: updatedHelp,
   });
 
@@ -471,7 +474,8 @@ export async function handleGetItem(
     throw new Error(`Item not found: ${item_id}`);
   }
 
-  // Get compiled data
+  // Get source code and compiled data
+  const task = await apiGetTask({ token: ctx.token, id: item.taskId });
   const data = await getData({
     token: ctx.token,
     taskId: item.taskId,
@@ -482,7 +486,7 @@ export async function handleGetItem(
     task_id: item.taskId,
     language: `L${item.lang}`,
     name: item.name,
-    code: item.code,
+    src: task.src,
     data,
     created: item.created,
     updated: item.updated,
