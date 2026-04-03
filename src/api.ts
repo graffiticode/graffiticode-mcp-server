@@ -65,7 +65,7 @@ export async function generateCode(options: {
   const { token, prompt, language, currentSrc } = options;
 
   const query = `
-    mutation GenerateCode($prompt: String!, $language: String, $currentSrc: String) {
+    mutation GenerateCode($prompt: String!, $language: String!, $currentSrc: String) {
       generateCode(prompt: $prompt, language: $language, currentSrc: $currentSrc) {
         src
         taskId
