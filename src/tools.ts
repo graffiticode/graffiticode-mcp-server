@@ -8,7 +8,7 @@ import {
   updateItem as apiUpdateItem,
   listLanguages as apiListLanguages,
   getLanguageInfo as apiGetLanguageInfo,
-  getTemplate,
+
 } from "./api.js";
 import { WIDGET_RESOURCE_URI, WIDGET_CSP, CLAUDE_WIDGET_RESOURCE_URI } from "./widget/index.js";
 
@@ -320,62 +320,16 @@ export async function handleCreateItem(
   // Normalize language ID (remove "L" prefix if present)
   const langId = language.replace(/^L/i, "");
 
-  // Step 1: Fetch template for the language
-  const template = await getTemplate(langId);
-
-  // Step 2: Generate code from description (routes to language-specific backend)
-  const generated = await generateCode({
-    token: ctx.token,
-    prompt: description,
-    language: langId,
-    currentSrc: template || undefined,
-  });
-
-  if (!generated.taskId) {
-    throw new Error("No taskId returned from code generation");
-  }
-
-  // Step 3: Get compiled data
-  const data = await getData({
-    token: ctx.token,
-    taskId: generated.taskId,
-  });
-
-  // Step 4: Build help array with initial entry
-  const helpEntry: HelpEntry = {
-    user: description,
-    help: { text: description },
-    type: "user",
-    timestamp: new Date().toISOString(),
-    taskId: generated.taskId,
-  };
-  const help = JSON.stringify([helpEntry]);
-
-  // Step 5: Create item with help context
+  // Step 1: Create item from language template (no taskId — backend generates from template)
   const item = await apiCreateItem({
     token: ctx.token,
     lang: langId,
     name,
-    taskId: generated.taskId,
-    help,
     app: "mcp",
   });
 
-  return {
-    item_id: item.id,
-    task_id: generated.taskId,
-    language: `L${langId}`,
-    name: item.name,
-    description: generated.description,
-    code: generated.src,
-    data,
-    usage: generated.usage,
-    hint: "Call get_language_info() for React component usage and embedding instructions.",
-    // Widget-only data (not exposed to model)
-    _meta: {
-      access_token: ctx.token,
-    },
-  };
+  // Step 2: Update the item with the user's description
+  return handleUpdateItem(ctx, { item_id: item.id, modification: description });
 }
 
 export async function handleUpdateItem(

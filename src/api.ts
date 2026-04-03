@@ -158,7 +158,7 @@ export async function createItem(options: {
   token: string;
   lang: string;
   name?: string;
-  taskId: string;
+  taskId?: string;
   help?: string;
   app?: string;
 }): Promise<Item> {
