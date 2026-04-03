@@ -368,6 +368,20 @@ export async function handleUpdateItem(
     currentSrc,
   });
 
+  if (generated.errors?.length) {
+    return {
+      item_id,
+      task_id: null,
+      language: `L${existingItem.lang}`,
+      name: existingItem.name,
+      description: null,
+      data: null,
+      usage: generated.usage,
+      hint: generated.errors.map(e => e.message).join("\n"),
+      _meta: { access_token: ctx.token },
+    };
+  }
+
   if (!generated.taskId) {
     throw new Error("No taskId returned from code generation");
   }

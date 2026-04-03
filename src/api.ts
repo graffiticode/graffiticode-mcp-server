@@ -54,6 +54,7 @@ interface GenerateCodeResult {
     input_tokens: number;
     output_tokens: number;
   };
+  errors?: Array<{ message: string }>;
 }
 
 export async function generateCode(options: {
@@ -75,6 +76,9 @@ export async function generateCode(options: {
         usage {
           input_tokens
           output_tokens
+        }
+        errors {
+          message
         }
       }
     }
