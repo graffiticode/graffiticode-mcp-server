@@ -62,12 +62,13 @@ export async function generateCode(options: {
   prompt: string;
   language: string;
   currentSrc?: string;
+  itemId?: string;
 }): Promise<GenerateCodeResult> {
-  const { token, prompt, language, currentSrc } = options;
+  const { token, prompt, language, currentSrc, itemId } = options;
 
   const query = `
-    mutation GenerateCode($prompt: String!, $language: String!, $currentSrc: String) {
-      generateCode(prompt: $prompt, language: $language, currentSrc: $currentSrc) {
+    mutation GenerateCode($prompt: String!, $language: String!, $currentSrc: String, $itemId: String) {
+      generateCode(prompt: $prompt, language: $language, currentSrc: $currentSrc, itemId: $itemId) {
         src
         taskId
         description
@@ -87,7 +88,7 @@ export async function generateCode(options: {
   const result = await graphqlRequest<{ generateCode: GenerateCodeResult }>(
     token,
     query,
-    { prompt, language, currentSrc }
+    { prompt, language, currentSrc, itemId }
   );
 
   return result.generateCode;

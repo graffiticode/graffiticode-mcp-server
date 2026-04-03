@@ -366,6 +366,7 @@ export async function handleUpdateItem(
     prompt: contextualPrompt,
     language: existingItem.lang,
     currentSrc,
+    itemId: item_id,
   });
 
   if (generated.errors?.length) {
