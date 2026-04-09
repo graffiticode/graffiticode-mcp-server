@@ -54,6 +54,6 @@ This is a thin-router MCP server for Graffiticode. It provides a fixed set of la
 ### Environment Variables
 
 - `GC_API_KEY_SECRET` - Required for stdio server
-- `GRAFFITICODE_CONSOLE_URL` - API endpoint (default: `https://graffiticode.org/api`)
+- `GRAFFITICODE_CONSOLE_URL` - API endpoint (default: `https://console.graffiticode.org/api`)
 - `GRAFFITICODE_AUTH_URL` - Auth endpoint (default: `https://auth.graffiticode.org`)
 - `PORT` - HTTP server port (default: 3001)

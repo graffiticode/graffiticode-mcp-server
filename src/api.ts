@@ -2,7 +2,7 @@
  * Graffiticode GraphQL API client
  */
 
-const CONSOLE_API_URL = process.env.GRAFFITICODE_CONSOLE_URL || "https://graffiticode.org/api";
+const CONSOLE_API_URL = process.env.GRAFFITICODE_CONSOLE_URL || "https://console.graffiticode.org/api";
 const GC_API_URL = process.env.GRAFFITICODE_API_URL || "https://api.graffiticode.org";
 
 interface GraphQLResponse<T> {
