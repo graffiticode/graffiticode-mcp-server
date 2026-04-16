@@ -65,6 +65,8 @@ When the user's request doesn't match another available tool, call list_language
 
 All requests to create_item and update_item must be natural language descriptions of what to create or change. A language-specific AI backend handles all code generation. Do not attempt to generate Graffiticode DSL code directly.
 
+get_language_info returns an inline authoring_guide summary, supported_item_types, and example_prompts — these are usually sufficient to compose a good create_item request. For deeper reference (vocabulary cues, scope boundaries, detailed item-type docs) read the user_guide_resource URI via ReadResource.
+
 Workflow: list_languages(search) → get_language_info(language) → create_item(language, description) → update_item(item_id, modification) to iterate.`;
 
 // --- Tool Definitions ---
@@ -201,9 +203,9 @@ The catalog is dynamic and grows over time. Use the search parameter to match by
 
 export const getLanguageInfoTool = {
   name: "get_language_info",
-  description: `Get detailed information about a Graffiticode language, including what it can create and how to use it.
+  description: `Get detailed authoring information about a Graffiticode language.
 
-Returns name, description, category, usage guide URL (what you can ask for in natural language), spec URL (full vocabulary reference), and React component instructions for embedding.
+Returns an inline authoring_guide summary, supported_item_types, example_prompts, and a user_guide_resource URI (readable via ReadResource for the full markdown guide). Usually sufficient to compose a good create_item request.
 
 Call this after list_languages() to learn about a specific language before using create_item().`,
   inputSchema: {
@@ -232,78 +234,6 @@ export const tools = [
   listLanguagesTool,
   getLanguageInfoTool,
 ] as unknown as Tool[];
-
-// --- React Usage Instructions (universal for all Graffiticode languages) ---
-
-function getReactUsage(langId: string) {
-  const packageName = `@graffiticode/l${langId}`;
-
-  return {
-    npm_package: packageName,
-    peer_dependencies: {
-      react: "^17.0.0 || ^18.0.0 || ^19.0.0",
-      "react-dom": "^17.0.0 || ^18.0.0 || ^19.0.0",
-    },
-    usage: `The Form component expects a state object with:
-- state.data: The COMPLETE data object from create_item/get_item (must include validation.regions)
-- state.apply(action): Method for state transitions
-
-IMPORTANT: Pass the complete 'data' object - the Form requires validation.regions to render.
-
-Create a state object like this:
-  function createState(initialData) {
-    let data = initialData;
-    return {
-      get data() { return data; },
-      apply(action) {
-        if (action.args) {
-          data = { ...data, ...action.args };
-        }
-      }
-    };
-  }
-
-Then pass it to the Form component:
-  <Form state={createState(itemData)} />`,
-    example: `import React from 'react';
-import { Form } from '${packageName}';
-import '${packageName}/style.css';
-
-function createState(initialData) {
-  let data = initialData;
-  return {
-    get data() { return data; },
-    apply(action) {
-      if (action.args) {
-        data = { ...data, ...action.args };
-      }
-    }
-  };
-}
-
-function App({ itemData }) {
-  // itemData is the COMPLETE 'data' field from create_item, update_item, or get_item
-  // It must include: title, instructions, validation (with regions), and interaction
-  const [state] = React.useState(() => createState(itemData));
-  return <Form state={state} />;
-}`,
-    vite_config: `// vite.config.js - Add resolve.dedupe if you encounter React version conflicts
-import { defineConfig } from 'vite';
-import react from '@vitejs/plugin-react';
-
-export default defineConfig({
-  plugins: [react()],
-  resolve: {
-    dedupe: ['react', 'react-dom']
-  }
-});`,
-    troubleshooting: {
-      "Multiple React versions error": "Add resolve.dedupe: ['react', 'react-dom'] to your Vite/webpack config",
-      "Cannot read 'regions' of null": "Pass the complete 'data' object from the API response, not a subset",
-      "CSS not loading": `Import styles from '${packageName}/style.css' (not /dist/style.css)`,
-    },
-  };
-}
 
 // --- Tool Handlers ---
 
@@ -419,7 +349,6 @@ export async function handleUpdateItem(
     description: generated.description,
     data,
     usage: generated.usage,
-    hint: "Call get_language_info() for React component usage and embedding instructions.",
     // Widget-only data (not exposed to model)
     _meta: {
       access_token: ctx.token,
@@ -459,7 +388,6 @@ export async function handleGetItem(
     data,
     created: item.created,
     updated: item.updated,
-    hint: "Call get_language_info() for React component usage and embedding instructions.",
     // Widget-only data (not exposed to model)
     _meta: {
       access_token: ctx.token,
@@ -500,8 +428,6 @@ export async function handleGetLanguageInfo(
     throw new Error(`Language not found: ${args.language}`);
   }
 
-  const reactUsage = getReactUsage(info.id);
-
   // Derive usage guide URL from spec URL
   // spec URL pattern: https://l0169.graffiticode.org/spec.html
   // usage guide URL:  https://l0169.graffiticode.org/usage-guide.html
@@ -514,9 +440,12 @@ export async function handleGetLanguageInfo(
     name: info.name,
     description: info.description,
     category: info.category,
+    authoring_guide: info.authoringGuide ?? null,
+    supported_item_types: info.supportedItemTypes ?? [],
+    example_prompts: info.examplePrompts ?? [],
+    user_guide_resource: `graffiticode://language/L${info.id}/user-guide`,
     usage_guide_url: usageGuideUrl,
     spec_url: info.specUrl,
-    react_usage: reactUsage,
   };
 }
 

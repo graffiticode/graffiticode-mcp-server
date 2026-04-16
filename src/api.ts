@@ -295,18 +295,22 @@ export async function listLanguages(options: {
   return result.languages;
 }
 
+export interface ExamplePrompt {
+  prompt: string;
+  produces?: string | null;
+  notes?: string | null;
+}
+
 export interface LanguageInfo {
   id: string;
   name: string;
   description: string;
   category: string;
-  examples: string[];
-  reactComponent: {
-    package: string;
-    component: string;
-    styleImport: string;
-  };
   specUrl: string;
+  authoringGuide: string | null;
+  supportedItemTypes: string[];
+  examplePrompts: ExamplePrompt[];
+  userGuide: string | null;
 }
 
 export async function getLanguageInfo(options: {
@@ -325,13 +329,15 @@ export async function getLanguageInfo(options: {
         name
         description
         category
-        examples
-        reactComponent {
-          package
-          component
-          styleImport
-        }
         specUrl
+        authoringGuide
+        supportedItemTypes
+        examplePrompts {
+          prompt
+          produces
+          notes
+        }
+        userGuide
       }
     }
   `;

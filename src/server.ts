@@ -28,6 +28,7 @@ import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
   ListResourcesRequestSchema,
+  ListResourceTemplatesRequestSchema,
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { createServer, IncomingMessage, ServerResponse } from "http";
@@ -53,6 +54,11 @@ import {
   handleToken,
   getFirebaseTokenFromAccessToken,
 } from "./oauth/handlers.js";
+import {
+  userGuideResourceTemplate,
+  matchUserGuideUri,
+  readUserGuideResource,
+} from "./resources.js";
 
 const PORT = parseInt(process.env.PORT || "3001", 10);
 
@@ -351,6 +357,13 @@ function createMcpServer(tokenProvider: TokenProvider) {
     };
   });
 
+  // Advertise per-language user-guide resources as a URI template
+  server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
+    return {
+      resourceTemplates: [userGuideResourceTemplate],
+    };
+  });
+
   // Read resource content
   server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     const { uri } = request.params;
@@ -377,6 +390,13 @@ function createMcpServer(tokenProvider: TokenProvider) {
           },
         ],
       };
+    }
+
+    const langId = matchUserGuideUri(uri);
+    if (langId) {
+      const token = await tokenProvider.getToken();
+      const content = await readUserGuideResource({ token, uri, langId });
+      return { contents: [content] };
     }
 
     throw new Error(`Resource not found: ${uri}`);

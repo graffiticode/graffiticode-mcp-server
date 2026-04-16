@@ -5,9 +5,17 @@ import { StdioServerTransport } from "@modelcontextprotocol/sdk/server/stdio.js"
 import {
   CallToolRequestSchema,
   ListToolsRequestSchema,
+  ListResourcesRequestSchema,
+  ListResourceTemplatesRequestSchema,
+  ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
 import { tools, handleToolCall, SERVER_INSTRUCTIONS } from "./tools.js";
 import { createAuthClient } from "./auth.js";
+import {
+  userGuideResourceTemplate,
+  matchUserGuideUri,
+  readUserGuideResource,
+} from "./resources.js";
 
 async function main() {
   const apiKey = process.env.GC_API_KEY_SECRET;
@@ -28,6 +36,7 @@ async function main() {
     {
       capabilities: {
         tools: {},
+        resources: {},
       },
       instructions: SERVER_INSTRUCTIONS,
     }
@@ -38,6 +47,29 @@ async function main() {
     return {
       tools,
     };
+  });
+
+  // Advertise per-language user-guide resources as a URI template.
+  // No concrete resources exposed over stdio — widgets are hosted-only.
+  server.setRequestHandler(ListResourcesRequestSchema, async () => {
+    return { resources: [] };
+  });
+
+  server.setRequestHandler(ListResourceTemplatesRequestSchema, async () => {
+    return {
+      resourceTemplates: [userGuideResourceTemplate],
+    };
+  });
+
+  server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
+    const { uri } = request.params;
+    const langId = matchUserGuideUri(uri);
+    if (!langId) {
+      throw new Error(`Resource not found: ${uri}`);
+    }
+    const token = await auth.getToken();
+    const content = await readUserGuideResource({ token, uri, langId });
+    return { contents: [content] };
   });
 
   // Handle tool calls
