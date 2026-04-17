@@ -28,15 +28,11 @@ Canonical, hand-authored, UTF-8 markdown. Starts with the SPDX license header an
 | Heading | Purpose | Length target |
 |---|---|---|
 | `## Overview` | Inline summary. **Extracted by `build-language-info.js` and injected as `authoring_guide` in the envelope.** State what the language authors, what the input is (natural-language description), what the output is (a specific JSON / artifact shape), what's in scope, what's out of scope. Prose — no tables, no code blocks — because it ships inline through the MCP envelope. | 150–400 words |
-| `## Item Types` (or equivalent) | Table of the discrete output shapes the language emits. One row per type, with the type key, the natural-language cues an agent can use to request it, and a one-line "when to use" note. | 1 row per supported type |
 | `## Vocabulary Cues` | Short glossary of the technical terms the translator understands. For each term, one bullet: "**Term** — what to say; what it does." Helps an agent pick words the language actually listens to. | 8–15 bullets |
-| `## Example Prompts` | 4–8 natural-language prompts that each produce a specific item type. Bulleted, each bullet ending with `→ <type_key>`. The same set of prompts populates `example_prompts` in the JSON envelope — keep them in sync. | 4–8 bullets |
-| `## Out of Scope` | Bulleted list of adjacent concerns that belong elsewhere (activity-level assembly, host-app embedding, learner analytics, lower-level raw JSON patches). Each bullet names the thing and points at where it belongs. | 4–8 bullets |
+| `## Example Prompts` | 4–8 natural-language prompts that each produce a specific output shape. Bulleted, each bullet ending with `→ <type_key>`. The same set of prompts populates `example_prompts` in the JSON envelope — keep them in sync. | 4–8 bullets |
+| `## Out of Scope` | Bulleted list of adjacent concerns that belong elsewhere (delivery, host-app embedding, analytics, lower-level raw artifact patches, etc.). Each bullet names the thing and points at where it belongs. | 4–8 bullets |
 
-Optional sections when they apply:
-- `## Metadata` — when the language supports item/question-level metadata (standards tags, difficulty, DOK, distractor rationales), explain the two levels and how plain-English descriptions route to the right level.
-- `## Shared Stimulus` / `## Passages` — when multiple items can share a passage or image.
-- Other language-specific conventions — keep each section short and concrete.
+Add further sections whenever language-specific information helps an agent compose a good request — a table of the discrete output shapes the language emits, a metadata surface, shared-stimulus conventions, rendering modes, whatever is load-bearing for *this* language. Keep each section short and concrete; only the required sections above are universal.
 
 ### 2.2 `## Overview` rules (the extracted section)
 
