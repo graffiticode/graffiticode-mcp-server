@@ -1,6 +1,6 @@
 ---
 name: questioncompiler
-description: Author interactive assessment items — multiple-choice quizzes, flashcards, spreadsheet problems, area-model math, magic squares, map-based questions, and more — using the QuestionCompiler language family in Graffiticode. Use whenever the user wants to build a quiz, test, homework problem, study deck, or rubric-scored practice item.
+description: Author interactive assessment items across the QuestionCompiler language family in Graffiticode — multiple-choice quizzes, flashcards, spreadsheet problems, area-model math, magic squares, map-based questions, and more. Use whenever the user wants to build a quiz, test, homework problem, study deck, or rubric-scored practice item across mixed question types. For requests that specifically target Learnosity (by name, or by referring to Learnosity's Item Bank, Items API, or LMS integration), prefer the `questioncompiler-learnosity` skill instead — it is the narrower, Learnosity-focused sibling.
 ---
 
 # QuestionCompiler
@@ -61,4 +61,5 @@ Items render as interactive widgets inline in claude.ai. The tool response carri
 - **Never hardcode language IDs in your reasoning.** Call `list_languages(domain: "questioncompiler")` every session; memorized IDs go stale.
 - **Do not invent languages.** If no returned language matches, say so — don't guess an ID.
 - **Prefer brand-scoped discovery.** When the user is clearly in an assessment context, scope `list_languages` by `domain: "questioncompiler"` rather than searching the whole catalog — it's faster and reduces wrong-language picks.
+- **Defer to `questioncompiler-learnosity` when appropriate.** If the user names Learnosity or describes authoring for a Learnosity-integrated LMS / Item Bank / Items API, the `questioncompiler-learnosity` skill (if installed) is the better fit — it is tighter and scoped to the `learnosity` domain. This skill will still handle the request in a pinch, but the dedicated skill is preferred.
 - **Respect the conversation.** On follow-up edits, call `update_item` on the existing `item_id`; don't start over unless the user explicitly asks for a new item.
