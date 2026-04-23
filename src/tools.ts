@@ -61,13 +61,13 @@ function buildContextualPrompt(
 
 export const SERVER_INSTRUCTIONS = `Graffiticode is an open-ended platform of domain-specific tools for creating interactive content — assessments, spreadsheets, flashcards, and more. The catalog of available tools grows over time.
 
-When the user's request doesn't match another available tool, call list_languages() to check if Graffiticode has a language that fits. Use the search parameter to match by keyword. If a match exists, call get_language_info() to learn what the language can create and get its usage guide URL, then call create_item() with a natural language description.
+When the user's request doesn't match another available tool, call list_languages() to check if Graffiticode has a language that fits. Use the search parameter to match by keyword, or the domain parameter to narrow by brand (e.g., 'questioncompiler', 'embedsheet', 'diagramcompiler') when the user's context implies one. If a match exists, call get_language_info() to learn what the language can create and get its usage guide URL, then call create_item() with a natural language description.
 
 All requests to create_item and update_item must be natural language descriptions of what to create or change. A language-specific AI backend handles all code generation. Do not attempt to generate Graffiticode DSL code directly.
 
 get_language_info returns an inline authoring_guide summary, supported_item_types, and example_prompts — these are usually sufficient to compose a good create_item request. For deeper reference (vocabulary cues, scope boundaries, detailed item-type docs) read the user_guide_resource URI via ReadResource.
 
-Workflow: list_languages(search) → get_language_info(language) → create_item(language, description) → update_item(item_id, modification) to iterate.`;
+Workflow: list_languages(search, domain) → get_language_info(language) → create_item(language, description) → update_item(item_id, modification) to iterate.`;
 
 // --- Tool Definitions ---
 
@@ -179,13 +179,13 @@ export const listLanguagesTool = {
   name: "list_languages",
   description: `Discover available Graffiticode languages. Use this to find a language that matches the user's needs.
 
-The catalog is dynamic and grows over time. Use the search parameter to match by keyword (e.g., "spreadsheet", "assessment", "flashcard"). Returns language IDs, names, descriptions, and categories.`,
+The catalog is dynamic and grows over time. Use the search parameter to match by keyword (e.g., "spreadsheet", "assessment", "flashcard"), or the domain parameter to narrow to a brand (e.g., "questioncompiler"). Returns language IDs, names, descriptions, and brand memberships.`,
   inputSchema: {
     type: "object",
     properties: {
-      category: {
+      domain: {
         type: "string",
-        description: "Filter by category (e.g., 'data', 'general')",
+        description: "Filter by brand (e.g., 'questioncompiler', 'embedsheet', 'diagramcompiler'). Omit to see every Graffiticode language. Discover available values from the `domains` field on returned languages.",
       },
       search: {
         type: "string",
@@ -397,11 +397,11 @@ export async function handleGetItem(
 
 export async function handleListLanguages(
   ctx: ToolContext,
-  args: { category?: string; search?: string }
+  args: { domain?: string; search?: string }
 ): Promise<unknown> {
   const languages = await apiListLanguages({
     token: ctx.token,
-    category: args.category,
+    domain: args.domain,
     search: args.search,
   });
 
@@ -410,7 +410,7 @@ export async function handleListLanguages(
       id: `L${lang.id}`,
       name: lang.name,
       description: lang.description,
-      category: lang.category,
+      domains: lang.domains,
     })),
   };
 }
@@ -439,7 +439,7 @@ export async function handleGetLanguageInfo(
     id: `L${info.id}`,
     name: info.name,
     description: info.description,
-    category: info.category,
+    domains: info.domains,
     authoring_guide: info.authoringGuide ?? null,
     supported_item_types: info.supportedItemTypes ?? [],
     example_prompts: info.examplePrompts ?? [],
@@ -463,7 +463,7 @@ export async function handleToolCall(
     case "get_item":
       return handleGetItem(ctx, args as { item_id: string });
     case "list_languages":
-      return handleListLanguages(ctx, args as { category?: string; search?: string });
+      return handleListLanguages(ctx, args as { domain?: string; search?: string });
     case "get_language_info":
       return handleGetLanguageInfo(ctx, args as { language: string });
     default:

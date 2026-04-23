@@ -265,23 +265,23 @@ export interface Language {
   id: string;
   name: string;
   description: string;
-  category?: string;
+  domains: string[];
 }
 
 export async function listLanguages(options: {
   token: string;
-  category?: string;
+  domain?: string;
   search?: string;
 }): Promise<Language[]> {
-  const { token, category, search } = options;
+  const { token, domain, search } = options;
 
   const query = `
-    query ListLanguages($category: String, $search: String) {
-      languages(category: $category, search: $search) {
+    query ListLanguages($domain: String, $search: String) {
+      languages(domain: $domain, search: $search) {
         id
         name
         description
-        category
+        domains
       }
     }
   `;
@@ -289,7 +289,7 @@ export async function listLanguages(options: {
   const result = await graphqlRequest<{ languages: Language[] }>(
     token,
     query,
-    { category, search }
+    { domain, search }
   );
 
   return result.languages;
@@ -305,7 +305,7 @@ export interface LanguageInfo {
   id: string;
   name: string;
   description: string;
-  category: string;
+  domains: string[];
   specUrl: string;
   authoringGuide: string | null;
   supportedItemTypes: string[];
@@ -328,7 +328,7 @@ export async function getLanguageInfo(options: {
         id
         name
         description
-        category
+        domains
         specUrl
         authoringGuide
         supportedItemTypes

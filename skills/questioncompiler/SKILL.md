@@ -1,0 +1,64 @@
+---
+name: questioncompiler
+description: Author interactive assessment items — multiple-choice quizzes, flashcards, spreadsheet problems, area-model math, magic squares, map-based questions, and more — using the QuestionCompiler language family in Graffiticode. Use whenever the user wants to build a quiz, test, homework problem, study deck, or rubric-scored practice item.
+---
+
+# QuestionCompiler
+
+QuestionCompiler is the assessment authoring surface of Graffiticode. Each assessment type is backed by a different Graffiticode language, and the full set is discovered at runtime — the catalog is dynamic. Your job is to route the user's request to the right language and produce a rendered item, not to write code yourself.
+
+## Prerequisite
+
+The Graffiticode MCP connector must be installed and connected. If `list_languages` is unavailable, tell the user to connect it before proceeding.
+
+## Workflow
+
+Every authoring request follows the same four steps. Do not skip steps 1–2; the catalog changes over time and hardcoding language IDs is wrong.
+
+**1. Discover the QuestionCompiler language set.**
+
+Call `list_languages(domain: "questioncompiler")`. This returns the current brand members with their `id`, `name`, `description`, and `domains`. Read the descriptions — this is the source of truth.
+
+**2. Pick the best match by shape of request.**
+
+Match the user's intent against the returned `description`s. If more than one language could fit, call `get_language_info(language)` on the top candidate to see `supported_item_types` and `example_prompts` before deciding. For deeper reference, read the `user_guide_resource` URI via `ReadResource`.
+
+Rough shape-to-language mapping (verify against actual `description`s; do not rely on memorized IDs):
+
+- **Multiple-choice, short-text, cloze, ordering, classification, choice-matrix** → the Learnosity-style assessment language.
+- **Spreadsheet / tabular / formula-based problems (SUM, AVERAGE, IF, parameterized values)** → the spreadsheet language.
+- **Flashcards, vocabulary pairs, match games, memory games** → the flashcard language.
+- **Area-model multiplication with visual grids** → the area-model language.
+- **Magic-square puzzles with grid number placement** → the magic-square language.
+- **Interactive map / location-based questions** → the map-question language.
+
+If nothing fits, say so and suggest `list_languages()` (no domain) to check the wider catalog — but do not force a mismatch.
+
+**3. Create the item.**
+
+Call `create_item(language, description)` with a natural-language description. The `description` is a prompt to a language-specific AI, not Graffiticode source — write it as you would explain the item to a colleague.
+
+A good description is specific about:
+- **Subject and scope** — topic, grade band, difficulty
+- **Quantity and structure** — number of items, layout, sections
+- **Assessment rules** — scoring, rubric, answer key expectations, hints
+- **Theme / styling** — color, tone, any accessibility needs
+
+Bad: "Make a quiz about fractions."
+Good: "Create a 5-item multiple-choice quiz on adding fractions with unlike denominators. Grade 5 level. Each item has four choices with one correct answer and three plausible distractors that reflect common computational errors. Include an answer key and a one-sentence explanation per item."
+
+**4. Iterate with `update_item`.**
+
+`update_item(item_id, modification)` preserves conversation history, so incremental edits compose naturally: "make the distractors harder," "add a hint on question 3," "switch to a dark theme," "change the topic from fractions to decimals." Prefer iteration over recreation — history is lost on a fresh create.
+
+## Output
+
+Items render as interactive widgets inline in claude.ai. The tool response carries the widget metadata automatically. Confirm what was created in a sentence (e.g., "Made a 5-question multiple-choice quiz on photosynthesis"); do not dump DSL source or re-describe the item in detail — the widget shows it.
+
+## Guardrails
+
+- **Never write Graffiticode DSL directly.** The backend generates code from natural-language descriptions. If you catch yourself composing `L0158` code, stop and use `create_item`/`update_item` instead.
+- **Never hardcode language IDs in your reasoning.** Call `list_languages(domain: "questioncompiler")` every session; memorized IDs go stale.
+- **Do not invent languages.** If no returned language matches, say so — don't guess an ID.
+- **Prefer brand-scoped discovery.** When the user is clearly in an assessment context, scope `list_languages` by `domain: "questioncompiler"` rather than searching the whole catalog — it's faster and reduces wrong-language picks.
+- **Respect the conversation.** On follow-up edits, call `update_item` on the existing `item_id`; don't start over unless the user explicitly asks for a new item.
