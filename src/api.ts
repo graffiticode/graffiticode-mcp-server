@@ -47,7 +47,8 @@ async function graphqlRequest<T>(
 interface GenerateCodeResult {
   src: string;
   taskId: string;
-  description: string;
+  description: string | null;
+  changeSummary: string | null;
   language: string;
   model: string;
   usage: {
@@ -72,6 +73,7 @@ export async function generateCode(options: {
         src
         taskId
         description
+        changeSummary
         language
         model
         usage {

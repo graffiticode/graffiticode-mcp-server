@@ -55,6 +55,13 @@ Good: "Create a 5-item multiple-choice quiz on adding fractions with unlike deno
 
 Items render as interactive widgets inline in claude.ai. The tool response carries the widget metadata automatically. Confirm what was created in a sentence (e.g., "Made a 5-question multiple-choice quiz on photosynthesis"); do not dump DSL source or re-describe the item in detail — the widget shows it.
 
+Prefer the response's own summary fields for the one-sentence confirmation:
+
+- **On first creation** (`create_item`): echo `description` ("what the code does") — e.g., *"Made a 5-item MCQ on photosynthesis with four distractors each."*
+- **On edits** (`update_item`): echo `change_summary` ("what changed this turn") — e.g., *"Switched to dark theme and hardened the distractors on Q3."*
+
+Don't re-parse `data` to describe what changed; the backend already wrote the summary for you. If a field is `null` (rare — typically only when the code generator failed), fall back to a brief summary drawn from the user's own request.
+
 ## Guardrails
 
 - **Never write Graffiticode DSL directly.** The backend generates code from natural-language descriptions. If you catch yourself composing `L0158` code, stop and use `create_item`/`update_item` instead.

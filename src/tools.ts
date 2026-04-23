@@ -306,6 +306,7 @@ export async function handleUpdateItem(
       language: `L${existingItem.lang}`,
       name: existingItem.name,
       description: null,
+      change_summary: null,
       data: null,
       usage: generated.usage,
       hint: generated.errors.map(e => e.message).join("\n"),
@@ -347,6 +348,7 @@ export async function handleUpdateItem(
     language: `L${updatedItem.lang}`,
     name: updatedItem.name,
     description: generated.description,
+    change_summary: generated.changeSummary,
     data,
     usage: generated.usage,
     // Widget-only data (not exposed to model)

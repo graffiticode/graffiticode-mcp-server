@@ -63,6 +63,14 @@ The language backend interprets the save intent and writes to Learnosity's Item 
 
 Items render as interactive widgets inline in claude.ai. Confirm what was created or saved in a sentence (including the item-bank reference on save); don't dump DSL or Learnosity JSON — the widget displays the rendered item.
 
+Prefer the response's own summary fields for the one-sentence confirmation:
+
+- **On first creation** (`create_item`): echo `description`.
+- **On edits** (`update_item`): echo `change_summary` — e.g., *"Added a second distractor on Q2 and switched to partial-match scoring."*
+- **On saves to the item bank**: combine `change_summary` (often *"Saved; no content changes"*) with the reference from `data.itemBank.references` — e.g., *"Saved to the Learnosity item bank with reference `graffiticode-abc123`."*
+
+Don't re-parse `data.questions` to describe what changed; the backend wrote the summary for you.
+
 ## Guardrails
 
 - **Never hand-write Learnosity JSON or Graffiticode DSL.** The backend produces both from your natural-language description.
