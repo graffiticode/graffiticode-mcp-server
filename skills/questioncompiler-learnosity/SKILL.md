@@ -61,15 +61,17 @@ The language backend interprets the save intent and writes to Learnosity's Item 
 
 ## Output
 
-Items render as interactive widgets inline in claude.ai. Confirm what was created or saved in a sentence (including the item-bank reference on save); don't dump DSL or Learnosity JSON — the widget displays the rendered item.
+Items render as interactive widgets inline in claude.ai. **The widget is the rendering. Your reply is a one-line summary, nothing more.**
 
-Prefer the response's own summary fields for the one-sentence confirmation:
+Prefer the response's own summary fields for that one-sentence confirmation:
 
 - **On first creation** (`create_item`): echo `description`.
 - **On edits** (`update_item`): echo `change_summary` — e.g., *"Added a second distractor on Q2 and switched to partial-match scoring."*
 - **On saves to the item bank**: combine `change_summary` (often *"Saved; no content changes"*) with the reference from `data.itemBank.references` — e.g., *"Saved to the Learnosity item bank with reference `graffiticode-abc123`."*
 
 Don't re-parse `data.questions` to describe what changed; the backend wrote the summary for you.
+
+**Do not preview or simulate the item in chat.** No mock MCQ / cloze / shortText layouts, no option lists, no printed answer keys, no Learnosity JSON dumps, no "here's what the item looks like" sections in prose or Markdown. The widget renders the item — your one-liner accompanies the widget, it does not substitute for it. If the user asks "what does it look like?" or "show me the questions," point them to the rendered widget; don't reproduce the content as text.
 
 ## Guardrails
 
