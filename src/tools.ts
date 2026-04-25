@@ -2,9 +2,8 @@ import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import {
   generateCode,
   getData,
-  getTask as apiGetTask,
+  getItemWithTask as apiGetItemWithTask,
   createItem as apiCreateItem,
-  getItem as apiGetItem,
   updateItem as apiUpdateItem,
   listLanguages as apiListLanguages,
   getLanguageInfo as apiGetLanguageInfo,
@@ -268,8 +267,8 @@ export async function handleUpdateItem(
 ): Promise<unknown> {
   const { item_id, modification } = args;
 
-  // Step 1: Get existing item to find language, current code, and help history
-  const existingItem = await apiGetItem({
+  // Step 1: Fetch existing item and its task src in a single round-trip.
+  const existingItem = await apiGetItemWithTask({
     token: ctx.token,
     id: item_id,
   });
@@ -278,11 +277,13 @@ export async function handleUpdateItem(
     throw new Error(`Item not found: ${item_id}`);
   }
 
-  // Step 2: Get current source code from the task
-  const task = await apiGetTask({ token: ctx.token, id: existingItem.taskId });
-  const currentSrc = task.src;
+  if (!existingItem.task) {
+    throw new Error(`Task not found for item: ${item_id}`);
+  }
 
-  // Step 3: Parse existing help history and build contextual prompt
+  const currentSrc = existingItem.task.src;
+
+  // Step 2: Parse existing help history and build contextual prompt
   const existingHelp = parseHelp(existingItem.help);
   const contextualPrompt = buildContextualPrompt(
     existingHelp,
@@ -290,7 +291,7 @@ export async function handleUpdateItem(
     currentSrc
   );
 
-  // Step 4: Generate updated code with contextual prompt
+  // Step 3: Generate updated code with contextual prompt
   const generated = await generateCode({
     token: ctx.token,
     prompt: contextualPrompt,
@@ -305,10 +306,13 @@ export async function handleUpdateItem(
       task_id: null,
       language: `L${existingItem.lang}`,
       name: existingItem.name,
+      src: currentSrc,
       description: null,
       change_summary: null,
       data: null,
       usage: generated.usage,
+      created: existingItem.created,
+      updated: existingItem.updated,
       hint: generated.errors.map(e => e.message).join("\n"),
       _meta: { access_token: ctx.token },
     };
@@ -318,13 +322,7 @@ export async function handleUpdateItem(
     throw new Error("No taskId returned from code generation");
   }
 
-  // Step 4: Get compiled data
-  const data = await getData({
-    token: ctx.token,
-    taskId: generated.taskId,
-  });
-
-  // Step 5: Append new help entry to history
+  // Step 4: Append new help entry to history
   const newHelpEntry: HelpEntry = {
     user: modification,
     help: { text: modification },
@@ -334,23 +332,35 @@ export async function handleUpdateItem(
   };
   const updatedHelp = JSON.stringify([...existingHelp, newHelpEntry]);
 
-  // Step 6: Update item with new taskId and help history
-  const updatedItem = await apiUpdateItem({
-    token: ctx.token,
-    id: item_id,
-    taskId: generated.taskId,
-    help: updatedHelp,
-  });
+  // Step 5: Fetch compiled data and persist the new taskId + help in parallel.
+  // These are independent — the response only needs `data` from getData and
+  // metadata fields (id, lang, name, created, updated) that come back from
+  // apiUpdateItem. Promise.all still surfaces a write failure as an error.
+  const [data, updatedItem] = await Promise.all([
+    getData({
+      token: ctx.token,
+      taskId: generated.taskId,
+    }),
+    apiUpdateItem({
+      token: ctx.token,
+      id: item_id,
+      taskId: generated.taskId,
+      help: updatedHelp,
+    }),
+  ]);
 
   return {
     item_id: updatedItem.id,
     task_id: generated.taskId,
     language: `L${updatedItem.lang}`,
     name: updatedItem.name,
+    src: generated.src,
     description: generated.description,
     change_summary: generated.changeSummary,
     data,
     usage: generated.usage,
+    created: updatedItem.created,
+    updated: updatedItem.updated,
     // Widget-only data (not exposed to model)
     _meta: {
       access_token: ctx.token,
@@ -364,18 +374,15 @@ export async function handleGetItem(
 ): Promise<unknown> {
   const { item_id } = args;
 
-  // Get item metadata
-  const item = await apiGetItem({
-    token: ctx.token,
-    id: item_id,
-  });
-
+  // Fetch item + task src in one round-trip, then compiled data.
+  const item = await apiGetItemWithTask({ token: ctx.token, id: item_id });
   if (!item) {
     throw new Error(`Item not found: ${item_id}`);
   }
+  if (!item.task) {
+    throw new Error(`Task not found for item: ${item_id}`);
+  }
 
-  // Get source code and compiled data
-  const task = await apiGetTask({ token: ctx.token, id: item.taskId });
   const data = await getData({
     token: ctx.token,
     taskId: item.taskId,
@@ -386,7 +393,7 @@ export async function handleGetItem(
     task_id: item.taskId,
     language: `L${item.lang}`,
     name: item.name,
-    src: task.src,
+    src: item.task.src,
     data,
     created: item.created,
     updated: item.updated,

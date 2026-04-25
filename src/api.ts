@@ -227,6 +227,52 @@ export async function getItem(options: {
   return result.item;
 }
 
+export interface ItemWithTask extends Item {
+  task: {
+    id: string;
+    lang: string;
+    code: string;
+    src: string;
+  } | null;
+}
+
+export async function getItemWithTask(options: {
+  token: string;
+  id: string;
+}): Promise<ItemWithTask | null> {
+  const { token, id } = options;
+
+  const query = `
+    query GetItemWithTask($id: String!) {
+      item(id: $id) {
+        id
+        name
+        taskId
+        lang
+        help
+        isPublic
+        created
+        updated
+        app
+        task {
+          id
+          lang
+          code
+          src
+        }
+      }
+    }
+  `;
+
+  const result = await graphqlRequest<{ item: ItemWithTask | null }>(
+    token,
+    query,
+    { id }
+  );
+
+  return result.item;
+}
+
 export async function updateItem(options: {
   token: string;
   id: string;
@@ -263,6 +309,16 @@ export async function updateItem(options: {
 
 // --- Languages (queried from backend) ---
 
+const LANGUAGE_CACHE_TTL_MS = 10 * 60 * 1000;
+
+interface CacheEntry<T> {
+  value: T;
+  expiresAt: number;
+}
+
+const listLanguagesCache = new Map<string, CacheEntry<Language[]>>();
+const getLanguageInfoCache = new Map<string, CacheEntry<LanguageInfo | null>>();
+
 export interface Language {
   id: string;
   name: string;
@@ -276,6 +332,12 @@ export async function listLanguages(options: {
   search?: string;
 }): Promise<Language[]> {
   const { token, domain, search } = options;
+
+  const cacheKey = `${domain ?? ""}|${search ?? ""}`;
+  const cached = listLanguagesCache.get(cacheKey);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.value;
+  }
 
   const query = `
     query ListLanguages($domain: String, $search: String) {
@@ -293,6 +355,11 @@ export async function listLanguages(options: {
     query,
     { domain, search }
   );
+
+  listLanguagesCache.set(cacheKey, {
+    value: result.languages,
+    expiresAt: Date.now() + LANGUAGE_CACHE_TTL_MS,
+  });
 
   return result.languages;
 }
@@ -324,6 +391,11 @@ export async function getLanguageInfo(options: {
   // Normalize language ID (remove "L" prefix if present)
   const langId = language.replace(/^L/i, "");
 
+  const cached = getLanguageInfoCache.get(langId);
+  if (cached && cached.expiresAt > Date.now()) {
+    return cached.value;
+  }
+
   const query = `
     query GetLanguageInfo($id: String!) {
       language(id: $id) {
@@ -349,6 +421,11 @@ export async function getLanguageInfo(options: {
     query,
     { id: langId }
   );
+
+  getLanguageInfoCache.set(langId, {
+    value: result.language,
+    expiresAt: Date.now() + LANGUAGE_CACHE_TTL_MS,
+  });
 
   return result.language;
 }
