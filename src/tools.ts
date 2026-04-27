@@ -60,7 +60,7 @@ function buildContextualPrompt(
 
 export const SERVER_INSTRUCTIONS = `Graffiticode is an open-ended platform of domain-specific tools for creating interactive content — assessments, spreadsheets, flashcards, and more. The catalog of available tools grows over time.
 
-When the user's request doesn't match another available tool, call list_languages() to check if Graffiticode has a language that fits. Use the search parameter to match by keyword, or the domain parameter to narrow by brand (e.g., 'questioncompiler', 'embedsheet', 'diagramcompiler') when the user's context implies one. If a match exists, call get_language_info() to learn what the language can create and get its usage guide URL, then call create_item() with a natural language description.
+When the user's request doesn't match another available tool, call list_languages() to check if Graffiticode has a language that fits. Use the search parameter to match by keyword, or the domain parameter to narrow by brand (e.g., 'questioncompiler', 'embedsheet', 'diagramcompiler') when the user's context implies one. If a match exists, call get_language_info() to learn what the language can create and get its user guide resource URI, then call create_item() with a natural language description.
 
 All requests to create_item and update_item must be natural language descriptions of what to create or change. A language-specific AI backend handles all code generation. Do not attempt to generate Graffiticode DSL code directly.
 
@@ -437,13 +437,6 @@ export async function handleGetLanguageInfo(
     throw new Error(`Language not found: ${args.language}`);
   }
 
-  // Derive usage guide URL from spec URL
-  // spec URL pattern: https://l0169.graffiticode.org/spec.html
-  // usage guide URL:  https://l0169.graffiticode.org/usage-guide.html
-  const usageGuideUrl = info.specUrl
-    ? info.specUrl.replace(/spec\.html$/, "usage-guide.html")
-    : null;
-
   return {
     id: `L${info.id}`,
     name: info.name,
@@ -453,7 +446,6 @@ export async function handleGetLanguageInfo(
     supported_item_types: info.supportedItemTypes ?? [],
     example_prompts: info.examplePrompts ?? [],
     user_guide_resource: `graffiticode://language/L${info.id}/user-guide`,
-    usage_guide_url: usageGuideUrl,
     spec_url: info.specUrl,
   };
 }
