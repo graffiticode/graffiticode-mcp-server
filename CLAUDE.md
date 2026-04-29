@@ -7,8 +7,7 @@ This file provides guidance to Claude Code (claude.ai/code) when working with co
 ```bash
 npm run build         # Compile TypeScript to dist/
 npm run clean         # Remove dist/ directory
-npm run start         # Run stdio MCP server (requires GC_API_KEY_SECRET env var)
-npm run start:hosted  # Run Streamable HTTP hosted server (reads PORT env, defaults to 3001)
+npm run start         # Run Streamable HTTP server (reads PORT env, defaults to 3001)
 npm run gcp:build     # Deploy to Google Cloud Run via Cloud Build
 npm run gcp:deploy    # Deploy from source to Cloud Run (mcp-service, us-central1)
 npm run gcp:logs      # View Cloud Run logs
@@ -35,8 +34,7 @@ This is a thin-router MCP server for Graffiticode. It provides a fixed set of la
 
 ### Entry Points
 
-- **`src/index.ts`** - Stdio transport for local CLI usage. Requires `GRAFFITICODE_API_KEY` env var.
-- **`src/server.ts`** - Streamable HTTP transport for hosted deployments. Auth via `Authorization: Bearer <api-key>` header. Endpoint: `/mcp`
+- **`src/server.ts`** - Streamable HTTP transport for hosted deployments. Auth via `Authorization: Bearer <api-key>` header, OAuth 2.1 access token, or no auth at all (free-plan path: server forwards calls to console with `X-Free-Plan-Session: <mcp-session-id>` instead). Endpoint: `/mcp`
 
 ### Core Modules
 
@@ -64,7 +62,6 @@ This is a thin-router MCP server for Graffiticode. It provides a fixed set of la
 
 ### Environment Variables
 
-- `GC_API_KEY_SECRET` - Required for stdio server
 - `GRAFFITICODE_CONSOLE_URL` - API endpoint (default: `https://console.graffiticode.org/api`)
 - `GRAFFITICODE_AUTH_URL` - Auth endpoint (default: `https://auth.graffiticode.org`)
 - `PORT` - HTTP server port (default: 3001)

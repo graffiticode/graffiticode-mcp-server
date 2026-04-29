@@ -37,6 +37,7 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { tools, handleToolCall, SERVER_INSTRUCTIONS } from "./tools.js";
 import { createAuthClient } from "./auth.js";
+import type { AuthContext } from "./api.js";
 import {
   generateFormWidgetHtml,
   generateClaudeWidgetHtml,
@@ -264,11 +265,11 @@ async function resolveFirebaseToken(
   }
 }
 
-interface TokenProvider {
-  getToken(): Promise<string>;
+interface AuthProvider {
+  getAuth(): Promise<AuthContext>;
 }
 
-function createMcpServer(tokenProvider: TokenProvider) {
+function createMcpServer(authProvider: AuthProvider) {
   const server = new Server(
     {
       name: "graffiticode",
@@ -295,9 +296,9 @@ function createMcpServer(tokenProvider: TokenProvider) {
     const { name, arguments: args } = request.params;
 
     try {
-      const token = await tokenProvider.getToken();
+      const auth = await authProvider.getAuth();
       const result = await handleToolCall(
-        { token },
+        { auth },
         name,
         args as Record<string, unknown>
       ) as Record<string, unknown>;
@@ -394,8 +395,8 @@ function createMcpServer(tokenProvider: TokenProvider) {
 
     const langId = matchUserGuideUri(uri);
     if (langId) {
-      const token = await tokenProvider.getToken();
-      const content = await readUserGuideResource({ token, uri, langId });
+      const auth = await authProvider.getAuth();
+      const content = await readUserGuideResource({ auth, uri, langId });
       return { contents: [content] };
     }
 
@@ -411,7 +412,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
   // CORS headers
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, mcp-session-id");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Free-Plan-Session, mcp-session-id");
 
   if (req.method === "OPTIONS") {
     res.writeHead(204);
@@ -502,19 +503,6 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
   if (url.pathname === "/mcp") {
     const bearerToken = extractBearerToken(req);
 
-    if (!bearerToken) {
-      // Return 401 with WWW-Authenticate header pointing to OAuth metadata
-      res.writeHead(401, {
-        "Content-Type": "application/json",
-        "WWW-Authenticate": `Bearer resource_metadata="${MCP_SERVER_URL}/.well-known/oauth-protected-resource"`,
-      });
-      res.end(JSON.stringify({
-        error: "Authorization required",
-        message: "Include an OAuth access token or API key in the Authorization header"
-      }));
-      return;
-    }
-
     // Check for existing session
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
 
@@ -539,28 +527,48 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       return;
     }
 
-    // Resolve bearer token to Firebase token (OAuth or API key)
-    const resolved = await resolveFirebaseToken(bearerToken);
-    if (!resolved) {
-      res.writeHead(401, {
-        "Content-Type": "application/json",
-        "WWW-Authenticate": `Bearer resource_metadata="${MCP_SERVER_URL}/.well-known/oauth-protected-resource"`,
-      });
-      res.end(JSON.stringify({
-        error: "invalid_token",
-        message: "Invalid or expired access token"
-      }));
-      return;
-    }
-
-    // Create token provider that returns the resolved Firebase token
-    const tokenProvider: TokenProvider = {
-      async getToken() {
-        // For OAuth tokens, the Firebase token is already resolved
-        // For API keys, we've already validated and got the token
-        return resolved.token;
+    // Build the auth provider:
+    //   - bearer present + resolves → firebase auth
+    //   - bearer present + invalid  → 401 (the caller intended to authenticate)
+    //   - bearer absent             → free-plan: forward calls with X-Free-Plan-Session
+    let authProvider: AuthProvider;
+    if (bearerToken) {
+      const resolved = await resolveFirebaseToken(bearerToken);
+      if (!resolved) {
+        res.writeHead(401, {
+          "Content-Type": "application/json",
+          "WWW-Authenticate": `Bearer resource_metadata="${MCP_SERVER_URL}/.well-known/oauth-protected-resource"`,
+        });
+        res.end(JSON.stringify({
+          error: "invalid_token",
+          message: "Invalid or expired access token"
+        }));
+        return;
       }
-    };
+      authProvider = {
+        async getAuth() {
+          return { type: "firebase", token: resolved.token };
+        },
+      };
+    } else {
+      // No bearer → free-plan. The auth provider reads the MCP session id
+      // lazily from the transport, which sets it during the initialize POST.
+      const transportRef: { current: StreamableHTTPServerTransport | null } = { current: null };
+      authProvider = {
+        async getAuth() {
+          const sid = transportRef.current?.sessionId;
+          if (!sid) {
+            throw new Error(
+              "Free-plan session not yet initialized. Send an MCP `initialize` request first."
+            );
+          }
+          return { type: "freePlan", sessionId: sid };
+        },
+      };
+      // Stash the holder so we can populate it once the transport exists.
+      // eslint-disable-next-line @typescript-eslint/no-explicit-any
+      (authProvider as any).__transportRef = transportRef;
+    }
 
     // Create new transport and server for new session
     const transport = new StreamableHTTPServerTransport({
@@ -571,6 +579,16 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       }
     });
 
+    // For the free-plan auth provider we just built, point its closure
+    // reference at the live transport so getAuth() can read sessionId.
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const transportRef = (authProvider as any).__transportRef as
+      | { current: StreamableHTTPServerTransport | null }
+      | undefined;
+    if (transportRef) {
+      transportRef.current = transport;
+    }
+
     transport.onclose = () => {
       const sid = transport.sessionId;
       if (sid) {
@@ -579,7 +597,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       }
     };
 
-    const server = createMcpServer(tokenProvider);
+    const server = createMcpServer(authProvider);
     await server.connect(transport);
     await transport.handleRequest(req, res);
     return;
@@ -616,6 +634,14 @@ httpServer.listen(PORT, () => {
         headers: {
           Authorization: "Bearer <your-api-key>"
         }
+      }
+    }
+  }, null, 2));
+  console.log(`\nFor free-plan (no auth) access:`);
+  console.log(JSON.stringify({
+    mcpServers: {
+      "graffiticode": {
+        url: `http://localhost:${PORT}/mcp`
       }
     }
   }, null, 2));

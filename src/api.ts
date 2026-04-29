@@ -5,20 +5,31 @@
 const CONSOLE_API_URL = process.env.GRAFFITICODE_CONSOLE_URL || "https://console.graffiticode.org/api";
 const GC_API_URL = process.env.GRAFFITICODE_API_URL || "https://api.graffiticode.org";
 
+export type AuthContext =
+  | { type: "firebase"; token: string }
+  | { type: "freePlan"; sessionId: string };
+
 interface GraphQLResponse<T> {
   data?: T;
   errors?: Array<{ message: string }>;
 }
 
+function buildAuthHeaders(auth: AuthContext): Record<string, string> {
+  if (auth.type === "firebase") {
+    return { Authorization: auth.token };
+  }
+  return { "X-Free-Plan-Session": auth.sessionId };
+}
+
 async function graphqlRequest<T>(
-  token: string,
+  auth: AuthContext,
   query: string,
   variables: Record<string, unknown>
 ): Promise<T> {
   const response = await fetch(CONSOLE_API_URL, {
     method: "POST",
     headers: {
-      "Authorization": token,
+      ...buildAuthHeaders(auth),
       "Content-Type": "application/json",
     },
     body: JSON.stringify({ query, variables }),
@@ -59,13 +70,13 @@ interface GenerateCodeResult {
 }
 
 export async function generateCode(options: {
-  token: string;
+  auth: AuthContext;
   prompt: string;
   language: string;
   currentSrc?: string;
   itemId?: string;
 }): Promise<GenerateCodeResult> {
-  const { token, prompt, language, currentSrc, itemId } = options;
+  const { auth, prompt, language, currentSrc, itemId } = options;
 
   const query = `
     mutation GenerateCode($prompt: String!, $language: String!, $currentSrc: String, $itemId: String) {
@@ -88,7 +99,7 @@ export async function generateCode(options: {
   `;
 
   const result = await graphqlRequest<{ generateCode: GenerateCodeResult }>(
-    token,
+    auth,
     query,
     { prompt, language, currentSrc, itemId }
   );
@@ -99,10 +110,10 @@ export async function generateCode(options: {
 // --- Get Data ---
 
 export async function getData(options: {
-  token: string;
+  auth: AuthContext;
   taskId: string;
 }): Promise<unknown> {
-  const { token, taskId } = options;
+  const { auth, taskId } = options;
 
   const query = `
     query GetData($id: String!) {
@@ -111,7 +122,7 @@ export async function getData(options: {
   `;
 
   const result = await graphqlRequest<{ data: string }>(
-    token,
+    auth,
     query,
     { id: taskId }
   );
@@ -122,10 +133,10 @@ export async function getData(options: {
 // --- Get Task ---
 
 export async function getTask(options: {
-  token: string;
+  auth: AuthContext;
   id: string;
 }): Promise<{ id: string; lang: string; code: string; src: string }> {
-  const { token, id } = options;
+  const { auth, id } = options;
 
   const query = `
     query GetTask($id: String!) {
@@ -139,7 +150,7 @@ export async function getTask(options: {
   `;
 
   const result = await graphqlRequest<{ task: { id: string; lang: string; code: string; src: string } }>(
-    token,
+    auth,
     query,
     { id }
   );
@@ -162,14 +173,14 @@ export interface Item {
 }
 
 export async function createItem(options: {
-  token: string;
+  auth: AuthContext;
   lang: string;
   name?: string;
   taskId?: string;
   help?: string;
   app?: string;
 }): Promise<Item> {
-  const { token, lang, name, taskId, help, app } = options;
+  const { auth, lang, name, taskId, help, app } = options;
 
   const mutation = `
     mutation CreateItem($lang: String!, $name: String, $taskId: String, $help: String, $app: String) {
@@ -188,7 +199,7 @@ export async function createItem(options: {
   `;
 
   const result = await graphqlRequest<{ createItem: Item }>(
-    token,
+    auth,
     mutation,
     { lang, name, taskId, help, app }
   );
@@ -197,10 +208,10 @@ export async function createItem(options: {
 }
 
 export async function getItem(options: {
-  token: string;
+  auth: AuthContext;
   id: string;
 }): Promise<Item | null> {
-  const { token, id } = options;
+  const { auth, id } = options;
 
   const query = `
     query GetItem($id: String!) {
@@ -219,7 +230,7 @@ export async function getItem(options: {
   `;
 
   const result = await graphqlRequest<{ item: Item | null }>(
-    token,
+    auth,
     query,
     { id }
   );
@@ -237,10 +248,10 @@ export interface ItemWithTask extends Item {
 }
 
 export async function getItemWithTask(options: {
-  token: string;
+  auth: AuthContext;
   id: string;
 }): Promise<ItemWithTask | null> {
-  const { token, id } = options;
+  const { auth, id } = options;
 
   const query = `
     query GetItemWithTask($id: String!) {
@@ -265,7 +276,7 @@ export async function getItemWithTask(options: {
   `;
 
   const result = await graphqlRequest<{ item: ItemWithTask | null }>(
-    token,
+    auth,
     query,
     { id }
   );
@@ -274,13 +285,13 @@ export async function getItemWithTask(options: {
 }
 
 export async function updateItem(options: {
-  token: string;
+  auth: AuthContext;
   id: string;
   name?: string;
   taskId?: string;
   help?: string;
 }): Promise<Item> {
-  const { token, id, name, taskId, help } = options;
+  const { auth, id, name, taskId, help } = options;
 
   const mutation = `
     mutation UpdateItem($id: String!, $name: String, $taskId: String, $help: String) {
@@ -299,7 +310,7 @@ export async function updateItem(options: {
   `;
 
   const result = await graphqlRequest<{ updateItem: Item }>(
-    token,
+    auth,
     mutation,
     { id, name, taskId, help }
   );
@@ -327,11 +338,11 @@ export interface Language {
 }
 
 export async function listLanguages(options: {
-  token: string;
+  auth: AuthContext;
   domain?: string;
   search?: string;
 }): Promise<Language[]> {
-  const { token, domain, search } = options;
+  const { auth, domain, search } = options;
 
   const cacheKey = `${domain ?? ""}|${search ?? ""}`;
   const cached = listLanguagesCache.get(cacheKey);
@@ -351,7 +362,7 @@ export async function listLanguages(options: {
   `;
 
   const result = await graphqlRequest<{ languages: Language[] }>(
-    token,
+    auth,
     query,
     { domain, search }
   );
@@ -383,10 +394,10 @@ export interface LanguageInfo {
 }
 
 export async function getLanguageInfo(options: {
-  token: string;
+  auth: AuthContext;
   language: string;
 }): Promise<LanguageInfo | null> {
-  const { token, language } = options;
+  const { auth, language } = options;
 
   // Normalize language ID (remove "L" prefix if present)
   const langId = language.replace(/^L/i, "");
@@ -417,7 +428,7 @@ export async function getLanguageInfo(options: {
   `;
 
   const result = await graphqlRequest<{ language: LanguageInfo | null }>(
-    token,
+    auth,
     query,
     { id: langId }
   );

@@ -7,7 +7,7 @@ import {
   updateItem as apiUpdateItem,
   listLanguages as apiListLanguages,
   getLanguageInfo as apiGetLanguageInfo,
-
+  type AuthContext,
 } from "./api.js";
 import { WIDGET_RESOURCE_URI, WIDGET_CSP, CLAUDE_WIDGET_RESOURCE_URI } from "./widget/index.js";
 
@@ -237,7 +237,11 @@ export const tools = [
 // --- Tool Handlers ---
 
 export interface ToolContext {
-  token: string;
+  auth: AuthContext;
+}
+
+function metaAccessToken(auth: AuthContext): string | undefined {
+  return auth.type === "firebase" ? auth.token : undefined;
 }
 
 export async function handleCreateItem(
@@ -251,7 +255,7 @@ export async function handleCreateItem(
 
   // Step 1: Create item from language template (no taskId — backend generates from template)
   const item = await apiCreateItem({
-    token: ctx.token,
+    auth: ctx.auth,
     lang: langId,
     name,
     app: "mcp",
@@ -269,7 +273,7 @@ export async function handleUpdateItem(
 
   // Step 1: Fetch existing item and its task src in a single round-trip.
   const existingItem = await apiGetItemWithTask({
-    token: ctx.token,
+    auth: ctx.auth,
     id: item_id,
   });
 
@@ -293,7 +297,7 @@ export async function handleUpdateItem(
 
   // Step 3: Generate updated code with contextual prompt
   const generated = await generateCode({
-    token: ctx.token,
+    auth: ctx.auth,
     prompt: contextualPrompt,
     language: existingItem.lang,
     currentSrc,
@@ -301,7 +305,7 @@ export async function handleUpdateItem(
   });
 
   if (generated.errors?.length) {
-    return {
+    const result: Record<string, unknown> = {
       item_id,
       task_id: null,
       language: `L${existingItem.lang}`,
@@ -314,8 +318,10 @@ export async function handleUpdateItem(
       created: existingItem.created,
       updated: existingItem.updated,
       hint: generated.errors.map(e => e.message).join("\n"),
-      _meta: { access_token: ctx.token },
     };
+    const tok = metaAccessToken(ctx.auth);
+    if (tok) result._meta = { access_token: tok };
+    return result;
   }
 
   if (!generated.taskId) {
@@ -338,18 +344,18 @@ export async function handleUpdateItem(
   // apiUpdateItem. Promise.all still surfaces a write failure as an error.
   const [data, updatedItem] = await Promise.all([
     getData({
-      token: ctx.token,
+      auth: ctx.auth,
       taskId: generated.taskId,
     }),
     apiUpdateItem({
-      token: ctx.token,
+      auth: ctx.auth,
       id: item_id,
       taskId: generated.taskId,
       help: updatedHelp,
     }),
   ]);
 
-  return {
+  const response: Record<string, unknown> = {
     item_id: updatedItem.id,
     task_id: generated.taskId,
     language: `L${updatedItem.lang}`,
@@ -361,11 +367,10 @@ export async function handleUpdateItem(
     usage: generated.usage,
     created: updatedItem.created,
     updated: updatedItem.updated,
-    // Widget-only data (not exposed to model)
-    _meta: {
-      access_token: ctx.token,
-    },
   };
+  const tok = metaAccessToken(ctx.auth);
+  if (tok) response._meta = { access_token: tok };
+  return response;
 }
 
 export async function handleGetItem(
@@ -375,7 +380,7 @@ export async function handleGetItem(
   const { item_id } = args;
 
   // Fetch item + task src in one round-trip, then compiled data.
-  const item = await apiGetItemWithTask({ token: ctx.token, id: item_id });
+  const item = await apiGetItemWithTask({ auth: ctx.auth, id: item_id });
   if (!item) {
     throw new Error(`Item not found: ${item_id}`);
   }
@@ -384,11 +389,11 @@ export async function handleGetItem(
   }
 
   const data = await getData({
-    token: ctx.token,
+    auth: ctx.auth,
     taskId: item.taskId,
   });
 
-  return {
+  const response: Record<string, unknown> = {
     item_id: item.id,
     task_id: item.taskId,
     language: `L${item.lang}`,
@@ -397,11 +402,10 @@ export async function handleGetItem(
     data,
     created: item.created,
     updated: item.updated,
-    // Widget-only data (not exposed to model)
-    _meta: {
-      access_token: ctx.token,
-    },
   };
+  const tok = metaAccessToken(ctx.auth);
+  if (tok) response._meta = { access_token: tok };
+  return response;
 }
 
 export async function handleListLanguages(
@@ -409,7 +413,7 @@ export async function handleListLanguages(
   args: { domain?: string; search?: string }
 ): Promise<unknown> {
   const languages = await apiListLanguages({
-    token: ctx.token,
+    auth: ctx.auth,
     domain: args.domain,
     search: args.search,
   });
@@ -429,7 +433,7 @@ export async function handleGetLanguageInfo(
   args: { language: string }
 ): Promise<unknown> {
   const info = await apiGetLanguageInfo({
-    token: ctx.token,
+    auth: ctx.auth,
     language: args.language,
   });
 

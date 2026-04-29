@@ -1,5 +1,5 @@
 /**
- * MCP resource handlers shared by stdio (index.ts) and hosted (server.ts) modes.
+ * MCP resource handlers for the hosted server.
  *
  * Exposes each Graffiticode language's full user-guide markdown as a
  * per-language resource URI. The inline envelope returned by
@@ -7,7 +7,7 @@
  * full guide through ReadResource for deeper reference.
  */
 
-import { getLanguageInfo } from "./api.js";
+import { getLanguageInfo, type AuthContext } from "./api.js";
 
 export const USER_GUIDE_URI_TEMPLATE = "graffiticode://language/{id}/user-guide";
 export const USER_GUIDE_MIME_TYPE = "text/markdown";
@@ -29,12 +29,12 @@ export function matchUserGuideUri(uri: string): string | null {
 }
 
 export async function readUserGuideResource(options: {
-  token: string;
+  auth: AuthContext;
   uri: string;
   langId: string;
 }): Promise<{ uri: string; mimeType: string; text: string }> {
-  const { token, uri, langId } = options;
-  const info = await getLanguageInfo({ token, language: langId });
+  const { auth, uri, langId } = options;
+  const info = await getLanguageInfo({ auth, language: langId });
   if (!info) {
     throw new Error(`Language not found: L${langId}`);
   }
