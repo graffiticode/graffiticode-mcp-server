@@ -36,7 +36,6 @@ import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { tools, handleToolCall, SERVER_INSTRUCTIONS } from "./tools.js";
-import { createAuthClient } from "./auth.js";
 import type { AuthContext } from "./api.js";
 import {
   generateFormWidgetHtml,
@@ -243,26 +242,21 @@ function extractBearerToken(req: IncomingMessage): string | null {
 }
 
 /**
- * Try to get a Firebase token from either OAuth access token or API key
- * Returns { token, source } or null if no valid auth
+ * Resolve the bearer credential to whatever should be forwarded to the
+ * console as Authorization. OAuth access tokens are exchanged here for a
+ * Firebase ID token (we already hold the refresh token in the OAuth store).
+ * Anything else is treated as a Graffiticode api key and forwarded verbatim
+ * — the console will exchange it to a Firebase ID token before calling
+ * api.graffiticode.org. This keeps the api-key exchange logic in one place.
  */
-async function resolveFirebaseToken(
+async function resolveBearer(
   bearerToken: string
-): Promise<{ token: string; source: "oauth" | "apikey" } | null> {
-  // First, try OAuth access token (now async with auto-refresh)
+): Promise<{ token: string; source: "oauth" | "raw" }> {
   const oauthToken = await getFirebaseTokenFromAccessToken(bearerToken);
   if (oauthToken) {
     return { token: oauthToken, source: "oauth" };
   }
-
-  // Fall back to API key authentication
-  try {
-    const auth = createAuthClient(bearerToken);
-    const token = await auth.getToken();
-    return { token, source: "apikey" };
-  } catch {
-    return null;
-  }
+  return { token: bearerToken, source: "raw" };
 }
 
 interface AuthProvider {
@@ -528,23 +522,15 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     }
 
     // Build the auth provider:
-    //   - bearer present + resolves → firebase auth
-    //   - bearer present + invalid  → 401 (the caller intended to authenticate)
-    //   - bearer absent             → free-plan: forward calls with X-Free-Plan-Session
+    //   - bearer present  → resolve OAuth or pass api key through to console
+    //   - bearer absent   → free-plan: forward calls with X-Free-Plan-Session
+    //
+    // We don't 401 invalid api keys here anymore; the console rejects them
+    // (verifyToken fails, then getCredentialsForApiKey throws), and the
+    // GraphQL error path surfaces a clean message.
     let authProvider: AuthProvider;
     if (bearerToken) {
-      const resolved = await resolveFirebaseToken(bearerToken);
-      if (!resolved) {
-        res.writeHead(401, {
-          "Content-Type": "application/json",
-          "WWW-Authenticate": `Bearer resource_metadata="${MCP_SERVER_URL}/.well-known/oauth-protected-resource"`,
-        });
-        res.end(JSON.stringify({
-          error: "invalid_token",
-          message: "Invalid or expired access token"
-        }));
-        return;
-      }
+      const resolved = await resolveBearer(bearerToken);
       authProvider = {
         async getAuth() {
           return { type: "firebase", token: resolved.token };
