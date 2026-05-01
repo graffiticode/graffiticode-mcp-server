@@ -13,7 +13,8 @@
     "gcp:logs": "gcloud run services logs read mcp-service --project graffiticode-app --region us-central1"
   },
   "dependencies": {
-    "@modelcontextprotocol/sdk": "^1.29.0"
+    "@modelcontextprotocol/sdk": "^1.29.0",
+    "jose": "^4.15.9"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",

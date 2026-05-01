@@ -5,6 +5,12 @@
 const CONSOLE_API_URL = process.env.GRAFFITICODE_CONSOLE_URL || "https://console.graffiticode.org/api";
 const GC_API_URL = process.env.GRAFFITICODE_API_URL || "https://api.graffiticode.org";
 
+// Bare-host URLs used to construct user-facing links (claim_url, preview_url)
+// surfaced on trial-mode tool responses. Distinct from CONSOLE_API_URL above,
+// which already ends in /api.
+export const CONSOLE_URL = process.env.GRAFFITICODE_CONSOLE_BASE_URL || "https://console.graffiticode.org";
+export const PREVIEW_URL = process.env.GRAFFITICODE_PREVIEW_URL || "https://preview.graffiticode.org";
+
 export type AuthContext =
   | { type: "firebase"; token: string }
   | { type: "freePlan"; sessionId: string };

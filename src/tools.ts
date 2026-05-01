@@ -8,7 +8,10 @@ import {
   listLanguages as apiListLanguages,
   getLanguageInfo as apiGetLanguageInfo,
   type AuthContext,
+  CONSOLE_URL,
+  PREVIEW_URL,
 } from "./api.js";
+import { mintClaimToken } from "./claim-token.js";
 import { WIDGET_RESOURCE_URI, WIDGET_CSP, CLAUDE_WIDGET_RESOURCE_URI } from "./widget/index.js";
 
 // --- Help Entry Structure (matches console HelpPanel) ---
@@ -244,6 +247,24 @@ function metaAccessToken(auth: AuthContext): string | undefined {
   return auth.type === "firebase" ? auth.token : undefined;
 }
 
+// For trial-mode responses, mint a 24h JWT and return the three claim fields the
+// console's /claim page consumes. Returns null when not a free-plan call or
+// when FREE_PLAN_NAMESPACE_SALT isn't configured (graceful degrade).
+async function buildClaimFields(
+  auth: AuthContext,
+  itemId: string
+): Promise<{ preview_url: string; claim_url: string; claim_message: string } | null> {
+  if (auth.type !== "freePlan") return null;
+  const token = await mintClaimToken(auth.sessionId);
+  if (!token) return null;
+  const claim_url = `${CONSOLE_URL}/claim?token=${token}`;
+  return {
+    preview_url: `${PREVIEW_URL}/items/${itemId}`,
+    claim_url,
+    claim_message: `Your item is ready. To save it permanently, sign in at: ${claim_url}`,
+  };
+}
+
 export async function handleCreateItem(
   ctx: ToolContext,
   args: { language: string; description: string; name?: string }
@@ -319,6 +340,8 @@ export async function handleUpdateItem(
       updated: existingItem.updated,
       hint: generated.errors.map(e => e.message).join("\n"),
     };
+    const claimFields = await buildClaimFields(ctx.auth, item_id);
+    if (claimFields) Object.assign(result, claimFields);
     const tok = metaAccessToken(ctx.auth);
     if (tok) result._meta = { access_token: tok };
     return result;
@@ -368,6 +391,8 @@ export async function handleUpdateItem(
     created: updatedItem.created,
     updated: updatedItem.updated,
   };
+  const claimFields = await buildClaimFields(ctx.auth, updatedItem.id);
+  if (claimFields) Object.assign(response, claimFields);
   const tok = metaAccessToken(ctx.auth);
   if (tok) response._meta = { access_token: tok };
   return response;

@@ -62,6 +62,26 @@ This is a thin-router MCP server for Graffiticode. It provides a fixed set of la
 
 ### Environment Variables
 
-- `GRAFFITICODE_CONSOLE_URL` - API endpoint (default: `https://console.graffiticode.org/api`)
-- `GRAFFITICODE_AUTH_URL` - Auth endpoint (default: `https://auth.graffiticode.org`)
-- `PORT` - HTTP server port (default: 3001)
+- `GRAFFITICODE_CONSOLE_URL` - Console GraphQL API endpoint (default: `https://console.graffiticode.org/api`). Note this ends in `/api`.
+- `GRAFFITICODE_CONSOLE_BASE_URL` - Console bare host used to build user-facing claim URLs (default: `https://console.graffiticode.org`).
+- `GRAFFITICODE_PREVIEW_URL` - Preview host for trial item links (default: `https://preview.graffiticode.org`).
+- `GRAFFITICODE_AUTH_URL` - Auth endpoint (default: `https://auth.graffiticode.org`).
+- `FREE_PLAN_NAMESPACE_SALT` - Shared HS256 secret used to mint trial-claim JWTs. **Must be the identical value the console deploys with** — both come from the same Secret Manager entry populated by the console's `scripts/set-free-plan-secrets.sh`. Mount on Cloud Run with `gcloud run services update mcp-service --update-secrets=FREE_PLAN_NAMESPACE_SALT=FREE_PLAN_NAMESPACE_SALT:latest`. If unset, trial responses still succeed but omit `claim_url`/`claim_message` (single warning logged at startup).
+- `PORT` - HTTP server port (default: 3001).
+
+### Trial-claim JWT (free-plan only)
+
+Free-plan `create_item` and `update_item` responses include three extra fields so the user can transfer the item into a real Graffiticode account on first sign-in:
+
+- `preview_url` — `${PREVIEW_URL}/items/<id>`
+- `claim_url` — `${CONSOLE_URL}/claim?token=<jwt>`
+- `claim_message` — chat-friendly string surfacing the URL
+
+The JWT contract (defined in `src/claim-token.ts` and verified by the console at `console/src/lib/claim-token.ts`):
+
+- HS256, secret = `FREE_PLAN_NAMESPACE_SALT` (UTF-8 bytes)
+- Audience: `graffiticode-claim`
+- Expiry: 24h
+- Payload: `{ sessionNamespace, sessionUuid }` where `sessionNamespace = sha256(salt + ":" + sessionUuid)`
+
+The `sessionUuid` comes from the MCP transport's session id (set during the MCP `initialize` POST and read off the free-plan auth context as `auth.sessionId`).
