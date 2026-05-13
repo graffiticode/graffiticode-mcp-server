@@ -279,7 +279,7 @@ export async function handleCreateItem(
     auth: ctx.auth,
     lang: langId,
     name,
-    app: "mcp",
+    client: "mcp",
   });
 
   // Step 2: Update the item with the user's description

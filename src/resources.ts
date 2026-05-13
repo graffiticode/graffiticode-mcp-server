@@ -41,6 +41,6 @@ export async function readUserGuideResource(options: {
   return {
     uri,
     mimeType: USER_GUIDE_MIME_TYPE,
-    text: info.userGuide ?? "",
+    text: info.usageGuide ?? "",
   };
 }

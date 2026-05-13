@@ -175,7 +175,7 @@ export interface Item {
   isPublic: boolean;
   created: string;
   updated: string;
-  app: string | null;
+  client: string | null;
 }
 
 export async function createItem(options: {
@@ -184,13 +184,13 @@ export async function createItem(options: {
   name?: string;
   taskId?: string;
   help?: string;
-  app?: string;
+  client?: string;
 }): Promise<Item> {
-  const { auth, lang, name, taskId, help, app } = options;
+  const { auth, lang, name, taskId, help, client } = options;
 
   const mutation = `
-    mutation CreateItem($lang: String!, $name: String, $taskId: String, $help: String, $app: String) {
-      createItem(lang: $lang, name: $name, taskId: $taskId, help: $help, app: $app) {
+    mutation CreateItem($lang: String!, $name: String, $taskId: String, $help: String, $client: String) {
+      createItem(lang: $lang, name: $name, taskId: $taskId, help: $help, client: $client) {
         id
         name
         taskId
@@ -199,7 +199,7 @@ export async function createItem(options: {
         isPublic
         created
         updated
-        app
+        client
       }
     }
   `;
@@ -207,7 +207,7 @@ export async function createItem(options: {
   const result = await graphqlRequest<{ createItem: Item }>(
     auth,
     mutation,
-    { lang, name, taskId, help, app }
+    { lang, name, taskId, help, client }
   );
 
   return result.createItem;
@@ -230,7 +230,7 @@ export async function getItem(options: {
         isPublic
         created
         updated
-        app
+        client
       }
     }
   `;
@@ -270,7 +270,7 @@ export async function getItemWithTask(options: {
         isPublic
         created
         updated
-        app
+        client
         task {
           id
           lang
@@ -310,7 +310,7 @@ export async function updateItem(options: {
         isPublic
         created
         updated
-        app
+        client
       }
     }
   `;
@@ -396,7 +396,7 @@ export interface LanguageInfo {
   authoringGuide: string | null;
   supportedItemTypes: string[];
   examplePrompts: ExamplePrompt[];
-  userGuide: string | null;
+  usageGuide: string | null;
 }
 
 export async function getLanguageInfo(options: {
@@ -428,7 +428,7 @@ export async function getLanguageInfo(options: {
           produces
           notes
         }
-        userGuide
+        usageGuide
       }
     }
   `;
