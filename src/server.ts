@@ -163,6 +163,7 @@ const PRIVACY_HTML = `<!DOCTYPE html>
 <ul>
   <li>Email: <a href="mailto:jeff@artcompiler.com">jeff@artcompiler.com</a></li>
   <li>GitHub: <a href="https://github.com/graffiticode/graffiticode-mcp-server">github.com/graffiticode/graffiticode-mcp-server</a></li>
+  <li>About this server: <a href="/about">/about</a></li>
 </ul>
 </body>
 </html>`;
@@ -219,6 +220,85 @@ const TERMS_HTML = `<!DOCTYPE html>
 <ul>
   <li>Email: <a href="mailto:support@graffiticode.org">support@graffiticode.org</a></li>
   <li>GitHub: <a href="https://github.com/graffiticode/graffiticode-mcp-server">github.com/graffiticode/graffiticode-mcp-server</a></li>
+  <li>About this server: <a href="/about">/about</a></li>
+</ul>
+</body>
+</html>`;
+
+const ABOUT_HTML = `<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>About — Graffiticode MCP Server</title>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 720px; margin: 0 auto; padding: 2rem 1rem; line-height: 1.6; color: #1a1a1a; }
+  h1 { font-size: 1.8rem; margin-bottom: 0.25rem; }
+  h2 { font-size: 1.3rem; margin-top: 2rem; border-bottom: 1px solid #e0e0e0; padding-bottom: 0.3rem; }
+  h3 { font-size: 1.1rem; margin-top: 1.5rem; }
+  ul { padding-left: 1.5rem; }
+  li { margin-bottom: 0.5rem; }
+  a { color: #1a73e8; }
+  code, pre { font-family: ui-monospace, SFMono-Regular, Menlo, monospace; font-size: 0.9rem; }
+  pre { background: #f5f5f5; padding: 0.75rem 1rem; border-radius: 6px; overflow-x: auto; }
+  code { background: #f5f5f5; padding: 0.1rem 0.35rem; border-radius: 3px; }
+  pre code { background: none; padding: 0; }
+  .subtitle { color: #555; font-size: 0.95rem; margin-bottom: 2rem; }
+  .endpoint { font-size: 1.05rem; background: #f5f5f5; padding: 0.75rem 1rem; border-radius: 6px; display: inline-block; margin: 0.25rem 0 1rem; }
+</style>
+</head>
+<body>
+<h1>About</h1>
+<p class="subtitle">Graffiticode MCP Server</p>
+
+<h2>What it is</h2>
+<p>Graffiticode MCP is a hosted Model Context Protocol server that lets AI assistants create and edit interactive content through Graffiticode&rsquo;s language family.</p>
+
+<h2>Connect</h2>
+<p>Point any MCP-compatible client at:</p>
+<p class="endpoint"><code>https://mcp.graffiticode.org/mcp</code></p>
+<p>The server speaks the Streamable HTTP transport. A minimal client config looks like:</p>
+<pre><code>{
+  "mcpServers": {
+    "graffiticode": {
+      "url": "https://mcp.graffiticode.org/mcp"
+    }
+  }
+}</code></pre>
+<p>Authentication is optional. The server accepts:</p>
+<ul>
+  <li><strong>OAuth 2.1</strong> &mdash; clients that support dynamic registration can complete the standard authorization flow.</li>
+  <li><strong>API key</strong> &mdash; pass a Graffiticode API key as <code>Authorization: Bearer &lt;key&gt;</code>.</li>
+  <li><strong>No auth (free plan)</strong> &mdash; connect without credentials to try the server. Items you create can be transferred into a real Graffiticode account via a one-time claim link returned in the tool response.</li>
+</ul>
+
+<h2>What it can do</h2>
+<p>The server exposes a small, fixed set of language-agnostic tools. The catalog of Graffiticode languages they route to grows over time.</p>
+<ul>
+  <li><code>list_languages</code> &mdash; discover available languages, optionally filtered by keyword or domain.</li>
+  <li><code>get_language_info</code> &mdash; fetch a language&rsquo;s authoring guide, supported item types, and example prompts.</li>
+  <li><code>create_item</code> &mdash; create a new item in a chosen language from a natural-language description.</li>
+  <li><code>update_item</code> &mdash; iteratively edit an existing item. Conversation history is preserved per item.</li>
+  <li><code>get_item</code> &mdash; retrieve an item by id.</li>
+</ul>
+<p>All <code>create_item</code> and <code>update_item</code> requests are natural language &mdash; a language-specific backend handles code generation. Clients should not attempt to write Graffiticode DSL directly.</p>
+
+<h2>When to reach for it</h2>
+<p>For human users: when you want an AI assistant to author interactive content &mdash; assessments, spreadsheets, flashcards, diagrams, and more &mdash; that can be embedded, shared, or published.</p>
+<p>For agents: call <code>list_languages</code> when a user&rsquo;s request doesn&rsquo;t match a more specific tool you already have. If a language matches, fetch its info and create an item; if nothing matches, this server is the wrong tool.</p>
+
+<h2>Free plan</h2>
+<p>The no-auth path lets a user try the server before creating an account. Items created this way live in an anonymous session namespace. Each tool response includes a <code>preview_url</code> for viewing the item and a <code>claim_url</code> the user can open to move the item into a real Graffiticode account on first sign-in. Claim links are valid for 24 hours.</p>
+
+<h2>Operator</h2>
+<p>This server is operated by Graffiticode and hosted on Google Cloud Run. Source is available at <a href="https://github.com/graffiticode/graffiticode-mcp-server">github.com/graffiticode/graffiticode-mcp-server</a>.</p>
+
+<h2>Links</h2>
+<ul>
+  <li><a href="https://console.graffiticode.org">Graffiticode console</a> &mdash; manage your account and items</li>
+  <li><a href="/privacy">Privacy policy</a></li>
+  <li><a href="/terms">Terms of service</a></li>
+  <li>Contact: <a href="mailto:jeff@artcompiler.com">jeff@artcompiler.com</a></li>
 </ul>
 </body>
 </html>`;
@@ -438,6 +518,13 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
   if (url.pathname === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ status: "ok" }));
+    return;
+  }
+
+  // About
+  if (url.pathname === "/about") {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(ABOUT_HTML);
     return;
   }
 
