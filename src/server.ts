@@ -284,7 +284,7 @@ const ABOUT_HTML = `<!DOCTYPE html>
 <p>All <code>create_item</code> and <code>update_item</code> requests are natural language &mdash; a language-specific backend handles code generation. Clients should not attempt to write Graffiticode DSL directly.</p>
 
 <h2>When to reach for it</h2>
-<p>For human users: when you want an AI assistant to author interactive content &mdash; assessments, spreadsheets, flashcards, diagrams, and more &mdash; that can be embedded, shared, or published.</p>
+<p>For human users: when you want an AI assistant to author interactive content that can be embedded, shared, or published.</p>
 <p>For agents: call <code>list_languages</code> when a user&rsquo;s request doesn&rsquo;t match a more specific tool you already have. If a language matches, fetch its info and create an item; if nothing matches, this server is the wrong tool.</p>
 
 <h2>Free plan</h2>
