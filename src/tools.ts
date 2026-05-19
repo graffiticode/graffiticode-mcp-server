@@ -63,7 +63,7 @@ function buildContextualPrompt(
 
 export const SERVER_INSTRUCTIONS = `Graffiticode is an open-ended platform of domain-specific tools for creating interactive content — assessments, spreadsheets, flashcards, and more. The catalog of available tools grows over time.
 
-When the user's request doesn't match another available tool, call list_languages() to check if Graffiticode has a language that fits. Use the search parameter to match by keyword, or the domain parameter to narrow by brand (e.g., 'questioncompiler', 'embedsheet', 'diagramcompiler') when the user's context implies one. If a match exists, call get_language_info() to learn what the language can create and get its user guide resource URI, then call create_item() with a natural language description.
+When the user's request doesn't match another available tool, call list_languages() to check if Graffiticode has a language that fits. Use the search parameter to match by keyword, or the domain parameter to narrow by domain (e.g., 'assessments', 'sheets', 'diagrams', 'learnosity') when the user's context implies one. If a match exists, call get_language_info() to learn what the language can create and get its user guide resource URI, then call create_item() with a natural language description.
 
 All requests to create_item and update_item must be natural language descriptions of what to create or change. A language-specific AI backend handles all code generation. Do not attempt to generate Graffiticode DSL code directly.
 
@@ -181,13 +181,13 @@ export const listLanguagesTool = {
   name: "list_languages",
   description: `Discover available Graffiticode languages. Use this to find a language that matches the user's needs.
 
-The catalog is dynamic and grows over time. Use the search parameter to match by keyword (e.g., "spreadsheet", "assessment", "flashcard"), or the domain parameter to narrow to a brand (e.g., "questioncompiler"). Returns language IDs, names, descriptions, and brand memberships.`,
+The catalog is dynamic and grows over time. Use the search parameter to match by keyword (e.g., "spreadsheet", "assessment", "flashcard"), or the domain parameter to narrow to a domain (e.g., "assessments"). Returns language IDs, names, descriptions, and domain memberships.`,
   inputSchema: {
     type: "object",
     properties: {
       domain: {
         type: "string",
-        description: "Filter by brand (e.g., 'questioncompiler', 'embedsheet', 'diagramcompiler'). Omit to see every Graffiticode language. Discover available values from the `domains` field on returned languages.",
+        description: "Filter by domain (e.g., 'assessments', 'sheets', 'diagrams', 'learnosity'). Omit to see every Graffiticode language. Discover available values from the `domains` field on returned languages.",
       },
       search: {
         type: "string",

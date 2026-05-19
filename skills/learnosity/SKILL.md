@@ -1,11 +1,11 @@
 ---
-name: questioncompiler-learnosity
-description: Author Learnosity-compatible assessment items — MCQ, short text, cloze, formula, classification, order list, choice matrix, and other Learnosity question types — for embedding in a Learnosity-integrated LMS or publishing to a Learnosity Item Bank. Use whenever the user mentions Learnosity by name or describes authoring items for a Learnosity-based platform. For generic assessment authoring across flashcards, spreadsheets, concept webs, and other question types, use the `questioncompiler` skill instead.
+name: learnosity
+description: Author Learnosity-compatible assessment items — MCQ, short text, cloze, formula, classification, order list, choice matrix, and other Learnosity question types — for embedding in a Learnosity-integrated LMS or publishing to a Learnosity Item Bank. Use whenever the user mentions Learnosity by name or describes authoring items for a Learnosity-based platform. For generic assessment authoring across flashcards, spreadsheets, concept webs, and other question types, use the `assessments` skill instead.
 ---
 
-# QuestionCompiler — Learnosity
+# Learnosity
 
-Author Learnosity-compatible items via Graffiticode. This skill is the narrow, Learnosity-focused sibling of `questioncompiler`.
+Author Learnosity-compatible items via Graffiticode. This skill is the narrow, Learnosity-focused sibling of `assessments`.
 
 You don't need to know Learnosity's internal taxonomy (question types, scoring models, item references, activity wiring). The Graffiticode backend for the Learnosity language encodes all of that — your job is to pass a clear natural-language description and let the backend generate the compatible output.
 
@@ -15,9 +15,9 @@ The Graffiticode MCP connector must be installed and connected. If `list_languag
 
 ## Workflow
 
-**1. Discover the Learnosity brand set.**
+**1. Discover the Learnosity language set.**
 
-Call `list_languages(domain: "learnosity")`. Today this returns a single language; the brand may grow (activity assemblers, item-bank sync tools) — the skill stays correct automatically.
+Call `list_languages(domain: "learnosity")`. Today this returns a single language; the domain may grow (activity assemblers, item-bank sync tools) — the skill stays correct automatically.
 
 **2. Read the language info.**
 
@@ -76,7 +76,7 @@ Don't re-parse `data.questions` to describe what changed; the backend wrote the 
 ## Guardrails
 
 - **Never hand-write Learnosity JSON or Graffiticode DSL.** The backend produces both from your natural-language description.
-- **Never hardcode a language ID in your reasoning.** Always call `list_languages(domain: "learnosity")` at session start — the brand may add members over time.
-- **Stay in the Learnosity lane.** If the user asks for something outside Learnosity (flashcards, spreadsheets, concept webs), suggest the broader `questioncompiler` skill rather than forcing a Learnosity fit.
+- **Never hardcode a language ID in your reasoning.** Always call `list_languages(domain: "learnosity")` at session start — the domain may add members over time.
+- **Stay in the Learnosity lane.** If the user asks for something outside Learnosity (flashcards, spreadsheets, concept webs), suggest the broader `assessments` skill rather than forcing a Learnosity fit.
 - **Iterate, don't recreate.** On follow-up edits, call `update_item` on the existing `item_id`; fresh creates lose conversation history.
 - **Don't improvise out-of-band save paths.** Saves go through `update_item`; ambiguous results get verified by the user in the Learnosity UI, not by inventing API-direct or computer-use workarounds.

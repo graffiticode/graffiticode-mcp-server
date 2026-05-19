@@ -1,11 +1,11 @@
 ---
-name: questioncompiler
-description: Author interactive assessment items across the QuestionCompiler language family in Graffiticode — multiple-choice quizzes, flashcards, spreadsheet problems, area-model math, magic squares, map-based questions, and more. Use whenever the user wants to build a quiz, test, homework problem, study deck, or rubric-scored practice item across mixed question types. For requests that specifically target Learnosity (by name, or by referring to Learnosity's Item Bank, Items API, or LMS integration), prefer the `questioncompiler-learnosity` skill instead — it is the narrower, Learnosity-focused sibling.
+name: assessments
+description: Author interactive assessment items in Graffiticode — multiple-choice quizzes, flashcards, spreadsheet problems, area-model math, magic squares, map-based questions, and more. Use whenever the user wants to build a quiz, test, homework problem, study deck, or rubric-scored practice item across mixed question types. For requests that specifically target Learnosity (by name, or by referring to Learnosity's Item Bank, Items API, or LMS integration), prefer the `learnosity` skill instead — it is the narrower, Learnosity-focused sibling.
 ---
 
-# QuestionCompiler
+# Assessments
 
-QuestionCompiler is the assessment authoring surface of Graffiticode. Each assessment type is backed by a different Graffiticode language, and the full set is discovered at runtime — the catalog is dynamic. Your job is to route the user's request to the right language and produce a rendered item, not to write code yourself.
+The `assessments` skill is the assessment authoring surface of Graffiticode. Each assessment type is backed by a different Graffiticode language, and the full set is discovered at runtime — the catalog is dynamic. Your job is to route the user's request to the right language and produce a rendered item, not to write code yourself.
 
 ## Prerequisite
 
@@ -15,9 +15,9 @@ The Graffiticode MCP connector must be installed and connected. If `list_languag
 
 Every authoring request follows the same four steps. Do not skip steps 1–2; the catalog changes over time and hardcoding language IDs is wrong.
 
-**1. Discover the QuestionCompiler language set.**
+**1. Discover the assessments language set.**
 
-Call `list_languages(domain: "questioncompiler")`. This returns the current brand members with their `id`, `name`, `description`, and `domains`. Read the descriptions — this is the source of truth.
+Call `list_languages(domain: "assessments")`. This returns the current domain members with their `id`, `name`, `description`, and `domains`. Read the descriptions — this is the source of truth.
 
 **2. Pick the best match by shape of request.**
 
@@ -67,8 +67,8 @@ Don't re-parse `data` to describe what changed; the backend already wrote the su
 ## Guardrails
 
 - **Never write Graffiticode DSL directly.** The backend generates code from natural-language descriptions. If you catch yourself composing `L0158` code, stop and use `create_item`/`update_item` instead.
-- **Never hardcode language IDs in your reasoning.** Call `list_languages(domain: "questioncompiler")` every session; memorized IDs go stale.
+- **Never hardcode language IDs in your reasoning.** Call `list_languages(domain: "assessments")` every session; memorized IDs go stale.
 - **Do not invent languages.** If no returned language matches, say so — don't guess an ID.
-- **Prefer brand-scoped discovery.** When the user is clearly in an assessment context, scope `list_languages` by `domain: "questioncompiler"` rather than searching the whole catalog — it's faster and reduces wrong-language picks.
-- **Defer to `questioncompiler-learnosity` when appropriate.** If the user names Learnosity or describes authoring for a Learnosity-integrated LMS / Item Bank / Items API, the `questioncompiler-learnosity` skill (if installed) is the better fit — it is tighter and scoped to the `learnosity` domain. This skill will still handle the request in a pinch, but the dedicated skill is preferred.
+- **Prefer domain-scoped discovery.** When the user is clearly in an assessment context, scope `list_languages` by `domain: "assessments"` rather than searching the whole catalog — it's faster and reduces wrong-language picks.
+- **Defer to `learnosity` when appropriate.** If the user names Learnosity or describes authoring for a Learnosity-integrated LMS / Item Bank / Items API, the `learnosity` skill (if installed) is the better fit — it is tighter and scoped to the `learnosity` domain. This skill will still handle the request in a pinch, but the dedicated skill is preferred.
 - **Respect the conversation.** On follow-up edits, call `update_item` on the existing `item_id`; don't start over unless the user explicitly asks for a new item.
