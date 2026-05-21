@@ -288,7 +288,7 @@ const ABOUT_HTML = `<!DOCTYPE html>
 <p>For agents: call <code>list_languages</code> when a user&rsquo;s request doesn&rsquo;t match a more specific tool you already have. If a language matches, fetch its info and create an item; if nothing matches, this server is the wrong tool.</p>
 
 <h2>Free plan</h2>
-<p>The no-auth path lets a user try the server before creating an account. Items created this way live in an anonymous session namespace. Each tool response includes a <code>preview_url</code> for viewing the item and a <code>claim_url</code> the user can open to move the item into a real Graffiticode account on first sign-in. Claim links are valid for 24 hours.</p>
+<p>The no-auth path lets a user try the server before creating an account. Items created this way live in an anonymous session namespace. Each tool response includes a <code>view_url</code> for viewing the item and a <code>claim_url</code> the user can open to move the item into a real Graffiticode account on first sign-in. Claim links are valid for 24 hours.</p>
 
 <h2>Operator</h2>
 <p>This server is operated by Graffiticode and hosted on Google Cloud Run. Source is available at <a href="https://github.com/graffiticode/graffiticode-mcp-server">github.com/graffiticode/graffiticode-mcp-server</a>.</p>

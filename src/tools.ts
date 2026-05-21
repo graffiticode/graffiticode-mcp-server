@@ -9,7 +9,7 @@ import {
   getLanguageInfo as apiGetLanguageInfo,
   type AuthContext,
   CONSOLE_URL,
-  PREVIEW_URL,
+  APP_URL,
 } from "./api.js";
 import { mintClaimToken } from "./claim-token.js";
 import { WIDGET_RESOURCE_URI, WIDGET_CSP, CLAUDE_WIDGET_RESOURCE_URI } from "./widget/index.js";
@@ -253,13 +253,13 @@ function metaAccessToken(auth: AuthContext): string | undefined {
 async function buildClaimFields(
   auth: AuthContext,
   itemId: string
-): Promise<{ preview_url: string; claim_url: string; claim_message: string } | null> {
+): Promise<{ view_url: string; claim_url: string; claim_message: string } | null> {
   if (auth.type !== "freePlan") return null;
   const token = await mintClaimToken(auth.sessionId);
   if (!token) return null;
   const claim_url = `${CONSOLE_URL}/claim?token=${token}`;
   return {
-    preview_url: `${PREVIEW_URL}/items/${itemId}`,
+    view_url: `${APP_URL}/form/${itemId}`,
     claim_url,
     claim_message: `Your item is ready. To save it permanently, sign in at: ${claim_url}`,
   };
