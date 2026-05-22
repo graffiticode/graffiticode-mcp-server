@@ -144,7 +144,7 @@ export async function handleClientRegistration(
     client_id_issued_at: now,
   };
 
-  oauthStore.registerClient(client);
+  await oauthStore.registerClient(client);
 
   // Return client metadata (RFC 7591 Section 3.2.1)
   sendJson(res, 201, {
@@ -162,10 +162,10 @@ export async function handleClientRegistration(
  * GET /oauth/authorize
  * OAuth 2.1 Authorization Endpoint
  */
-export function handleAuthorize(
+export async function handleAuthorize(
   req: IncomingMessage,
   res: ServerResponse
-): void {
+): Promise<void> {
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
   const params = url.searchParams;
 
@@ -211,7 +211,7 @@ export function handleAuthorize(
   }
 
   // Validate client exists
-  const client = oauthStore.getClient(clientId);
+  const client = await oauthStore.getClient(clientId);
   if (!client) {
     sendError(res, 400, { error: "invalid_client", error_description: "Unknown client_id" });
     return;
@@ -241,7 +241,7 @@ export function handleAuthorize(
   // Also store the client's original state mapped to our internal state
   (pending as any).client_state = state;
 
-  oauthStore.savePendingAuth(pending);
+  await oauthStore.savePendingAuth(pending);
 
   // Build consent page URL
   const consentUrl = new URL("/oauth/consent", CONSOLE_URL);
@@ -256,10 +256,10 @@ export function handleAuthorize(
  * GET /oauth/callback
  * Callback from consent page with Google ID token
  */
-export function handleCallback(
+export async function handleCallback(
   req: IncomingMessage,
   res: ServerResponse
-): void {
+): Promise<void> {
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
   const params = url.searchParams;
 
@@ -270,10 +270,10 @@ export function handleCallback(
 
   // Check for error from consent page
   if (error) {
-    const pending = state ? oauthStore.getPendingAuth(state) : null;
+    const pending = state ? await oauthStore.getPendingAuth(state) : null;
     if (pending) {
       const clientState = (pending as any).client_state;
-      oauthStore.deletePendingAuth(state!);
+      await oauthStore.deletePendingAuth(state!);
 
       const redirectUrl = new URL(pending.redirect_uri);
       redirectUrl.searchParams.set("error", error);
@@ -299,14 +299,14 @@ export function handleCallback(
   }
 
   // Look up pending auth
-  const pending = oauthStore.getPendingAuth(state);
+  const pending = await oauthStore.getPendingAuth(state);
   if (!pending) {
     sendError(res, 400, { error: "invalid_request", error_description: "Invalid or expired state" });
     return;
   }
 
   const clientState = (pending as any).client_state;
-  oauthStore.deletePendingAuth(state);
+  await oauthStore.deletePendingAuth(state);
 
   // Generate authorization code
   const code = generateRandomString(64);
@@ -323,7 +323,7 @@ export function handleCallback(
     used: false,
   };
 
-  oauthStore.saveAuthCode(authCode);
+  await oauthStore.saveAuthCode(authCode);
 
   // Redirect to client with authorization code
   const redirectUrl = new URL(pending.redirect_uri);
@@ -515,7 +515,7 @@ async function handleAuthorizationCodeGrant(
   }
 
   // Look up authorization code
-  const authCode = oauthStore.getAuthCode(code);
+  const authCode = await oauthStore.getAuthCode(code);
   if (!authCode) {
     sendError(res, 400, { error: "invalid_grant", error_description: "Invalid or expired authorization code" });
     return;
@@ -523,14 +523,14 @@ async function handleAuthorizationCodeGrant(
 
   // Check if already used
   if (authCode.used) {
-    oauthStore.deleteAuthCode(code);
+    await oauthStore.deleteAuthCode(code);
     sendError(res, 400, { error: "invalid_grant", error_description: "Authorization code already used" });
     return;
   }
 
   // Check expiration
   if (Date.now() > authCode.expires_at) {
-    oauthStore.deleteAuthCode(code);
+    await oauthStore.deleteAuthCode(code);
     sendError(res, 400, { error: "invalid_grant", error_description: "Authorization code expired" });
     return;
   }
@@ -554,7 +554,7 @@ async function handleAuthorizationCodeGrant(
   }
 
   // Mark code as used
-  oauthStore.markAuthCodeUsed(code);
+  await oauthStore.markAuthCodeUsed(code);
 
   try {
     // Exchange Google ID token for Firebase ID token + refresh token
@@ -563,7 +563,7 @@ async function handleAuthorizationCodeGrant(
     );
 
     // Get client name for token metadata
-    const client = oauthStore.getClient(authCode.client_id);
+    const client = await oauthStore.getClient(authCode.client_id);
     const clientName = client?.client_name || "Unknown";
 
     // Generate tokens
@@ -587,7 +587,7 @@ async function handleAuthorizationCodeGrant(
     await oauthStore.saveToken(providerId, email, tokenEntry);
 
     // Clean up auth code
-    oauthStore.deleteAuthCode(code);
+    await oauthStore.deleteAuthCode(code);
 
     // Return token response
     sendJson(res, 200, {

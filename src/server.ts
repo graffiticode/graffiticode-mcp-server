@@ -573,13 +573,13 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
 
   // Authorization Endpoint
   if (url.pathname === "/oauth/authorize" && req.method === "GET") {
-    handleAuthorize(req, res);
+    await handleAuthorize(req, res);
     return;
   }
 
   // OAuth Callback (from consent page)
   if (url.pathname === "/oauth/callback" && req.method === "GET") {
-    handleCallback(req, res);
+    await handleCallback(req, res);
     return;
   }
 

@@ -1,8 +1,10 @@
 /**
- * Firestore-backed OAuth token storage via auth service API
+ * OAuth storage backed by the auth service API.
  *
- * Uses HTTP calls to the auth service for persistent token storage.
- * Clients, pending auths, and auth codes remain in-memory (short-lived).
+ * All OAuth state — tokens, clients, pending authorizations, and authorization
+ * codes — is persisted via HTTP to the auth service (Firestore). Nothing is
+ * kept in this process's memory, so the flow survives multiple Cloud Run
+ * instances and restarts.
  */
 
 import type {
@@ -15,10 +17,8 @@ import type {
 const AUTH_URL = process.env.GRAFFITICODE_AUTH_URL || "https://auth.graffiticode.org";
 const INTERNAL_API_KEY = process.env.INTERNAL_API_KEY || "";
 
-// Expiration times for in-memory items
+// How long a pending authorization stays valid (used to set its expires_at).
 const PENDING_AUTH_TTL = 10 * 60 * 1000; // 10 minutes
-const AUTH_CODE_TTL = 10 * 60 * 1000; // 10 minutes
-const CLEANUP_INTERVAL = 5 * 60 * 1000; // 5 minutes
 
 /**
  * Make authenticated HTTP request to auth service
@@ -37,65 +37,110 @@ async function authFetch(
 }
 
 export class FirestoreOAuthStore {
-  // In-memory storage for short-lived items (OK to lose on restart)
-  private clients = new Map<string, OAuthClient>();
-  private pendingAuths = new Map<string, PendingAuth>();
-  private authCodes = new Map<string, AuthorizationCode>();
+  // ============ Generic OAuth flow record helpers (auth service) ============
+  // Clients, pending auths, and auth codes are persisted via the auth service
+  // (alongside tokens) so the OAuth flow survives multiple Cloud Run instances
+  // and restarts. Each record is keyed by its natural id in a dedicated
+  // collection: oauth-clients/<client_id>, oauth-pending/<state>,
+  // oauth-codes/<code>. The auth service wraps the record as { data: { record } }.
 
-  private cleanupTimer: NodeJS.Timeout | null = null;
-
-  constructor() {
-    // Start periodic cleanup for in-memory items
-    this.cleanupTimer = setInterval(() => this.cleanupExpired(), CLEANUP_INTERVAL);
-  }
-
-  // ==================== Client methods (in-memory) ====================
-
-  registerClient(client: OAuthClient): void {
-    this.clients.set(client.client_id, client);
-  }
-
-  getClient(clientId: string): OAuthClient | undefined {
-    return this.clients.get(clientId);
-  }
-
-  deleteClient(clientId: string): boolean {
-    return this.clients.delete(clientId);
-  }
-
-  // ==================== Pending auth methods (in-memory) ====================
-
-  savePendingAuth(pending: PendingAuth): void {
-    this.pendingAuths.set(pending.state, pending);
-  }
-
-  getPendingAuth(state: string): PendingAuth | undefined {
-    return this.pendingAuths.get(state);
-  }
-
-  deletePendingAuth(state: string): void {
-    this.pendingAuths.delete(state);
-  }
-
-  // ==================== Authorization code methods (in-memory) ====================
-
-  saveAuthCode(authCode: AuthorizationCode): void {
-    this.authCodes.set(authCode.code, authCode);
-  }
-
-  getAuthCode(code: string): AuthorizationCode | undefined {
-    return this.authCodes.get(code);
-  }
-
-  markAuthCodeUsed(code: string): void {
-    const authCode = this.authCodes.get(code);
-    if (authCode) {
-      authCode.used = true;
+  private async putFlowRecord(collection: string, key: string, record: unknown): Promise<void> {
+    const response = await authFetch(
+      `${AUTH_URL}/${collection}/${encodeURIComponent(key)}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(record),
+      }
+    );
+    if (!response.ok) {
+      throw new Error(`Failed to save ${collection} record: ${await response.text()}`);
     }
   }
 
-  deleteAuthCode(code: string): void {
-    this.authCodes.delete(code);
+  private async getFlowRecord<T>(collection: string, key: string): Promise<T | undefined> {
+    const response = await authFetch(`${AUTH_URL}/${collection}/${encodeURIComponent(key)}`);
+    if (!response.ok) {
+      if (response.status === 404) return undefined;
+      throw new Error(`Failed to get ${collection} record: ${await response.text()}`);
+    }
+    const data = await response.json() as { data?: { record?: T } };
+    return data.data?.record;
+  }
+
+  private async patchFlowRecord(collection: string, key: string, updates: unknown): Promise<void> {
+    const response = await authFetch(
+      `${AUTH_URL}/${collection}/${encodeURIComponent(key)}`,
+      {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify(updates),
+      }
+    );
+    // 404 is acceptable — the record may already be gone.
+    if (!response.ok && response.status !== 404) {
+      throw new Error(`Failed to update ${collection} record: ${await response.text()}`);
+    }
+  }
+
+  private async deleteFlowRecord(collection: string, key: string): Promise<void> {
+    const response = await authFetch(
+      `${AUTH_URL}/${collection}/${encodeURIComponent(key)}`,
+      { method: "DELETE" }
+    );
+    if (!response.ok && response.status !== 404) {
+      throw new Error(`Failed to delete ${collection} record: ${await response.text()}`);
+    }
+  }
+
+  // ==================== Client methods (persisted) ====================
+
+  async registerClient(client: OAuthClient): Promise<void> {
+    await this.putFlowRecord("oauth-clients", client.client_id, client);
+  }
+
+  async getClient(clientId: string): Promise<OAuthClient | undefined> {
+    return this.getFlowRecord<OAuthClient>("oauth-clients", clientId);
+  }
+
+  async deleteClient(clientId: string): Promise<void> {
+    await this.deleteFlowRecord("oauth-clients", clientId);
+  }
+
+  // ==================== Pending auth methods (persisted) ====================
+
+  async savePendingAuth(pending: PendingAuth): Promise<void> {
+    await this.putFlowRecord("oauth-pending", pending.state, {
+      ...pending,
+      expires_at: Date.now() + PENDING_AUTH_TTL,
+    });
+  }
+
+  async getPendingAuth(state: string): Promise<PendingAuth | undefined> {
+    return this.getFlowRecord<PendingAuth>("oauth-pending", state);
+  }
+
+  async deletePendingAuth(state: string): Promise<void> {
+    await this.deleteFlowRecord("oauth-pending", state);
+  }
+
+  // ==================== Authorization code methods (persisted) ====================
+
+  async saveAuthCode(authCode: AuthorizationCode): Promise<void> {
+    // authCode.expires_at is set by the caller; the store honors it for lazy expiry.
+    await this.putFlowRecord("oauth-codes", authCode.code, authCode);
+  }
+
+  async getAuthCode(code: string): Promise<AuthorizationCode | undefined> {
+    return this.getFlowRecord<AuthorizationCode>("oauth-codes", code);
+  }
+
+  async markAuthCodeUsed(code: string): Promise<void> {
+    await this.patchFlowRecord("oauth-codes", code, { used: true });
+  }
+
+  async deleteAuthCode(code: string): Promise<void> {
+    await this.deleteFlowRecord("oauth-codes", code);
   }
 
   // ==================== Token methods (Firestore via auth service) ====================
@@ -259,37 +304,11 @@ export class FirestoreOAuthStore {
     };
   }
 
-  // ==================== Cleanup ====================
-
-  /**
-   * Cleanup expired in-memory entries only.
-   * Token cleanup is handled by Firestore TTL or manual deletion.
-   */
-  cleanupExpired(): void {
-    const now = Date.now();
-
-    // Cleanup expired pending auths
-    for (const [state, pending] of this.pendingAuths) {
-      if (now - pending.created_at > PENDING_AUTH_TTL) {
-        this.pendingAuths.delete(state);
-      }
-    }
-
-    // Cleanup expired auth codes
-    for (const [code, authCode] of this.authCodes) {
-      if (now > authCode.expires_at || authCode.used) {
-        this.authCodes.delete(code);
-      }
-    }
-  }
-
   // ==================== Shutdown ====================
 
   shutdown(): void {
-    if (this.cleanupTimer) {
-      clearInterval(this.cleanupTimer);
-      this.cleanupTimer = null;
-    }
+    // No in-process timers to clear; OAuth flow records expire in Firestore
+    // (lazy expiry on read, plus an optional Firestore TTL policy on expires_at).
   }
 }
 
