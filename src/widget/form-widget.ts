@@ -30,6 +30,27 @@ export function generateFormWidgetHtml(): string {
       height: 200px;
       color: #6b7280;
     }
+    .card {
+      padding: 28px 24px;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      text-align: center;
+      background: #f9fafb;
+    }
+    .card-title { font-size: 16px; font-weight: 600; color: #111827; }
+    .card-text { margin-top: 6px; font-size: 14px; color: #6b7280; }
+    .card-actions { margin-top: 18px; }
+    .btn {
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 10px 18px;
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      background: #2563eb;
+    }
+    .btn:hover { background: #1d4ed8; }
   </style>
 </head>
 <body>
@@ -87,10 +108,35 @@ export function generateFormWidgetHtml(): string {
         // Get _meta (widget-only data) — carries the server-built form_url
         var meta = window.openai.toolResponseMetadata || toolOutput._meta || {};
         var formUrl = meta.form_url;
+        var sc = toolOutput.structuredContent || toolOutput;
 
         if (!formUrl) {
-          contentEl.innerHTML = '<div class="error">Unable to load form. Missing form URL.</div>';
+          // Free-plan / non-renderable: show a claim CTA instead of a blank iframe.
+          var claimUrl = sc.claim_url;
+          var viewUrl = sc.view_url;
+          var link = claimUrl || viewUrl;
+          var btnLabel = claimUrl ? 'Sign in to view & save' : 'Open in Graffiticode';
+          var msg = claimUrl
+            ? 'Sign in to view it and save it to your account.'
+            : 'Open it in Graffiticode to view.';
+          var html = '<div class="card"><div class="card-title">Your item is ready</div>'
+            + '<div class="card-text">' + msg + '</div>';
+          if (link) {
+            html += '<div class="card-actions"><button class="btn" id="gc-open">' + btnLabel + '</button></div>';
+          }
+          html += '</div>';
+          contentEl.innerHTML = html;
           contentEl.className = '';
+          var openBtn = document.getElementById('gc-open');
+          if (openBtn && link) {
+            openBtn.addEventListener('click', function() {
+              if (window.openai.openExternal) {
+                window.openai.openExternal({ href: link });
+              } else {
+                window.open(link, '_blank', 'noopener');
+              }
+            });
+          }
           return;
         }
 

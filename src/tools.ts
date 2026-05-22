@@ -251,22 +251,30 @@ export interface ToolContext {
 }
 
 // Build the URL the inline widget embeds in its iframe to render the item.
-// Returned in tool-result `_meta` (widget-only, hidden from the model) so the
-// widgets don't reason about auth themselves:
-//   - firebase: token-authenticated /form endpoint on the API host, addressed
-//     by taskId (cross-origin friendly inside the host iframe).
-//   - freePlan: the public app view page, addressed by itemId. Relies on the
-//     app serving session-scoped trial items without a Firebase token.
+// Returned in tool-result `_meta` (widget-only, hidden from the model) when the
+// item can actually be rendered remotely. Only authenticated (firebase) items
+// qualify: the token-authenticated /form endpoint renders them by taskId.
+//
+// Free-plan items live in a per-session namespace keyed by X-Free-Plan-Session
+// and are NOT readable by id without that session, so there is no URL an
+// auth-less iframe can load — returning undefined makes the widget fall back to
+// the claim CTA (see view_url/claim_url in the response) instead of a blank
+// iframe.
 function buildFormUrl(
   auth: AuthContext,
-  opts: { lang: string | number; taskId: string | null; itemId: string }
+  opts: { lang: string | number; taskId: string | null }
 ): string | undefined {
-  const { lang, taskId, itemId } = opts;
-  if (auth.type === "firebase") {
-    if (!taskId) return undefined;
-    const langId = String(lang).replace(/^L/i, "");
-    return `${API_URL}/form?lang=${langId}&id=${encodeURIComponent(taskId)}&access_token=${encodeURIComponent(auth.token)}`;
-  }
+  if (auth.type !== "firebase") return undefined;
+  const { lang, taskId } = opts;
+  if (!taskId) return undefined;
+  const langId = String(lang).replace(/^L/i, "");
+  return `${API_URL}/form?lang=${langId}&id=${encodeURIComponent(taskId)}&access_token=${encodeURIComponent(auth.token)}`;
+}
+
+// The app's view page for an item, opened in a full browser tab (where a
+// signed-in user has a session). Surfaced as `view_url` for the widget's
+// "Open in Graffiticode" link.
+function buildViewUrl(itemId: string): string {
   return `${APP_URL}/form/${itemId}`;
 }
 
@@ -274,15 +282,13 @@ function buildFormUrl(
 // console's /claim page consumes. Returns null when not a free-plan call or
 // when FREE_PLAN_NAMESPACE_SALT isn't configured (graceful degrade).
 async function buildClaimFields(
-  auth: AuthContext,
-  itemId: string
-): Promise<{ view_url: string; claim_url: string; claim_message: string } | null> {
+  auth: AuthContext
+): Promise<{ claim_url: string; claim_message: string } | null> {
   if (auth.type !== "freePlan") return null;
   const token = await mintClaimToken(auth.sessionId);
   if (!token) return null;
   const claim_url = `${CONSOLE_URL}/claim?token=${token}`;
   return {
-    view_url: `${APP_URL}/form/${itemId}`,
     claim_url,
     claim_message: `Your item is ready. To save it permanently, sign in at: ${claim_url}`,
   };
@@ -363,7 +369,8 @@ export async function handleUpdateItem(
       updated: existingItem.updated,
       hint: generated.errors.map(e => e.message).join("\n"),
     };
-    const claimFields = await buildClaimFields(ctx.auth, item_id);
+    result.view_url = buildViewUrl(item_id);
+    const claimFields = await buildClaimFields(ctx.auth);
     if (claimFields) Object.assign(result, claimFields);
     // No taskId on a generation error, so there is nothing to render inline.
     return result;
@@ -413,12 +420,12 @@ export async function handleUpdateItem(
     created: updatedItem.created,
     updated: updatedItem.updated,
   };
-  const claimFields = await buildClaimFields(ctx.auth, updatedItem.id);
+  response.view_url = buildViewUrl(updatedItem.id);
+  const claimFields = await buildClaimFields(ctx.auth);
   if (claimFields) Object.assign(response, claimFields);
   const formUrl = buildFormUrl(ctx.auth, {
     lang: updatedItem.lang,
     taskId: generated.taskId,
-    itemId: updatedItem.id,
   });
   if (formUrl) response._meta = { form_url: formUrl };
   return response;
@@ -454,10 +461,12 @@ export async function handleGetItem(
     created: item.created,
     updated: item.updated,
   };
+  response.view_url = buildViewUrl(item.id);
+  const claimFields = await buildClaimFields(ctx.auth);
+  if (claimFields) Object.assign(response, claimFields);
   const formUrl = buildFormUrl(ctx.auth, {
     lang: item.lang,
     taskId: item.taskId,
-    itemId: item.id,
   });
   if (formUrl) response._meta = { form_url: formUrl };
   return response;

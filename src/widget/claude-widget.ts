@@ -63,6 +63,45 @@ export function generateClaudeWidgetHtml(): string {
       color: #6b7280;
     }
     body.dark .loading { color: #9ca3af; }
+    .card {
+      padding: 28px 24px;
+      border: 1px solid #e5e7eb;
+      border-radius: 12px;
+      text-align: center;
+      background: #f9fafb;
+    }
+    body.dark .card { border-color: #374151; background: #111827; }
+    .card-title { font-size: 16px; font-weight: 600; color: #111827; }
+    body.dark .card-title { color: #f9fafb; }
+    .card-text { margin-top: 6px; font-size: 14px; color: #6b7280; }
+    body.dark .card-text { color: #9ca3af; }
+    .card-actions { margin-top: 18px; }
+    .btn {
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      padding: 10px 18px;
+      border: none;
+      border-radius: 8px;
+      color: #fff;
+      background: #2563eb;
+    }
+    .btn:hover { background: #1d4ed8; }
+    .footer-link {
+      display: block;
+      width: 100%;
+      margin-top: 8px;
+      font: inherit;
+      font-size: 13px;
+      cursor: pointer;
+      padding: 6px;
+      border: none;
+      background: none;
+      color: #2563eb;
+      text-align: center;
+    }
+    .footer-link:hover { text-decoration: underline; }
+    body.dark .footer-link { color: #60a5fa; }
   </style>
 </head>
 <body>
