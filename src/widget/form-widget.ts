@@ -2,7 +2,7 @@
  * Skybridge widget HTML generator for Graffiticode forms
  *
  * Generates HTML that ChatGPT renders as an interactive Skybridge widget.
- * Embeds an iframe pointing to api.graffiticode.org/form endpoint.
+ * Embeds an iframe pointing to the server-built `_meta.form_url`.
  */
 
 export function generateFormWidgetHtml(): string {
@@ -84,26 +84,15 @@ export function generateFormWidgetHtml(): string {
           return;
         }
 
-        // Get _meta (widget-only data)
+        // Get _meta (widget-only data) — carries the server-built form_url
         var meta = window.openai.toolResponseMetadata || toolOutput._meta || {};
+        var formUrl = meta.form_url;
 
-        // Extract data
-        var data = toolOutput.structuredContent || toolOutput;
-        var language = data.language;
-        var taskId = data.task_id;
-        var accessToken = meta.access_token || data.access_token;
-
-        // Extract language ID (remove "L" prefix if present)
-        var langId = language ? language.replace(/^L/i, '') : '';
-
-        if (!langId || !taskId || !accessToken) {
-          contentEl.innerHTML = '<div class="error">Unable to load form. Missing required data.</div>';
+        if (!formUrl) {
+          contentEl.innerHTML = '<div class="error">Unable to load form. Missing form URL.</div>';
           contentEl.className = '';
           return;
         }
-
-        // Build form URL with access token
-        var formUrl = 'https://api.graffiticode.org/form?lang=' + langId + '&id=' + encodeURIComponent(taskId) + '&access_token=' + encodeURIComponent(accessToken);
 
         // Create and insert iframe
         var iframe = document.createElement('iframe');

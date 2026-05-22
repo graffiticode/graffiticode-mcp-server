@@ -5,7 +5,8 @@
   "type": "module",
   "main": "dist/server.js",
   "scripts": {
-    "build": "tsc",
+    "build": "tsc && node scripts/build-widget.mjs",
+    "build:widget": "node scripts/build-widget.mjs",
     "clean": "rimraf dist",
     "start": "node dist/server.js",
     "gcp:build": "gcloud builds submit --project graffiticode-app --config cloudbuild.yaml --substitutions=COMMIT_SHA=$(git rev-parse --short HEAD 2>/dev/null || echo 'latest')",
@@ -13,11 +14,13 @@
     "gcp:logs": "gcloud run services logs read mcp-service --project graffiticode-app --region us-central1"
   },
   "dependencies": {
+    "@modelcontextprotocol/ext-apps": "^1.7.2",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "jose": "^4.15.9"
   },
   "devDependencies": {
     "@types/node": "^20.10.0",
+    "esbuild": "^0.25.12",
     "rimraf": "^5.0.5",
     "typescript": "^5.3.3"
   },

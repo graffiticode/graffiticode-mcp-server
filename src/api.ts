@@ -3,7 +3,10 @@
  */
 
 const CONSOLE_API_URL = process.env.GRAFFITICODE_CONSOLE_URL || "https://console.graffiticode.org/api";
-const GC_API_URL = process.env.GRAFFITICODE_API_URL || "https://api.graffiticode.org";
+
+// Graffiticode API host. Serves language templates and the `/form` render
+// endpoint embedded by the inline widgets (token-authenticated).
+export const API_URL = process.env.GRAFFITICODE_API_URL || "https://api.graffiticode.org";
 
 // Bare-host URLs used to construct user-facing links (claim_url, view_url)
 // surfaced on trial-mode tool responses. Distinct from CONSOLE_API_URL above,
@@ -450,7 +453,7 @@ export async function getLanguageInfo(options: {
 export async function getTemplate(language: string): Promise<string | null> {
   const langId = language.replace(/^L/i, "");
   try {
-    const response = await fetch(`${GC_API_URL}/L${langId}/template.gc`);
+    const response = await fetch(`${API_URL}/L${langId}/template.gc`);
     if (!response.ok) return null;
     const text = await response.text();
     return text || null;

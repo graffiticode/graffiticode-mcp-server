@@ -37,6 +37,7 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { tools, handleToolCall, SERVER_INSTRUCTIONS } from "./tools.js";
 import type { AuthContext } from "./api.js";
+import { EXTENSION_ID, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import {
   generateFormWidgetHtml,
   generateClaudeWidgetHtml,
@@ -44,6 +45,7 @@ import {
   WIDGET_MIME_TYPE,
   CLAUDE_WIDGET_RESOURCE_URI,
   CLAUDE_WIDGET_MIME_TYPE,
+  CLAUDE_WIDGET_CSP,
 } from "./widget/index.js";
 import {
   handleProtectedResourceMetadata,
@@ -353,7 +355,12 @@ function createMcpServer(authProvider: AuthProvider) {
       capabilities: {
         tools: {},
         resources: {},
-      },
+        // Advertise MCP Apps (interactive UI) support. `extensions` is not yet
+        // in the SDK's ServerCapabilities type (pending SEP-1724), so cast.
+        extensions: {
+          [EXTENSION_ID]: { mimeTypes: [RESOURCE_MIME_TYPE] },
+        },
+      } as Record<string, unknown>,
       instructions: SERVER_INSTRUCTIONS,
     }
   );
@@ -427,6 +434,7 @@ function createMcpServer(authProvider: AuthProvider) {
           name: "Graffiticode Form Widget (Claude)",
           mimeType: CLAUDE_WIDGET_MIME_TYPE,
           description: "Interactive form widget for Claude",
+          _meta: { ui: { csp: CLAUDE_WIDGET_CSP } },
         },
       ],
     };
@@ -462,6 +470,7 @@ function createMcpServer(authProvider: AuthProvider) {
             uri: CLAUDE_WIDGET_RESOURCE_URI,
             mimeType: CLAUDE_WIDGET_MIME_TYPE,
             text: generateClaudeWidgetHtml(),
+            _meta: { ui: { csp: CLAUDE_WIDGET_CSP } },
           },
         ],
       };

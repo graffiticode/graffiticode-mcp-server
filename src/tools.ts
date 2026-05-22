@@ -10,6 +10,7 @@ import {
   type AuthContext,
   CONSOLE_URL,
   APP_URL,
+  API_URL,
 } from "./api.js";
 import { mintClaimToken } from "./claim-token.js";
 import { WIDGET_RESOURCE_URI, WIDGET_CSP, CLAUDE_WIDGET_RESOURCE_URI } from "./widget/index.js";
@@ -108,8 +109,10 @@ Returns item_id for use in subsequent update_item or get_item calls.`,
     // ChatGPT Apps metadata
     "openai/outputTemplate": WIDGET_RESOURCE_URI,
     "openai/widgetCSP": WIDGET_CSP,
-    // Claude MCP Apps metadata
+    // Claude / MCP Apps metadata: nested key is preferred; flat key is the
+    // deprecated alias older hosts read.
     ui: { resourceUri: CLAUDE_WIDGET_RESOURCE_URI },
+    "ui/resourceUri": CLAUDE_WIDGET_RESOURCE_URI,
   },
 } as const;
 
@@ -142,8 +145,10 @@ The language is auto-detected from the item. Conversation history is preserved, 
     // ChatGPT Apps metadata
     "openai/outputTemplate": WIDGET_RESOURCE_URI,
     "openai/widgetCSP": WIDGET_CSP,
-    // Claude MCP Apps metadata
+    // Claude / MCP Apps metadata: nested key is preferred; flat key is the
+    // deprecated alias older hosts read.
     ui: { resourceUri: CLAUDE_WIDGET_RESOURCE_URI },
+    "ui/resourceUri": CLAUDE_WIDGET_RESOURCE_URI,
   },
 } as const;
 
@@ -172,8 +177,10 @@ Returns the item's data, code, and metadata.`,
     // ChatGPT Apps metadata
     "openai/outputTemplate": WIDGET_RESOURCE_URI,
     "openai/widgetCSP": WIDGET_CSP,
-    // Claude MCP Apps metadata
+    // Claude / MCP Apps metadata: nested key is preferred; flat key is the
+    // deprecated alias older hosts read.
     ui: { resourceUri: CLAUDE_WIDGET_RESOURCE_URI },
+    "ui/resourceUri": CLAUDE_WIDGET_RESOURCE_URI,
   },
 } as const;
 
@@ -243,8 +250,24 @@ export interface ToolContext {
   auth: AuthContext;
 }
 
-function metaAccessToken(auth: AuthContext): string | undefined {
-  return auth.type === "firebase" ? auth.token : undefined;
+// Build the URL the inline widget embeds in its iframe to render the item.
+// Returned in tool-result `_meta` (widget-only, hidden from the model) so the
+// widgets don't reason about auth themselves:
+//   - firebase: token-authenticated /form endpoint on the API host, addressed
+//     by taskId (cross-origin friendly inside the host iframe).
+//   - freePlan: the public app view page, addressed by itemId. Relies on the
+//     app serving session-scoped trial items without a Firebase token.
+function buildFormUrl(
+  auth: AuthContext,
+  opts: { lang: string | number; taskId: string | null; itemId: string }
+): string | undefined {
+  const { lang, taskId, itemId } = opts;
+  if (auth.type === "firebase") {
+    if (!taskId) return undefined;
+    const langId = String(lang).replace(/^L/i, "");
+    return `${API_URL}/form?lang=${langId}&id=${encodeURIComponent(taskId)}&access_token=${encodeURIComponent(auth.token)}`;
+  }
+  return `${APP_URL}/form/${itemId}`;
 }
 
 // For trial-mode responses, mint a 24h JWT and return the three claim fields the
@@ -342,8 +365,7 @@ export async function handleUpdateItem(
     };
     const claimFields = await buildClaimFields(ctx.auth, item_id);
     if (claimFields) Object.assign(result, claimFields);
-    const tok = metaAccessToken(ctx.auth);
-    if (tok) result._meta = { access_token: tok };
+    // No taskId on a generation error, so there is nothing to render inline.
     return result;
   }
 
@@ -393,8 +415,12 @@ export async function handleUpdateItem(
   };
   const claimFields = await buildClaimFields(ctx.auth, updatedItem.id);
   if (claimFields) Object.assign(response, claimFields);
-  const tok = metaAccessToken(ctx.auth);
-  if (tok) response._meta = { access_token: tok };
+  const formUrl = buildFormUrl(ctx.auth, {
+    lang: updatedItem.lang,
+    taskId: generated.taskId,
+    itemId: updatedItem.id,
+  });
+  if (formUrl) response._meta = { form_url: formUrl };
   return response;
 }
 
@@ -428,8 +454,12 @@ export async function handleGetItem(
     created: item.created,
     updated: item.updated,
   };
-  const tok = metaAccessToken(ctx.auth);
-  if (tok) response._meta = { access_token: tok };
+  const formUrl = buildFormUrl(ctx.auth, {
+    lang: item.lang,
+    taskId: item.taskId,
+    itemId: item.id,
+  });
+  if (formUrl) response._meta = { form_url: formUrl };
   return response;
 }
 

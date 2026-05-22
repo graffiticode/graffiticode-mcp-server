@@ -1,12 +1,41 @@
 /**
- * Claude MCP Apps widget HTML generator for Graffiticode forms
+ * Claude / MCP Apps widget HTML generator for Graffiticode forms.
  *
- * Generates HTML that Claude renders as an interactive MCP App widget.
- * Uses postMessage protocol for communication with Claude host.
- * Embeds an iframe pointing to api.graffiticode.org/form endpoint.
+ * Returns a single self-contained HTML document served as the
+ * `text/html;profile=mcp-app` resource. The interactive logic lives in
+ * `browser/claude-app.ts`, bundled to a single IIFE by
+ * `scripts/build-widget.mjs` (run as part of `npm run build`) and inlined here.
+ *
+ * The bundled script uses the ext-apps `App` class to talk to the host over the
+ * standard MCP Apps JSON-RPC/postMessage bridge, reads `_meta.form_url` from the
+ * tool result, and embeds the rendered form in an iframe.
  */
+import { readFileSync } from "node:fs";
+import { fileURLToPath } from "node:url";
+
+// Resolved relative to the compiled module (dist/widget/claude-widget.js); the
+// esbuild step writes the bundle next to it at dist/widget/claude-app.bundle.js.
+const BUNDLE_URL = new URL("./claude-app.bundle.js", import.meta.url);
+
+let cachedScript: string | null = null;
+
+function loadBundle(): string {
+  if (cachedScript === null) {
+    try {
+      cachedScript = readFileSync(fileURLToPath(BUNDLE_URL), "utf8");
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      throw new Error(
+        `Claude widget bundle not found at ${BUNDLE_URL.href}. ` +
+          `Run "npm run build" to generate it. (${message})`
+      );
+    }
+  }
+  return cachedScript;
+}
 
 export function generateClaudeWidgetHtml(): string {
+  const script = loadBundle();
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -25,10 +54,7 @@ export function generateClaudeWidgetHtml(): string {
       border-radius: 8px;
       text-align: center;
     }
-    body.dark .error {
-      color: #fca5a5;
-      background: #450a0a;
-    }
+    body.dark .error { color: #fca5a5; background: #450a0a; }
     .loading {
       display: flex;
       align-items: center;
@@ -36,103 +62,14 @@ export function generateClaudeWidgetHtml(): string {
       height: 200px;
       color: #6b7280;
     }
-    body.dark .loading {
-      color: #9ca3af;
-    }
+    body.dark .loading { color: #9ca3af; }
   </style>
 </head>
 <body>
   <div class="container">
     <div id="content" class="loading">Loading form...</div>
   </div>
-
-  <script>
-    (function() {
-      var contentEl = document.getElementById('content');
-      var initialized = false;
-
-      function renderWidget(toolOutput) {
-        if (initialized) return;
-        initialized = true;
-
-        // Get _meta (widget-only data)
-        var meta = toolOutput._meta || {};
-
-        // Extract data from structuredContent or directly from toolOutput
-        var data = toolOutput.structuredContent || toolOutput;
-        var language = data.language;
-        var taskId = data.task_id;
-        var accessToken = meta.access_token || data.access_token;
-
-        // Extract language ID (remove "L" prefix if present)
-        var langId = language ? language.replace(/^L/i, '') : '';
-
-        if (!langId || !taskId || !accessToken) {
-          contentEl.innerHTML = '<div class="error">Unable to load form. Missing required data.</div>';
-          contentEl.className = '';
-          return;
-        }
-
-        // Build form URL with access token
-        var formUrl = 'https://api.graffiticode.org/form?lang=' + langId + '&id=' + encodeURIComponent(taskId) + '&access_token=' + encodeURIComponent(accessToken);
-
-        // Create and insert iframe
-        var iframe = document.createElement('iframe');
-        iframe.src = formUrl;
-        iframe.allow = 'clipboard-read; clipboard-write';
-
-        contentEl.innerHTML = '';
-        contentEl.className = '';
-        contentEl.appendChild(iframe);
-
-        // Send resize notification to Claude host
-        window.parent.postMessage({
-          jsonrpc: '2.0',
-          method: 'ui/resize',
-          params: { height: 650 }
-        }, '*');
-
-        // Listen for messages from the form iframe
-        window.addEventListener('message', function(event) {
-          if (event.origin === 'https://api.graffiticode.org') {
-            if (event.data && event.data.type === 'data-updated') {
-              // Could notify Claude of state changes if needed
-            }
-          }
-        });
-      }
-
-      function updateTheme(theme) {
-        if (theme === 'dark') {
-          document.body.classList.add('dark');
-        } else {
-          document.body.classList.remove('dark');
-        }
-      }
-
-      // Listen for MCP Apps messages from Claude host
-      window.addEventListener('message', function(event) {
-        var msg = event.data;
-
-        // Only handle JSON-RPC 2.0 messages
-        if (!msg || msg.jsonrpc !== '2.0') return;
-
-        if (msg.method === 'ui/initialize') {
-          // msg.params contains { toolOutput, toolInput }
-          if (msg.params && msg.params.toolOutput) {
-            renderWidget(msg.params.toolOutput);
-          }
-        }
-
-        if (msg.method === 'ui/theme') {
-          // msg.params contains { theme: 'light' | 'dark' }
-          if (msg.params && msg.params.theme) {
-            updateTheme(msg.params.theme);
-          }
-        }
-      });
-    })();
-  </script>
+  <script>${script}</script>
 </body>
 </html>`;
 }
