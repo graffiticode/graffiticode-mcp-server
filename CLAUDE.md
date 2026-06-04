@@ -42,6 +42,7 @@ This is a thin-router MCP server for Graffiticode. It provides a fixed set of la
 - **`src/auth.ts`** - Firebase auth: API key → custom token → ID token. Tokens cached 55 min.
 - **`src/api.ts`** - GraphQL client for Graffiticode API. All language discovery and code generation is backend-driven.
 - **`src/tools.ts`** - MCP tool definitions and handlers. Routes requests to backend based on language parameter.
+- **`src/resources.ts`** - MCP resource handlers: per-language user guides, and **agent skills** discovered at request time from the public `graffiticode-skills` GitHub repo (each top-level dir = one skill `<id>/SKILL.md`, exposed as `graffiticode://skills/<id>`). Catalog is fetched via the GitHub contents API + raw content, cached ~60s (stale-while-revalidate). Adding a skill to that repo surfaces it with no rebuild/redeploy; nothing is vendored into this repo.
 - **`src/oauth/`** - OAuth 2.1 + PKCE for hosted mode: dynamic client registration, authorize/callback/token endpoints, Firestore-backed store. Hosted auth accepts either an OAuth access token or a raw Graffiticode API key as the Bearer credential.
 - **`src/widget/`** - Inline-rendering widgets exposed as MCP resources and linked from tool `_meta` (`openai/outputTemplate` for ChatGPT Apps; nested `ui.resourceUri` + legacy `ui/resourceUri` for the official MCP Apps standard, mimeType `text/html;profile=mcp-app`). When the result carries `_meta.form_url` the widget embeds it in an iframe; otherwise it shows a claim-CTA card (see below).
   - `claude-widget.ts` generates the MCP Apps HTML; the interactive logic is `browser/claude-app.ts`, which uses the ext-apps `App` class (JSON-RPC/postMessage `ui/initialize` handshake, `ontoolresult`, host-context theme, auto-resize). `browser/` is excluded from `tsc` and bundled to `dist/widget/claude-app.bundle.js` by `scripts/build-widget.mjs` (esbuild), then inlined into the resource HTML at runtime.
@@ -72,6 +73,9 @@ This is a thin-router MCP server for Graffiticode. It provides a fixed set of la
 - `GRAFFITICODE_API_URL` - Graffiticode API host. Serves language templates and the token-authenticated `/form` render endpoint the inline widget embeds for signed-in users (default: `https://api.graffiticode.org`).
 - `GRAFFITICODE_APP_URL` - App host used to build user-facing item view links (`/form/<id>`) (default: `https://app.graffiticode.org`).
 - `GRAFFITICODE_AUTH_URL` - Auth endpoint (default: `https://auth.graffiticode.org`).
+- `GRAFFITICODE_SKILLS_REPO` - Public GitHub repo (`owner/name`) discovered at request time to serve agent skills as MCP resources (default: `graffiticode/graffiticode-skills`).
+- `GRAFFITICODE_SKILLS_REF` - Git ref/branch for skill discovery (default: `main`).
+- `GRAFFITICODE_SKILLS_TTL_MS` - Skill catalog cache TTL in ms (default: `60000`).
 - `FREE_PLAN_NAMESPACE_SALT` - Shared HS256 secret used to mint trial-claim JWTs. **Must be the identical value the console deploys with** — both come from the same Secret Manager entry populated by the console's `scripts/set-free-plan-secrets.sh`. Mount on Cloud Run with `gcloud run services update mcp-service --update-secrets=FREE_PLAN_NAMESPACE_SALT=FREE_PLAN_NAMESPACE_SALT:latest`. If unset, trial responses still succeed but omit `claim_url`/`claim_message` (single warning logged at startup).
 - `PORT` - HTTP server port (default: 3001).
 

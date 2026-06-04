@@ -60,6 +60,9 @@ import {
   userGuideResourceTemplate,
   matchUserGuideUri,
   readUserGuideResource,
+  listSkillResources,
+  matchSkillUri,
+  readSkillResource,
 } from "./resources.js";
 
 const PORT = parseInt(process.env.PORT || "3001", 10);
@@ -419,25 +422,33 @@ function createMcpServer(authProvider: AuthProvider) {
     }
   });
 
-  // List available resources (widgets for ChatGPT and Claude)
+  // List available resources (widgets for ChatGPT and Claude, plus skills
+  // discovered at request time from the public graffiticode-skills repo).
   server.setRequestHandler(ListResourcesRequestSchema, async () => {
-    return {
-      resources: [
-        {
-          uri: WIDGET_RESOURCE_URI,
-          name: "Graffiticode Form Widget",
-          mimeType: WIDGET_MIME_TYPE,
-          description: "Interactive form widget for ChatGPT",
-        },
-        {
-          uri: CLAUDE_WIDGET_RESOURCE_URI,
-          name: "Graffiticode Form Widget (Claude)",
-          mimeType: CLAUDE_WIDGET_MIME_TYPE,
-          description: "Interactive form widget for Claude",
-          _meta: { ui: { csp: CLAUDE_WIDGET_CSP } },
-        },
-      ],
-    };
+    const resources: Array<Record<string, unknown>> = [
+      {
+        uri: WIDGET_RESOURCE_URI,
+        name: "Graffiticode Form Widget",
+        mimeType: WIDGET_MIME_TYPE,
+        description: "Interactive form widget for ChatGPT",
+      },
+      {
+        uri: CLAUDE_WIDGET_RESOURCE_URI,
+        name: "Graffiticode Form Widget (Claude)",
+        mimeType: CLAUDE_WIDGET_MIME_TYPE,
+        description: "Interactive form widget for Claude",
+        _meta: { ui: { csp: CLAUDE_WIDGET_CSP } },
+      },
+    ];
+    // Skills are best-effort: a GitHub outage must not break resource listing.
+    try {
+      resources.push(...(await listSkillResources()));
+    } catch (err) {
+      console.error(
+        `[skills] list failed: ${(err as Error)?.message ?? err}`,
+      );
+    }
+    return { resources };
   });
 
   // Advertise per-language user-guide resources as a URI template
@@ -474,6 +485,11 @@ function createMcpServer(authProvider: AuthProvider) {
           },
         ],
       };
+    }
+
+    const skillId = matchSkillUri(uri);
+    if (skillId) {
+      return { contents: [await readSkillResource(uri, skillId)] };
     }
 
     const langId = matchUserGuideUri(uri);
