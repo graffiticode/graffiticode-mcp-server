@@ -606,8 +606,10 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     return;
   }
 
-  // Machine-readable MCP discovery document (canonical endpoint + tool set)
-  if (url.pathname === "/mcp.json" || url.pathname === "/.well-known/mcp.json") {
+  // Machine-readable MCP discovery document (canonical endpoint + tool set).
+  // Also served at the host root so `/` is a pointer to the canonical entry
+  // (and a healthy 200 for health checks) rather than a bare 404.
+  if (url.pathname === "/" || url.pathname === "/mcp.json" || url.pathname === "/.well-known/mcp.json") {
     handleMcpDiscovery(res);
     return;
   }
