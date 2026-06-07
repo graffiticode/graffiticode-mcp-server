@@ -314,6 +314,31 @@ const servers = new Map<string, Server>();
 
 const MCP_SERVER_URL = process.env.MCP_SERVER_URL || "https://mcp.graffiticode.org";
 
+// Machine-readable MCP discovery document. Served at both /mcp.json and
+// /.well-known/mcp.json so agents and registries can locate the canonical
+// endpoint and tool set without an authenticated call. Trial tokens are NOT
+// published here — they are scoped per toolset on the toolset subdomains.
+const MCP_DISCOVERY = {
+  mcp_endpoint: `${MCP_SERVER_URL}/mcp`,
+  site: MCP_SERVER_URL,
+  description:
+    "Graffiticode is a universal MCP server of smart tools for AI agents and the people who use them. Each tool is one domain language wrapped by a specialized AI; call list_languages to discover what is available.",
+  tools: ["create_item", "update_item", "get_item", "list_languages", "get_language_info"],
+  product_url: "https://graffiticode.org",
+  console_url: "https://console.graffiticode.org",
+  forum_url: "https://forum.graffiticode.org",
+  github_url: "https://github.com/graffiticode",
+};
+
+function handleMcpDiscovery(res: ServerResponse): void {
+  res.writeHead(200, {
+    "Content-Type": "application/json",
+    "Access-Control-Allow-Origin": "*",
+    "Cache-Control": "public, max-age=300",
+  });
+  res.end(JSON.stringify(MCP_DISCOVERY, null, 2));
+}
+
 function extractBearerToken(req: IncomingMessage): string | null {
   const authHeader = req.headers.authorization;
   if (!authHeader) return null;
@@ -578,6 +603,12 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
   // Authorization Server Metadata (RFC 8414)
   if (url.pathname === "/.well-known/oauth-authorization-server") {
     handleAuthServerMetadata(req, res);
+    return;
+  }
+
+  // Machine-readable MCP discovery document (canonical endpoint + tool set)
+  if (url.pathname === "/mcp.json" || url.pathname === "/.well-known/mcp.json") {
+    handleMcpDiscovery(res);
     return;
   }
 
