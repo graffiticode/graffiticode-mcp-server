@@ -16,6 +16,14 @@ npm run gcp:logs      # View Cloud Run logs
 
 No test suite is configured.
 
+## Testing / debugging
+
+The standard tool for manually testing this server is the **MCP Inspector** —
+the official MCP server testing/debugging app (`npx @modelcontextprotocol/inspector`).
+When the user says "the inspector" or "the MCP test app", they mean this. Point
+it at the running server (`npm run start`, default `http://localhost:3001/mcp`,
+Streamable HTTP transport) to exercise tools, resources, and the MCP Apps widget.
+
 ## Architecture
 
 This is a thin-router MCP server for Graffiticode. It provides a fixed set of language-agnostic tools that route to language-specific backends. The client specifies which language to use; all language expertise lives in the backend.
