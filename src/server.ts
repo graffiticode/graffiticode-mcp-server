@@ -594,8 +594,14 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
 
   // OAuth 2.1 Endpoints
 
-  // Protected Resource Metadata (RFC 9728)
-  if (url.pathname === "/.well-known/oauth-protected-resource") {
+  // Protected Resource Metadata (RFC 9728). Serve both the bare well-known path
+  // and the path-scoped variant: for a resource at `${host}/mcp`, RFC 9728 tells
+  // clients to insert the well-known label before the resource path and request
+  // `/.well-known/oauth-protected-resource/mcp`. Both return identical metadata.
+  if (
+    url.pathname === "/.well-known/oauth-protected-resource" ||
+    url.pathname === "/.well-known/oauth-protected-resource/mcp"
+  ) {
     handleProtectedResourceMetadata(req, res);
     return;
   }
