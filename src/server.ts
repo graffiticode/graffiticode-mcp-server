@@ -533,10 +533,16 @@ function createMcpServer(authProvider: AuthProvider) {
 async function handleRequest(req: IncomingMessage, res: ServerResponse) {
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
 
-  // CORS headers
+  // CORS headers. `mcp-protocol-version` is sent by spec-compliant clients
+  // (2025-06-18+) on every request after initialize; omitting it from the
+  // allow-list makes the preflight fail for browser-based clients (e.g. the MCP
+  // Inspector connecting directly from localhost). `mcp-session-id` must also be
+  // exposed so the browser client can read it off the initialize response —
+  // otherwise the session id is invisible to JS and the next request 404s.
   res.setHeader("Access-Control-Allow-Origin", "*");
   res.setHeader("Access-Control-Allow-Methods", "GET, POST, DELETE, OPTIONS");
-  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Free-Plan-Session, mcp-session-id");
+  res.setHeader("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Free-Plan-Session, mcp-session-id, mcp-protocol-version");
+  res.setHeader("Access-Control-Expose-Headers", "mcp-session-id");
 
   if (req.method === "OPTIONS") {
     res.writeHead(204);
