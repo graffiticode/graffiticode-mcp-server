@@ -251,24 +251,25 @@ export interface ToolContext {
 }
 
 // Build the URL the inline widget embeds in its iframe to render the item.
-// Returned in tool-result `_meta` (widget-only, hidden from the model) when the
-// item can actually be rendered remotely. Only authenticated (firebase) items
-// qualify: the token-authenticated /form endpoint renders them by taskId.
+// Returned in tool-result `_meta` (widget-only, hidden from the model). The
+// API's /form endpoint renders by taskId and derives the language from the task
+// itself, so no `lang` query param is needed.
 //
-// Free-plan items live in a per-session namespace keyed by X-Free-Plan-Session
-// and are NOT readable by id without that session, so there is no URL an
-// auth-less iframe can load — returning undefined makes the widget fall back to
-// the claim CTA (see view_url/claim_url in the response) instead of a blank
-// iframe.
+// - firebase items: pass the access_token so the token-authenticated /form
+//   endpoint can read the owner-scoped task.
+// - free-plan items: the compiled task is created anonymously, so it carries a
+//   public ACL and /form renders it by taskId with no token. (Item-level
+//   session namespacing doesn't apply here — /form keys on the task, not the
+//   item.)
 function buildFormUrl(
   auth: AuthContext,
-  opts: { lang: string | number; taskId: string | null }
+  taskId: string | null
 ): string | undefined {
-  if (auth.type !== "firebase") return undefined;
-  const { lang, taskId } = opts;
   if (!taskId) return undefined;
-  const langId = String(lang).replace(/^L/i, "");
-  return `${API_URL}/form?lang=${langId}&id=${encodeURIComponent(taskId)}&access_token=${encodeURIComponent(auth.token)}`;
+  const base = `${API_URL}/form?id=${encodeURIComponent(taskId)}`;
+  return auth.type === "firebase"
+    ? `${base}&access_token=${encodeURIComponent(auth.token)}`
+    : base;
 }
 
 // The app's view page for an item, opened in a full browser tab (where a
@@ -423,10 +424,7 @@ export async function handleUpdateItem(
   response.view_url = buildViewUrl(updatedItem.id);
   const claimFields = await buildClaimFields(ctx.auth);
   if (claimFields) Object.assign(response, claimFields);
-  const formUrl = buildFormUrl(ctx.auth, {
-    lang: updatedItem.lang,
-    taskId: generated.taskId,
-  });
+  const formUrl = buildFormUrl(ctx.auth, generated.taskId);
   if (formUrl) response._meta = { form_url: formUrl };
   return response;
 }
@@ -464,10 +462,7 @@ export async function handleGetItem(
   response.view_url = buildViewUrl(item.id);
   const claimFields = await buildClaimFields(ctx.auth);
   if (claimFields) Object.assign(response, claimFields);
-  const formUrl = buildFormUrl(ctx.auth, {
-    lang: item.lang,
-    taskId: item.taskId,
-  });
+  const formUrl = buildFormUrl(ctx.auth, item.taskId);
   if (formUrl) response._meta = { form_url: formUrl };
   return response;
 }

@@ -7,11 +7,13 @@
  * context (theme), and auto-reports size changes to the host.
  *
  * Rendering:
- *   - `_meta.form_url` present (authenticated): embed the rendered item in an
- *     iframe, with an "Open in Graffiticode" link below it.
- *   - otherwise (free-plan): the item lives in a session namespace and can't be
- *     rendered by an auth-less iframe, so show a claim CTA card built from
- *     `structuredContent.claim_url` / `claim_message` / `view_url`. Never blank.
+ *   - `_meta.form_url` present: embed the rendered item in an iframe, with a
+ *     footer link below it. Free-plan items render too — their compiled task is
+ *     public by taskId — and get a "Sign in to save" link (claim_url); signed-in
+ *     items get an "Open in Graffiticode" link (view_url).
+ *   - otherwise (e.g. a generation error with no taskId): show a claim CTA card
+ *     built from `structuredContent.claim_url` / `claim_message` / `view_url`.
+ *     Never blank.
  *
  * This file is NOT compiled by `tsc` (excluded in tsconfig). It is bundled to a
  * single IIFE by `scripts/build-widget.mjs` and inlined into the resource HTML
@@ -48,14 +50,24 @@ function linkButton(label: string, url: string, className: string): HTMLButtonEl
   return btn;
 }
 
-function renderIframe(formUrl: string, viewUrl?: string): void {
+function renderIframe(formUrl: string, sc: Record<string, unknown>): void {
   const iframe = document.createElement("iframe");
   iframe.src = formUrl;
   iframe.allow = "clipboard-read; clipboard-write";
 
   const frag = document.createDocumentFragment();
   frag.appendChild(iframe);
-  if (viewUrl) frag.appendChild(linkButton("Open in Graffiticode ↗", viewUrl, "footer-link"));
+
+  // Free-plan items carry a claim_url ("sign in to save"); their view_url points
+  // at a session-scoped item the app can't load anonymously, so prefer the claim
+  // link. Signed-in items have only view_url ("open in Graffiticode").
+  const claimUrl = typeof sc.claim_url === "string" ? sc.claim_url : undefined;
+  const viewUrl = typeof sc.view_url === "string" ? sc.view_url : undefined;
+  if (claimUrl) {
+    frag.appendChild(linkButton("Sign in to save ↗", claimUrl, "footer-link"));
+  } else if (viewUrl) {
+    frag.appendChild(linkButton("Open in Graffiticode ↗", viewUrl, "footer-link"));
+  }
 
   if (!contentEl) return;
   contentEl.className = "";
@@ -108,7 +120,7 @@ function render(params: {
   const meta = params._meta ?? {};
 
   if (typeof meta.form_url === "string") {
-    renderIframe(meta.form_url, typeof sc.view_url === "string" ? sc.view_url : undefined);
+    renderIframe(meta.form_url, sc);
   } else {
     renderCard(sc);
   }
