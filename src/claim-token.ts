@@ -36,7 +36,7 @@ if (!salt) {
   );
 }
 
-function deriveSessionNamespace(sessionUuid: string): string {
+export function deriveSessionNamespace(sessionUuid: string): string {
   return crypto.createHash("sha256").update(`${salt}:${sessionUuid}`).digest("hex");
 }
 

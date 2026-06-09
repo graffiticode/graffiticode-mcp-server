@@ -37,6 +37,7 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { tools, handleToolCall, SERVER_INSTRUCTIONS } from "./tools.js";
 import type { AuthContext } from "./api.js";
+import { identify, logConnect, logToolCall, type EventOutcome } from "./events.js";
 import { EXTENSION_ID, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import {
   generateFormWidgetHtml,
@@ -404,13 +405,39 @@ function createMcpServer(authProvider: AuthProvider) {
   server.setRequestHandler(CallToolRequestSchema, async (request) => {
     const { name, arguments: args } = request.params;
 
+    // Funnel instrumentation: capture metadata only (never raw prompts).
+    const start = Date.now();
+    const toolArgs = (args ?? {}) as Record<string, unknown>;
+    const lang = typeof toolArgs.language === "string" ? toolArgs.language : undefined;
+    const description =
+      typeof toolArgs.description === "string"
+        ? toolArgs.description
+        : typeof toolArgs.modification === "string"
+        ? toolArgs.modification
+        : undefined;
+    const descLen = description?.length;
+    let identity: { auth: "freePlan" | "firebase"; session: string } | null = null;
+
     try {
       const auth = await authProvider.getAuth();
+      identity = identify(auth);
       const result = await handleToolCall(
         { auth },
         name,
         args as Record<string, unknown>
       ) as Record<string, unknown>;
+
+      // A handled generation error returns status:"failed" rather than throwing.
+      const outcome: EventOutcome = result.status === "failed" ? "generation_failed" : "ok";
+      logToolCall({
+        ...identity,
+        tool: name,
+        outcome,
+        ms: Date.now() - start,
+        lang,
+        descLen,
+        err: outcome === "generation_failed" ? String(result.error ?? "") : undefined,
+      });
 
       // Extract _meta (widget-only data) from result
       const { _meta, ...structuredContent } = result;
@@ -435,6 +462,17 @@ function createMcpServer(authProvider: AuthProvider) {
       return response;
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
+      if (identity) {
+        logToolCall({
+          ...identity,
+          tool: name,
+          outcome: "error",
+          ms: Date.now() - start,
+          lang,
+          descLen,
+          err: message,
+        });
+      }
       return {
         content: [
           {
@@ -719,6 +757,15 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       onsessioninitialized: (newSessionId: string) => {
         transports.set(newSessionId, transport);
         servers.set(newSessionId, server);
+        // Earliest interest signal: an agent connected. Identify the session
+        // the same way tool events do so the funnel report can join them.
+        logConnect(
+          identify(
+            bearerToken
+              ? { type: "firebase", token: bearerToken }
+              : { type: "freePlan", sessionId: newSessionId }
+          )
+        );
       }
     });
 
