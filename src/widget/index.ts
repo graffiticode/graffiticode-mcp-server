@@ -15,9 +15,19 @@ export const WIDGET_MIME_TYPE = "text/html+skybridge";
 export const CLAUDE_WIDGET_RESOURCE_URI = "ui://graffiticode/claude-form-widget.html";
 export const CLAUDE_WIDGET_MIME_TYPE = RESOURCE_MIME_TYPE;
 
-// Hosts the widget embeds in its iframe: the API host (token-authenticated
-// /form for signed-in users) and the app host (public view page for trials).
-const WIDGET_FRAME_HOSTS = ["api.graffiticode.org", "app.graffiticode.org"];
+// Hosts the widget embeds in its iframe. The widget's iframe loads the API
+// host's /form endpoint, which 302-redirects to the per-language renderer host
+// (Cloud Run, e.g. `l0165-<project>.us-central1.run.app`) — that redirect
+// target must be in frame-src too or the navigation is blocked (ERR_BLOCKED_BY_CSP).
+// The renderer host varies per language, so it's matched with a wildcard.
+//   - api.graffiticode.org   token-authenticated /form + /data
+//   - app.graffiticode.org   public view page (trial "Open in Graffiticode")
+//   - *.us-central1.run.app  language renderer the /form redirect lands on
+const WIDGET_FRAME_HOSTS = [
+  "api.graffiticode.org",
+  "app.graffiticode.org",
+  "*.us-central1.run.app",
+];
 
 // CSP for the ChatGPT / Skybridge resource (`openai/widgetCSP`, snake_case).
 export const WIDGET_CSP = {
