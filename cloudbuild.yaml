@@ -1,18 +1,6 @@
 steps:
-  # Install dependencies
-  - name: 'node'
-    entrypoint: 'npm'
-    args:
-      - 'install'
-
-  # Build TypeScript
-  - name: 'node'
-    entrypoint: 'npm'
-    args:
-      - 'run'
-      - 'build'
-
-  # Build Docker image
+  # Build Docker image (the multi-stage Dockerfile installs deps and runs the
+  # TS + widget build internally — no host-side npm/build steps needed)
   - name: 'gcr.io/cloud-builders/docker'
     args:
       - 'build'

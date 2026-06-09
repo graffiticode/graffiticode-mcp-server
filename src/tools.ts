@@ -36,8 +36,7 @@ function parseHelp(helpJson: string | null): HelpEntry[] {
 
 function buildContextualPrompt(
   help: HelpEntry[],
-  newMessage: string,
-  currentCode: string
+  newMessage: string
 ): string {
   // If no meaningful history, just return the new message
   if (help.length < 1) return newMessage;
@@ -52,10 +51,11 @@ function buildContextualPrompt(
     }
   }
 
-  if (currentCode?.trim()) {
-    context += "\nAssistant's latest generated code:\n```\n" + currentCode + "\n```\n";
-  }
-
+  // NB: we deliberately do NOT inline the current source here. generateCode()
+  // already receives it as the typed `currentSrc` argument, so embedding it in
+  // the prompt text is redundant — and on the free-plan path it pushed the
+  // prompt past the backend's 2000-char cap, failing every edit of a non-trivial
+  // item. Keep the prompt to conversation history + the new request only.
   context += "\nNow, please address this new request:\n";
   return context + newMessage;
 }
@@ -340,11 +340,7 @@ export async function handleUpdateItem(
 
   // Step 2: Parse existing help history and build contextual prompt
   const existingHelp = parseHelp(existingItem.help);
-  const contextualPrompt = buildContextualPrompt(
-    existingHelp,
-    modification,
-    currentSrc
-  );
+  const contextualPrompt = buildContextualPrompt(existingHelp, modification);
 
   // Step 3: Generate updated code with contextual prompt
   const generated = await generateCode({
@@ -356,9 +352,16 @@ export async function handleUpdateItem(
   });
 
   if (generated.errors?.length) {
+    // Generation was rejected — nothing was persisted. Surface this explicitly:
+    // `status: "failed"` + `error` make the failure unambiguous, since the `src`
+    // we return is the *unchanged* prior source and would otherwise read like a
+    // successful no-op. `hint` is retained as a back-compat alias.
+    const errorMessage = generated.errors.map(e => e.message).join("\n");
     const result: Record<string, unknown> = {
       item_id,
       task_id: null,
+      status: "failed",
+      error: errorMessage,
       language: `L${existingItem.lang}`,
       name: existingItem.name,
       src: currentSrc,
@@ -368,7 +371,7 @@ export async function handleUpdateItem(
       usage: generated.usage,
       created: existingItem.created,
       updated: existingItem.updated,
-      hint: generated.errors.map(e => e.message).join("\n"),
+      hint: errorMessage,
     };
     result.view_url = buildViewUrl(item_id);
     const claimFields = await buildClaimFields(ctx.auth);
