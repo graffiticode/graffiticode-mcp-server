@@ -275,24 +275,46 @@ function buildFormUrl(
 // The app's view page for an item, opened in a full browser tab (where a
 // signed-in user has a session). Surfaced as `view_url` for the widget's
 // "Open in Graffiticode" link.
-function buildViewUrl(itemId: string): string {
-  return `${APP_URL}/form/${itemId}`;
+function buildViewUrl(itemId: string, claimToken?: string | null): string {
+  const base = `${APP_URL}/form/${itemId}`;
+  // Embed the claim token on free-plan view links so the render-host footer can
+  // offer a one-click "Claim it in Graffiticode" link for this exact item. The
+  // JWT is URL-safe (base64url), so no extra encoding is needed.
+  return claimToken ? `${base}?claim=${claimToken}` : base;
 }
 
-// For trial-mode responses, mint a 24h JWT and return the three claim fields the
-// console's /claim page consumes. Returns null when not a free-plan call or
-// when FREE_PLAN_NAMESPACE_SALT isn't configured (graceful degrade).
+// For trial-mode responses, mint a 24h JWT and return the claim token plus the
+// fields the console's /claim page consumes. Returns null when not a free-plan
+// call or when FREE_PLAN_NAMESPACE_SALT isn't configured (graceful degrade).
 async function buildClaimFields(
   auth: AuthContext
-): Promise<{ claim_url: string; claim_message: string } | null> {
+): Promise<{ token: string; claim_url: string; claim_message: string } | null> {
   if (auth.type !== "freePlan") return null;
   const token = await mintClaimToken(auth.sessionId);
   if (!token) return null;
   const claim_url = `${CONSOLE_URL}/claim?token=${token}`;
   return {
+    token,
     claim_url,
     claim_message: `Your item is ready. To save it permanently, sign in at: ${claim_url}`,
   };
+}
+
+// Set `view_url` (with the claim token embedded for free-plan items, so the
+// render-host footer can offer a "Claim it" link for this exact item) plus the
+// claim_url/claim_message fields. The raw token is intentionally not surfaced as
+// its own response field.
+async function applyViewAndClaim(
+  obj: Record<string, unknown>,
+  auth: AuthContext,
+  itemId: string
+): Promise<void> {
+  const claimFields = await buildClaimFields(auth);
+  obj.view_url = buildViewUrl(itemId, claimFields?.token);
+  if (claimFields) {
+    obj.claim_url = claimFields.claim_url;
+    obj.claim_message = claimFields.claim_message;
+  }
 }
 
 export async function handleCreateItem(
@@ -373,9 +395,7 @@ export async function handleUpdateItem(
       updated: existingItem.updated,
       hint: errorMessage,
     };
-    result.view_url = buildViewUrl(item_id);
-    const claimFields = await buildClaimFields(ctx.auth);
-    if (claimFields) Object.assign(result, claimFields);
+    await applyViewAndClaim(result, ctx.auth, item_id);
     // No taskId on a generation error, so there is nothing to render inline.
     return result;
   }
@@ -424,9 +444,7 @@ export async function handleUpdateItem(
     created: updatedItem.created,
     updated: updatedItem.updated,
   };
-  response.view_url = buildViewUrl(updatedItem.id);
-  const claimFields = await buildClaimFields(ctx.auth);
-  if (claimFields) Object.assign(response, claimFields);
+  await applyViewAndClaim(response, ctx.auth, updatedItem.id);
   const formUrl = buildFormUrl(ctx.auth, generated.taskId);
   if (formUrl) response._meta = { form_url: formUrl };
   return response;
@@ -462,9 +480,7 @@ export async function handleGetItem(
     created: item.created,
     updated: item.updated,
   };
-  response.view_url = buildViewUrl(item.id);
-  const claimFields = await buildClaimFields(ctx.auth);
-  if (claimFields) Object.assign(response, claimFields);
+  await applyViewAndClaim(response, ctx.auth, item.id);
   const formUrl = buildFormUrl(ctx.auth, item.taskId);
   if (formUrl) response._meta = { form_url: formUrl };
   return response;
