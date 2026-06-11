@@ -13,6 +13,9 @@ import type { AuthContext } from "./api.js";
  * Privacy contract (see PRIVACY.md):
  *   - never log raw prompts/descriptions — only `desc_len` (char count)
  *   - never log raw session UUIDs or bearer tokens — only a one-way hash
+ *   - never log the client IP. We log only COARSE geo (country, optional
+ *     region) derived at the Cloudflare edge (`CF-IPCountry`), so the raw IP
+ *     (`cf-connecting-ip`) is read by nobody here and never persisted.
  *
  * The free-plan session hash reuses `deriveSessionNamespace` so the logged
  * `session` equals the `sessionNamespace` the console stamps on items/claims,
@@ -26,6 +29,13 @@ interface BaseEvent {
   t: string; // ISO8601
   auth: "freePlan" | "firebase";
   session: string; // sessionNamespace (free-plan) or hashed token id (firebase)
+  // Agent KIND: MCP clientInfo.name (e.g. "claude-ai", "cursor", "codex").
+  // Unset on mcp_connect (clientInfo arrives after the session id is minted).
+  client_kind?: string;
+  // Agent GEO: coarse, non-PII. Country is ISO-3166 alpha-2; region only when
+  // the edge provides it. Derived from request headers, never from a logged IP.
+  geo_country?: string;
+  geo_region?: string;
 }
 
 interface ToolEvent extends BaseEvent {
@@ -68,13 +78,31 @@ export function identify(auth: AuthContext): { auth: "freePlan" | "firebase"; se
   return { auth: "firebase", session: hashToken(auth.token) };
 }
 
-export function logConnect(params: { auth: "freePlan" | "firebase"; session: string }): void {
-  emit({
+export interface SessionMeta {
+  clientKind?: string;
+  geoCountry?: string;
+  geoRegion?: string;
+}
+
+function applyMeta(event: ConnectEvent | ToolEvent, meta?: SessionMeta): void {
+  if (!meta) return;
+  if (meta.clientKind) event.client_kind = meta.clientKind.slice(0, 64);
+  if (meta.geoCountry) event.geo_country = meta.geoCountry;
+  if (meta.geoRegion) event.geo_region = meta.geoRegion;
+}
+
+export function logConnect(
+  params: { auth: "freePlan" | "firebase"; session: string },
+  meta?: SessionMeta
+): void {
+  const event: ConnectEvent = {
     ev: "mcp_connect",
     t: new Date().toISOString(),
     auth: params.auth,
     session: params.session,
-  });
+  };
+  applyMeta(event, meta);
+  emit(event);
 }
 
 export function logToolCall(params: {
@@ -86,6 +114,7 @@ export function logToolCall(params: {
   lang?: string;
   descLen?: number;
   err?: string;
+  meta?: SessionMeta;
 }): void {
   const event: ToolEvent = {
     ev: "mcp_tool",
@@ -99,5 +128,6 @@ export function logToolCall(params: {
   if (params.lang !== undefined) event.lang = params.lang;
   if (params.descLen !== undefined) event.desc_len = params.descLen;
   if (params.err) event.err = params.err.slice(0, 200);
+  applyMeta(event, params.meta);
   emit(event);
 }

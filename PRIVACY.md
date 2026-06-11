@@ -34,6 +34,17 @@ The Service may collect standard server logs including:
 - HTTP headers (excluding authorization tokens, which are redacted)
 - Error messages for debugging
 
+### Usage Analytics
+
+The Service emits coarse, privacy-preserving analytics events to measure
+engagement (connections, tool usage, success rates). These events deliberately
+exclude personal data: sessions and tokens appear only as one-way hashes,
+prompt text appears only as a character count, and location is recorded only as
+a **coarse country (and, where available, region)** derived at our CDN edge — we
+do **not** record your IP address in these analytics events. We also record the
+**client kind** (the name your MCP client reports, e.g. "claude-ai"), which is
+software identification, not personal data.
+
 ## How We Use Your Information
 
 We use the information described above to:

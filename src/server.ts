@@ -37,7 +37,7 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { tools, handleToolCall, SERVER_INSTRUCTIONS } from "./tools.js";
 import type { AuthContext } from "./api.js";
-import { identify, logConnect, logToolCall, type EventOutcome } from "./events.js";
+import { identify, logConnect, logToolCall, type EventOutcome, type SessionMeta } from "./events.js";
 import { EXTENSION_ID, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import {
   generateFormWidgetHtml,
@@ -313,6 +313,27 @@ const ABOUT_HTML = `<!DOCTYPE html>
 const transports = new Map<string, StreamableHTTPServerTransport>();
 const servers = new Map<string, Server>();
 
+function firstHeader(v: string | string[] | undefined): string | undefined {
+  return Array.isArray(v) ? v[0] : v;
+}
+
+/**
+ * Coarse, non-PII geo from request headers. We are behind Cloudflare, which
+ * injects `CF-IPCountry` (and, on some plans, region) at the edge — so we read
+ * country/region only and never touch the raw client IP (`cf-connecting-ip`).
+ * Sentinel countries Cloudflare uses for unknown/Tor are dropped.
+ */
+function geoFromHeaders(headers: IncomingMessage["headers"]): SessionMeta {
+  const meta: SessionMeta = {};
+  const country = firstHeader(headers["cf-ipcountry"])?.toUpperCase();
+  if (country && country !== "XX" && country !== "T1") {
+    meta.geoCountry = country;
+  }
+  const region = firstHeader(headers["cf-region-code"])?.toUpperCase();
+  if (region) meta.geoRegion = region;
+  return meta;
+}
+
 const MCP_SERVER_URL = process.env.MCP_SERVER_URL || "https://mcp.graffiticode.org";
 
 // Machine-readable MCP discovery document. Served at both /mcp.json and
@@ -374,7 +395,7 @@ interface AuthProvider {
   getAuth(): Promise<AuthContext>;
 }
 
-function createMcpServer(authProvider: AuthProvider) {
+function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = {}) {
   const server = new Server(
     {
       name: "graffiticode",
@@ -418,6 +439,11 @@ function createMcpServer(authProvider: AuthProvider) {
     const descLen = description?.length;
     let identity: { auth: "freePlan" | "firebase"; session: string } | null = null;
 
+    // clientInfo isn't known when the session id is minted (mcp_connect), but
+    // it's set by the time any tool runs — backfill it onto the session meta.
+    const clientKind = server.getClientVersion()?.name;
+    if (clientKind && !sessionMeta.clientKind) sessionMeta.clientKind = clientKind;
+
     try {
       const auth = await authProvider.getAuth();
       identity = identify(auth);
@@ -437,6 +463,7 @@ function createMcpServer(authProvider: AuthProvider) {
         lang,
         descLen,
         err: outcome === "generation_failed" ? String(result.error ?? "") : undefined,
+        meta: sessionMeta,
       });
 
       // Extract _meta (widget-only data) from result
@@ -471,6 +498,7 @@ function createMcpServer(authProvider: AuthProvider) {
           lang,
           descLen,
           err: message,
+          meta: sessionMeta,
         });
       }
       return {
@@ -751,6 +779,11 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       (authProvider as any).__transportRef = transportRef;
     }
 
+    // Coarse geo from the Cloudflare edge (country/region only, never the IP).
+    // Shared by reference with the per-session server so the tool handler can
+    // backfill clientKind onto the same object after the initialize handshake.
+    const sessionMeta: SessionMeta = geoFromHeaders(req.headers);
+
     // Create new transport and server for new session
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => crypto.randomUUID(),
@@ -759,12 +792,15 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
         servers.set(newSessionId, server);
         // Earliest interest signal: an agent connected. Identify the session
         // the same way tool events do so the funnel report can join them.
+        // clientKind isn't known yet (clientInfo arrives with the initialize
+        // message, after this fires) — it lands on the session's tool events.
         logConnect(
           identify(
             bearerToken
               ? { type: "firebase", token: bearerToken }
               : { type: "freePlan", sessionId: newSessionId }
-          )
+          ),
+          sessionMeta
         );
       }
     });
@@ -787,7 +823,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       }
     };
 
-    const server = createMcpServer(authProvider);
+    const server = createMcpServer(authProvider, sessionMeta);
     await server.connect(transport);
     await transport.handleRequest(req, res);
     return;
