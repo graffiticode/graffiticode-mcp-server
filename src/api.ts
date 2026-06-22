@@ -116,6 +116,45 @@ export async function generateCode(options: {
   return result.generateCode;
 }
 
+// Start async generation: the console marks the item "generating", enqueues a
+// Cloud Task to run the (60-110s) generation, and returns immediately. Pass an
+// existing itemId to update, or omit it to create a new shell item (the server
+// returns its id). Poll get_item until generationStatus flips to ready/failed.
+export interface GenerationJobResult {
+  itemId: string;
+  status: string;
+}
+
+export async function startCodeGeneration(options: {
+  auth: AuthContext;
+  itemId?: string;
+  lang: string;
+  name?: string;
+  client?: string;
+  prompt: string;
+  modification: string;
+  currentSrc?: string | null;
+}): Promise<GenerationJobResult> {
+  const { auth, itemId, lang, name, client, prompt, modification, currentSrc } = options;
+
+  const mutation = `
+    mutation StartCodeGeneration($itemId: String, $lang: String!, $name: String, $client: String, $prompt: String!, $modification: String!, $currentSrc: String) {
+      startCodeGeneration(itemId: $itemId, lang: $lang, name: $name, client: $client, prompt: $prompt, modification: $modification, currentSrc: $currentSrc) {
+        itemId
+        status
+      }
+    }
+  `;
+
+  const result = await graphqlRequest<{ startCodeGeneration: GenerationJobResult }>(
+    auth,
+    mutation,
+    { itemId, lang, name, client, prompt, modification, currentSrc }
+  );
+
+  return result.startCodeGeneration;
+}
+
 // --- Get Data ---
 
 export async function getData(options: {
@@ -172,13 +211,17 @@ export async function getTask(options: {
 export interface Item {
   id: string;
   name: string | null;
-  taskId: string;
+  taskId: string | null;
   lang: string;
   help: string | null;
   isPublic: boolean;
   created: string;
   updated: string;
   client: string | null;
+  // Async-generation status. Absent/null ⇒ legacy/ready.
+  generationStatus?: "generating" | "ready" | "failed" | null;
+  generationError?: string | null;
+  generationStartedAt?: string | null;
 }
 
 export async function createItem(options: {
@@ -274,6 +317,9 @@ export async function getItemWithTask(options: {
         created
         updated
         client
+        generationStatus
+        generationError
+        generationStartedAt
         task {
           id
           lang

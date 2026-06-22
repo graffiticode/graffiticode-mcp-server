@@ -1,10 +1,8 @@
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import {
-  generateCode,
   getData,
   getItemWithTask as apiGetItemWithTask,
-  createItem as apiCreateItem,
-  updateItem as apiUpdateItem,
+  startCodeGeneration,
   listLanguages as apiListLanguages,
   getLanguageInfo as apiGetLanguageInfo,
   type AuthContext,
@@ -70,7 +68,9 @@ All requests to create_item and update_item must be natural language description
 
 get_language_info returns an inline authoring_guide summary, supported_item_types, and example_prompts — these are usually sufficient to compose a good create_item request. For deeper reference (vocabulary cues, scope boundaries, detailed item-type docs) read the user_guide_resource URI via ReadResource.
 
-Workflow: list_languages(search, domain) → get_language_info(language) → create_item(language, description) → update_item(item_id, modification) to iterate.`;
+Workflow: list_languages(search, domain) → get_language_info(language) → create_item(language, description) → get_item(item_id) → update_item(item_id, modification) → get_item(item_id) to iterate.
+
+create_item and update_item start generation and return immediately with status "generating"; always follow them with get_item(item_id) to retrieve the result. get_item waits for completion and returns status "ready" (with data), "failed" (with an error), or "generating" (call get_item again).`;
 
 // --- Tool Definitions ---
 
@@ -80,7 +80,7 @@ export const createItemTool = {
 
 Call list_languages() first to discover available languages, then pass the language ID here. The description should be a natural language request, not code. Be specific about the content, structure, layout, theme, and any assessment or interaction requirements.
 
-Returns item_id for use in subsequent update_item or get_item calls.`,
+Generation runs asynchronously: this returns immediately with an item_id and status "generating". Call get_item(item_id) to retrieve the result — get_item waits for completion and returns status "ready" with the data (or "failed").`,
   inputSchema: {
     type: "object",
     properties: {
@@ -120,7 +120,9 @@ export const updateItemTool = {
   name: "update_item",
   description: `Modify an existing Graffiticode item by describing what to change in natural language.
 
-The language is auto-detected from the item. Conversation history is preserved, so you can make incremental changes: "add another concept", "change the theme to dark", "make the header row blue".`,
+The language is auto-detected from the item. Conversation history is preserved, so you can make incremental changes: "add another concept", "change the theme to dark", "make the header row blue".
+
+Like create_item, generation runs asynchronously: this returns immediately with status "generating". Call get_item(item_id) to retrieve the updated result (it waits for completion).`,
   inputSchema: {
     type: "object",
     properties: {
@@ -156,7 +158,7 @@ export const getItemTool = {
   name: "get_item",
   description: `Get an existing Graffiticode item by ID.
 
-Returns the item's data, code, and metadata.`,
+Returns the item's data, code, and metadata. If the item is still being generated (after create_item/update_item), this waits for completion and returns it once ready. Response includes a status field: "ready" (data present), "generating" (call get_item again to keep waiting), or "failed" (with an error).`,
   inputSchema: {
     type: "object",
     properties: {
@@ -317,6 +319,29 @@ async function applyViewAndClaim(
   }
 }
 
+// Shape returned by create_item / update_item and by get_item while a
+// generation is still running. The model is expected to poll get_item until
+// status flips to "ready".
+async function buildGeneratingResponse(
+  ctx: ToolContext,
+  itemId: string,
+  lang: string,
+  name: string | null
+): Promise<Record<string, unknown>> {
+  const response: Record<string, unknown> = {
+    item_id: itemId,
+    status: "generating",
+    language: `L${lang}`,
+    name: name ?? null,
+    message:
+      "Generation started. Call get_item(item_id) to retrieve the result — it waits for completion and returns status 'ready' with the data (or 'failed').",
+  };
+  // view_url + (free-plan) claim_url are available immediately; form_url needs a
+  // taskId, so it only appears once generation completes (via get_item).
+  await applyViewAndClaim(response, ctx.auth, itemId);
+  return response;
+}
+
 export async function handleCreateItem(
   ctx: ToolContext,
   args: { language: string; description: string; name?: string }
@@ -326,16 +351,18 @@ export async function handleCreateItem(
   // Normalize language ID (remove "L" prefix if present)
   const langId = language.replace(/^L/i, "");
 
-  // Step 1: Create item from language template (no taskId — backend generates from template)
-  const item = await apiCreateItem({
+  // Start async generation (creates the item shell + enqueues the work) and
+  // return immediately. No long-running tool call.
+  const job = await startCodeGeneration({
     auth: ctx.auth,
     lang: langId,
     name,
     client: "mcp",
+    prompt: description,
+    modification: description,
   });
 
-  // Step 2: Update the item with the user's description
-  return handleUpdateItem(ctx, { item_id: item.id, modification: description });
+  return buildGeneratingResponse(ctx, job.itemId, langId, name ?? null);
 }
 
 export async function handleUpdateItem(
@@ -344,7 +371,7 @@ export async function handleUpdateItem(
 ): Promise<unknown> {
   const { item_id, modification } = args;
 
-  // Step 1: Fetch existing item and its task src in a single round-trip.
+  // Fetch existing item + task src to build the contextual prompt.
   const existingItem = await apiGetItemWithTask({
     auth: ctx.auth,
     id: item_id,
@@ -354,136 +381,116 @@ export async function handleUpdateItem(
     throw new Error(`Item not found: ${item_id}`);
   }
 
-  if (!existingItem.task) {
-    throw new Error(`Task not found for item: ${item_id}`);
-  }
-
-  const currentSrc = existingItem.task.src;
-
-  // Step 2: Parse existing help history and build contextual prompt
+  const currentSrc = existingItem.task?.src ?? null;
   const existingHelp = parseHelp(existingItem.help);
   const contextualPrompt = buildContextualPrompt(existingHelp, modification);
 
-  // Step 3: Generate updated code with contextual prompt
-  const generated = await generateCode({
+  // Start async generation against the existing item and return immediately.
+  // The worker appends the help entry and persists the new taskId on completion.
+  const job = await startCodeGeneration({
     auth: ctx.auth,
-    prompt: contextualPrompt,
-    language: existingItem.lang,
-    currentSrc,
     itemId: item_id,
+    lang: existingItem.lang,
+    prompt: contextualPrompt,
+    modification,
+    currentSrc,
   });
 
-  if (generated.errors?.length) {
-    // Generation was rejected — nothing was persisted. Surface this explicitly:
-    // `status: "failed"` + `error` make the failure unambiguous, since the `src`
-    // we return is the *unchanged* prior source and would otherwise read like a
-    // successful no-op. `hint` is retained as a back-compat alias.
-    const errorMessage = generated.errors.map(e => e.message).join("\n");
-    const result: Record<string, unknown> = {
-      item_id,
-      task_id: null,
-      status: "failed",
-      error: errorMessage,
-      language: `L${existingItem.lang}`,
-      name: existingItem.name,
-      src: currentSrc,
-      description: null,
-      change_summary: null,
-      data: null,
-      usage: generated.usage,
-      created: existingItem.created,
-      updated: existingItem.updated,
-      hint: errorMessage,
-    };
-    await applyViewAndClaim(result, ctx.auth, item_id);
-    // No taskId on a generation error, so there is nothing to render inline.
-    return result;
-  }
-
-  if (!generated.taskId) {
-    throw new Error("No taskId returned from code generation");
-  }
-
-  // Step 4: Append new help entry to history
-  const newHelpEntry: HelpEntry = {
-    user: modification,
-    help: { text: modification },
-    type: "user",
-    timestamp: new Date().toISOString(),
-    taskId: generated.taskId,
-  };
-  const updatedHelp = JSON.stringify([...existingHelp, newHelpEntry]);
-
-  // Step 5: Fetch compiled data and persist the new taskId + help in parallel.
-  // These are independent — the response only needs `data` from getData and
-  // metadata fields (id, lang, name, created, updated) that come back from
-  // apiUpdateItem. Promise.all still surfaces a write failure as an error.
-  const [data, updatedItem] = await Promise.all([
-    getData({
-      auth: ctx.auth,
-      taskId: generated.taskId,
-    }),
-    apiUpdateItem({
-      auth: ctx.auth,
-      id: item_id,
-      taskId: generated.taskId,
-      help: updatedHelp,
-    }),
-  ]);
-
-  const response: Record<string, unknown> = {
-    item_id: updatedItem.id,
-    task_id: generated.taskId,
-    language: `L${updatedItem.lang}`,
-    name: updatedItem.name,
-    src: generated.src,
-    description: generated.description,
-    change_summary: generated.changeSummary,
-    data,
-    usage: generated.usage,
-    created: updatedItem.created,
-    updated: updatedItem.updated,
-  };
-  await applyViewAndClaim(response, ctx.auth, updatedItem.id);
-  const formUrl = buildFormUrl(ctx.auth, generated.taskId);
-  if (formUrl) response._meta = { form_url: formUrl };
-  return response;
+  return buildGeneratingResponse(ctx, job.itemId, existingItem.lang, existingItem.name);
 }
 
+const GET_ITEM_POLL_DEADLINE_MS = 45_000; // under codex's ~60s tool-call cap
+const GET_ITEM_POLL_INTERVAL_MS = 2_500;
+const GENERATION_STALE_MS = 4 * 60_000; // worker-died guard
+
+const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// get_item long-polls: while the item is still generating it waits (up to ~45s,
+// under the client tool-call timeout; the server.ts heartbeat keeps the stream
+// warm) and returns the moment the item is ready/failed. A single create_item
+// followed by get_item therefore completes without ever holding a 60-110s call.
 export async function handleGetItem(
   ctx: ToolContext,
   args: { item_id: string }
 ): Promise<unknown> {
   const { item_id } = args;
+  const deadline = Date.now() + GET_ITEM_POLL_DEADLINE_MS;
 
-  // Fetch item + task src in one round-trip, then compiled data.
-  const item = await apiGetItemWithTask({ auth: ctx.auth, id: item_id });
-  if (!item) {
-    throw new Error(`Item not found: ${item_id}`);
+  for (;;) {
+    const item = await apiGetItemWithTask({ auth: ctx.auth, id: item_id });
+    if (!item) {
+      throw new Error(`Item not found: ${item_id}`);
+    }
+
+    const status = item.generationStatus;
+
+    if (status === "failed") {
+      const result: Record<string, unknown> = {
+        item_id: item.id,
+        status: "failed",
+        error: item.generationError || "Generation failed",
+        language: `L${item.lang}`,
+        name: item.name,
+      };
+      await applyViewAndClaim(result, ctx.auth, item.id);
+      return result;
+    }
+
+    if (status === "generating") {
+      const startedAt = item.generationStartedAt ? Number(item.generationStartedAt) : 0;
+      const stale = startedAt > 0 && Date.now() - startedAt > GENERATION_STALE_MS;
+      if (stale) {
+        return {
+          item_id: item.id,
+          status: "failed",
+          error: "Generation timed out",
+          language: `L${item.lang}`,
+          name: item.name,
+        };
+      }
+      if (Date.now() < deadline) {
+        await sleep(GET_ITEM_POLL_INTERVAL_MS);
+        continue;
+      }
+      // Deadline reached but still generating — return so the model polls again.
+      const pending: Record<string, unknown> = {
+        item_id: item.id,
+        status: "generating",
+        language: `L${item.lang}`,
+        name: item.name,
+        message: "Still generating. Call get_item(item_id) again to keep waiting.",
+      };
+      await applyViewAndClaim(pending, ctx.auth, item.id);
+      return pending;
+    }
+
+    // Ready (status "ready" or legacy/sync item with no status). Needs a task.
+    if (!item.task || !item.taskId) {
+      // Status says ready/absent but the task isn't visible yet — brief lag.
+      if (Date.now() < deadline) {
+        await sleep(GET_ITEM_POLL_INTERVAL_MS);
+        continue;
+      }
+      throw new Error(`Task not found for item: ${item_id}`);
+    }
+
+    const data = await getData({ auth: ctx.auth, taskId: item.taskId });
+    const response: Record<string, unknown> = {
+      item_id: item.id,
+      task_id: item.taskId,
+      status: "ready",
+      language: `L${item.lang}`,
+      name: item.name,
+      src: item.task.src,
+      data,
+      created: item.created,
+      updated: item.updated,
+    };
+    await applyViewAndClaim(response, ctx.auth, item.id);
+    const formUrl = buildFormUrl(ctx.auth, item.taskId);
+    if (formUrl) response._meta = { form_url: formUrl };
+    return response;
   }
-  if (!item.task) {
-    throw new Error(`Task not found for item: ${item_id}`);
-  }
-
-  const data = await getData({
-    auth: ctx.auth,
-    taskId: item.taskId,
-  });
-
-  const response: Record<string, unknown> = {
-    item_id: item.id,
-    task_id: item.taskId,
-    language: `L${item.lang}`,
-    name: item.name,
-    src: item.task.src,
-    data,
-    created: item.created,
-    updated: item.updated,
-  };
-  await applyViewAndClaim(response, ctx.auth, item.id);
-  const formUrl = buildFormUrl(ctx.auth, item.taskId);
-  if (formUrl) response._meta = { form_url: formUrl };
-  return response;
 }
 
 export async function handleListLanguages(
