@@ -31,6 +31,7 @@ import {
   ListResourceTemplatesRequestSchema,
   ReadResourceRequestSchema,
 } from "@modelcontextprotocol/sdk/types.js";
+import type { ServerNotification } from "@modelcontextprotocol/sdk/types.js";
 import { createServer, IncomingMessage, ServerResponse } from "http";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
@@ -405,6 +406,9 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
       capabilities: {
         tools: {},
         resources: {},
+        // Lets us emit notifications/message during long tool calls (the
+        // keepalive fallback when the client didn't request progress).
+        logging: {},
         // Advertise MCP Apps (interactive UI) support. `extensions` is not yet
         // in the SDK's ServerCapabilities type (pending SEP-1724), so cast.
         extensions: {
@@ -423,7 +427,7 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
   });
 
   // Handle tool calls
-  server.setRequestHandler(CallToolRequestSchema, async (request) => {
+  server.setRequestHandler(CallToolRequestSchema, async (request, extra) => {
     const { name, arguments: args } = request.params;
 
     // Funnel instrumentation: capture metadata only (never raw prompts).
@@ -444,6 +448,34 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
     const clientKind = server.getClientVersion()?.name;
     if (clientKind && !sessionMeta.clientKind) sessionMeta.clientKind = clientKind;
 
+    // Keepalive heartbeat. L0175 create_item/update_item legitimately take
+    // 60-90s (LLM generation), which exceeds some MCP clients' read timeout —
+    // they declare a "retryable server error" even though the call succeeds.
+    // The streamable-HTTP transport holds this POST's SSE stream open until we
+    // return; emitting a notification every 10s keeps bytes flowing so the
+    // client's read timer never fires. `extra.sendNotification` is
+    // request-scoped, so the SDK routes it to this POST's stream.
+    // Prefer notifications/progress when the client opted in (sent a
+    // progressToken); otherwise fall back to a debug log notification, which
+    // needs no token and still resets the timer. Fast tools return before the
+    // first tick, so this is a no-op for them.
+    const progressToken = request.params._meta?.progressToken;
+    let heartbeatTicks = 0;
+    const heartbeat = setInterval(() => {
+      heartbeatTicks += 1;
+      const note: ServerNotification =
+        progressToken !== undefined
+          ? {
+              method: "notifications/progress",
+              params: { progressToken, progress: heartbeatTicks, message: "Generating…" },
+            }
+          : {
+              method: "notifications/message",
+              params: { level: "debug", data: "Generating…" },
+            };
+      extra.sendNotification(note).catch(() => {});
+    }, 10_000);
+
     try {
       const auth = await authProvider.getAuth();
       identity = identify(auth);
@@ -462,6 +494,7 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
         ms: Date.now() - start,
         lang,
         descLen,
+        progress: progressToken !== undefined,
         err: outcome === "generation_failed" ? String(result.error ?? "") : undefined,
         meta: sessionMeta,
       });
@@ -497,6 +530,7 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
           ms: Date.now() - start,
           lang,
           descLen,
+          progress: progressToken !== undefined,
           err: message,
           meta: sessionMeta,
         });
@@ -510,6 +544,8 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
         ],
         isError: true,
       };
+    } finally {
+      clearInterval(heartbeat);
     }
   });
 

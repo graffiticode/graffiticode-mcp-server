@@ -46,6 +46,9 @@ interface ToolEvent extends BaseEvent {
   lang?: string;
   desc_len?: number;
   err?: string;
+  // Whether the client requested out-of-band progress (sent a progressToken).
+  // Tells us if the keepalive uses notifications/progress or the log fallback.
+  progress?: boolean;
 }
 
 interface ConnectEvent extends BaseEvent {
@@ -114,6 +117,7 @@ export function logToolCall(params: {
   lang?: string;
   descLen?: number;
   err?: string;
+  progress?: boolean;
   meta?: SessionMeta;
 }): void {
   const event: ToolEvent = {
@@ -128,6 +132,7 @@ export function logToolCall(params: {
   if (params.lang !== undefined) event.lang = params.lang;
   if (params.descLen !== undefined) event.desc_len = params.descLen;
   if (params.err) event.err = params.err.slice(0, 200);
+  if (params.progress !== undefined) event.progress = params.progress;
   applyMeta(event, params.meta);
   emit(event);
 }
