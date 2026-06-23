@@ -11,9 +11,9 @@
  *     footer link below it. Free-plan items render too — their compiled task is
  *     public by taskId — and get a "Sign in to save" link (claim_url); signed-in
  *     items get an "Open in Graffiticode" link (view_url).
- *   - otherwise (e.g. a generation error with no taskId): show a claim CTA card
- *     built from `structuredContent.claim_url` / `claim_message` / `view_url`.
- *     Never blank.
+ *   - otherwise: show a status card driven by `structuredContent.status` —
+ *     "generating" (in progress, no link), "failed" (error message), or a claim/
+ *     open CTA built from `claim_url` / `view_url` once ready. Never blank.
  *
  * This file is NOT compiled by `tsc` (excluded in tsconfig). It is bundled to a
  * single IIFE by `scripts/build-widget.mjs` and inlined into the resource HTML
@@ -74,9 +74,14 @@ function renderIframe(formUrl: string, sc: Record<string, unknown>): void {
   contentEl.replaceChildren(frag);
 }
 
+// Shown when there's no rendered item to embed (no _meta.form_url): while a
+// generation is still running, when it failed, or as a claim/open CTA once an
+// item is ready but can't be iframed. Status-driven so we never tell the user to
+// "open" something that doesn't exist yet.
 function renderCard(sc: Record<string, unknown>): void {
   if (!contentEl) return;
 
+  const status = typeof sc.status === "string" ? sc.status : undefined;
   const claimUrl = typeof sc.claim_url === "string" ? sc.claim_url : undefined;
   const viewUrl = typeof sc.view_url === "string" ? sc.view_url : undefined;
   const link = claimUrl ?? viewUrl;
@@ -86,23 +91,35 @@ function renderCard(sc: Record<string, unknown>): void {
 
   const title = document.createElement("div");
   title.className = "card-title";
-  title.textContent = "Your item is ready";
   card.appendChild(title);
 
   const text = document.createElement("div");
   text.className = "card-text";
-  text.textContent = claimUrl
-    ? "Sign in to view it and save it to your account."
-    : "Open it in Graffiticode to view.";
   card.appendChild(text);
 
-  if (link) {
-    const actions = document.createElement("div");
-    actions.className = "card-actions";
-    actions.appendChild(
-      linkButton(claimUrl ? "Sign in to view & save" : "Open in Graffiticode", link, "btn")
-    );
-    card.appendChild(actions);
+  if (status === "generating") {
+    title.textContent = "Generating…";
+    text.textContent = "Your item is being created.";
+  } else if (status === "failed") {
+    title.textContent = "Generation failed";
+    text.textContent =
+      typeof sc.error === "string" ? sc.error : "Something went wrong generating this item.";
+  } else {
+    title.textContent = "Your item is ready";
+    // Only invite the user to open it when we actually have a link to offer.
+    text.textContent = !link
+      ? ""
+      : claimUrl
+        ? "Sign in to view it and save it to your account."
+        : "Open it in Graffiticode to view.";
+    if (link) {
+      const actions = document.createElement("div");
+      actions.className = "card-actions";
+      actions.appendChild(
+        linkButton(claimUrl ? "Sign in to view & save" : "Open in Graffiticode", link, "btn")
+      );
+      card.appendChild(actions);
+    }
   }
 
   contentEl.className = "";
