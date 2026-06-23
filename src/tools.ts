@@ -322,13 +322,17 @@ async function applyViewAndClaim(
 // Shape returned by create_item / update_item and by get_item while a
 // generation is still running. The model is expected to poll get_item until
 // status flips to "ready".
-async function buildGeneratingResponse(
-  ctx: ToolContext,
+//
+// No view_url/claim_url here: those links are only meaningful once the item has
+// content, and the MCP client renders the response JSON as chat text — emitting
+// them now would surface (and repeat, on every poll) an "Open in Graffiticode"
+// link before anything exists. They're added on the get_item "ready" response.
+function buildGeneratingResponse(
   itemId: string,
   lang: string,
   name: string | null
-): Promise<Record<string, unknown>> {
-  const response: Record<string, unknown> = {
+): Record<string, unknown> {
+  return {
     item_id: itemId,
     status: "generating",
     language: `L${lang}`,
@@ -336,10 +340,6 @@ async function buildGeneratingResponse(
     message:
       "Generation started. Call get_item(item_id) to retrieve the result — it waits for completion and returns status 'ready' with the data (or 'failed').",
   };
-  // view_url + (free-plan) claim_url are available immediately; form_url needs a
-  // taskId, so it only appears once generation completes (via get_item).
-  await applyViewAndClaim(response, ctx.auth, itemId);
-  return response;
 }
 
 export async function handleCreateItem(
@@ -362,7 +362,7 @@ export async function handleCreateItem(
     modification: description,
   });
 
-  return buildGeneratingResponse(ctx, job.itemId, langId, name ?? null);
+  return buildGeneratingResponse(job.itemId, langId, name ?? null);
 }
 
 export async function handleUpdateItem(
@@ -396,7 +396,7 @@ export async function handleUpdateItem(
     currentSrc,
   });
 
-  return buildGeneratingResponse(ctx, job.itemId, existingItem.lang, existingItem.name);
+  return buildGeneratingResponse(job.itemId, existingItem.lang, existingItem.name);
 }
 
 const GET_ITEM_POLL_DEADLINE_MS = 45_000; // under codex's ~60s tool-call cap
@@ -425,15 +425,14 @@ export async function handleGetItem(
     const status = item.generationStatus;
 
     if (status === "failed") {
-      const result: Record<string, unknown> = {
+      // No view_url/claim_url: a failed item has nothing to open or claim.
+      return {
         item_id: item.id,
         status: "failed",
         error: item.generationError || "Generation failed",
         language: `L${item.lang}`,
         name: item.name,
       };
-      await applyViewAndClaim(result, ctx.auth, item.id);
-      return result;
     }
 
     if (status === "generating") {
@@ -453,15 +452,14 @@ export async function handleGetItem(
         continue;
       }
       // Deadline reached but still generating — return so the model polls again.
-      const pending: Record<string, unknown> = {
+      // No view_url/claim_url until the item is ready (see buildGeneratingResponse).
+      return {
         item_id: item.id,
         status: "generating",
         language: `L${item.lang}`,
         name: item.name,
         message: "Still generating. Call get_item(item_id) again to keep waiting.",
       };
-      await applyViewAndClaim(pending, ctx.auth, item.id);
-      return pending;
     }
 
     // Ready (status "ready" or legacy/sync item with no status). Needs a task.
