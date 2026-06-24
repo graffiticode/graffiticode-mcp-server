@@ -499,17 +499,24 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
         meta: sessionMeta,
       });
 
-      // Extract _meta (widget-only data) from result
-      const { _meta, ...structuredContent } = result;
+      // Extract _meta (widget-only data) and the chat-facing `summary` from the
+      // result. `summary`, when present, is a concise link-forward string used
+      // as the text content for clients that render text instead of the widget
+      // iframe (e.g. Codex). It's kept out of structuredContent so the
+      // programmatic shape stays clean.
+      const { _meta, summary, ...structuredContent } = result;
 
-      // Build response with structuredContent for ChatGPT Apps SDK
-      // and content as text summary for Claude and other MCP clients
+      // Build response with structuredContent for ChatGPT Apps SDK and content
+      // as a summary (when provided) or the full JSON for Claude and other MCP
+      // clients. Widget hosts render the iframe and ignore this text.
       const response: Record<string, unknown> = {
         structuredContent,
         content: [
           {
             type: "text",
-            text: JSON.stringify(structuredContent, null, 2),
+            text: typeof summary === "string"
+              ? summary
+              : JSON.stringify(structuredContent, null, 2),
           },
         ],
       };

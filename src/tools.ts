@@ -109,6 +109,11 @@ Generation runs asynchronously: this returns immediately with an item_id and sta
     // ChatGPT Apps metadata
     "openai/outputTemplate": WIDGET_RESOURCE_URI,
     "openai/widgetCSP": WIDGET_CSP,
+    // Signals to Codex/ChatGPT hosts that this tool's result can render a
+    // widget. Codex Desktop checks this before issuing read-mcp-resource (the
+    // inline-UI path is still flag-gated there, but this keeps us correct for
+    // when it ships). See openai/codex#21019.
+    "openai/resultCanProduceWidget": true,
     // Claude / MCP Apps metadata: nested key is preferred; flat key is the
     // deprecated alias older hosts read.
     ui: { resourceUri: CLAUDE_WIDGET_RESOURCE_URI },
@@ -147,6 +152,11 @@ Like create_item, generation runs asynchronously: this returns immediately with 
     // ChatGPT Apps metadata
     "openai/outputTemplate": WIDGET_RESOURCE_URI,
     "openai/widgetCSP": WIDGET_CSP,
+    // Signals to Codex/ChatGPT hosts that this tool's result can render a
+    // widget. Codex Desktop checks this before issuing read-mcp-resource (the
+    // inline-UI path is still flag-gated there, but this keeps us correct for
+    // when it ships). See openai/codex#21019.
+    "openai/resultCanProduceWidget": true,
     // Claude / MCP Apps metadata: nested key is preferred; flat key is the
     // deprecated alias older hosts read.
     ui: { resourceUri: CLAUDE_WIDGET_RESOURCE_URI },
@@ -179,6 +189,11 @@ Returns the item's data, code, and metadata. If the item is still being generate
     // ChatGPT Apps metadata
     "openai/outputTemplate": WIDGET_RESOURCE_URI,
     "openai/widgetCSP": WIDGET_CSP,
+    // Signals to Codex/ChatGPT hosts that this tool's result can render a
+    // widget. Codex Desktop checks this before issuing read-mcp-resource (the
+    // inline-UI path is still flag-gated there, but this keeps us correct for
+    // when it ships). See openai/codex#21019.
+    "openai/resultCanProduceWidget": true,
     // Claude / MCP Apps metadata: nested key is preferred; flat key is the
     // deprecated alias older hosts read.
     ui: { resourceUri: CLAUDE_WIDGET_RESOURCE_URI },
@@ -342,6 +357,24 @@ function buildGeneratingResponse(
   };
 }
 
+// Human-readable, link-forward summary for the get_item "ready" response. Used
+// as the tool result's text content for clients that render text instead of
+// the widget iframe (e.g. Codex Desktop, whose inline MCP-Apps UI is still
+// flag-gated). Widget hosts ignore it.
+function buildReadySummary(
+  name: string | null,
+  language: string,
+  viewUrl: string,
+  claimMessage?: string
+): string {
+  const title = name ? `**${name}**` : "Your item";
+  const lines = [
+    `${title} (${language}) is ready — open the form view: ${viewUrl}`,
+  ];
+  if (claimMessage) lines.push(claimMessage);
+  return lines.join("\n\n");
+}
+
 export async function handleCreateItem(
   ctx: ToolContext,
   args: { language: string; description: string; name?: string }
@@ -404,6 +437,20 @@ const GET_ITEM_POLL_INTERVAL_MS = 2_500;
 const GENERATION_STALE_MS = 4 * 60_000; // worker-died guard
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
+
+// The Graffiticode API's data(id) resolver returns this envelope when a task's
+// rendered data isn't available. During the brief window after create/update,
+// the item can transiently point at a template/old task whose data hasn't been
+// computed yet, so a too-eager "ready" classification would surface a 404 blob.
+// Match the envelope specifically (status:"error" + numeric error.code) so we
+// don't mistake a real item's data for an error.
+function isErrorDataPayload(data: unknown): boolean {
+  if (!data || typeof data !== "object") return false;
+  const d = data as Record<string, unknown>;
+  if (d.status !== "error") return false;
+  const err = d.error as Record<string, unknown> | undefined;
+  return !!err && typeof err === "object" && typeof err.code === "number";
+}
 
 // get_item long-polls: while the item is still generating it waits (up to ~45s,
 // under the client tool-call timeout; the server.ts heartbeat keeps the stream
@@ -473,6 +520,25 @@ export async function handleGetItem(
     }
 
     const data = await getData({ auth: ctx.auth, taskId: item.taskId });
+
+    // The item reports ready and its task is visible, but the rendered data
+    // isn't available yet (data(id) returned a 404 envelope) — a transient
+    // intermediate during create/update. Keep polling rather than returning a
+    // "ready" item carrying a broken data blob; resolves once real data lands.
+    if (isErrorDataPayload(data)) {
+      if (Date.now() < deadline) {
+        await sleep(GET_ITEM_POLL_INTERVAL_MS);
+        continue;
+      }
+      return {
+        item_id: item.id,
+        status: "generating",
+        language: `L${item.lang}`,
+        name: item.name,
+        message: "Still generating. Call get_item(item_id) again to keep waiting.",
+      };
+    }
+
     const response: Record<string, unknown> = {
       item_id: item.id,
       task_id: item.taskId,
@@ -487,6 +553,15 @@ export async function handleGetItem(
     await applyViewAndClaim(response, ctx.auth, item.id);
     const formUrl = buildFormUrl(ctx.auth, item.taskId);
     if (formUrl) response._meta = { form_url: formUrl };
+    // Chat-facing summary for clients that render text rather than the widget
+    // (e.g. Codex). Surfaces the form-view link instead of dumping the full
+    // JSON (src + data). Widget hosts ignore this and render the iframe.
+    response.summary = buildReadySummary(
+      item.name,
+      `L${item.lang}`,
+      response.view_url as string,
+      response.claim_message as string | undefined
+    );
     return response;
   }
 }
