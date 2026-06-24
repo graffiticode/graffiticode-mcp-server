@@ -156,6 +156,18 @@ export function generateFormWidgetHtml(): string {
 
         // Listen for messages from the form iframe
         window.addEventListener('message', function(event) {
+          // Renderer reports its content height so we size the iframe to the
+          // form instead of the fixed fallback. Trust only this iframe's window.
+          if (event.source === iframe.contentWindow &&
+              event.data && event.data.type === 'resize' &&
+              typeof event.data.height === 'number' && event.data.height > 0) {
+            var h = Math.ceil(event.data.height);
+            iframe.style.height = h + 'px';
+            if (window.openai.notifyIntrinsicHeight) {
+              window.openai.notifyIntrinsicHeight(h + 50);
+            }
+            return;
+          }
           if (event.origin === 'https://api.graffiticode.org') {
             if (event.data && event.data.type === 'data-updated') {
               if (window.openai.setWidgetState) {

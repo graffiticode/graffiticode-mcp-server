@@ -55,6 +55,18 @@ function renderIframe(formUrl: string, sc: Record<string, unknown>): void {
   iframe.src = formUrl;
   iframe.allow = "clipboard-read; clipboard-write";
 
+  // The embedded renderer posts its content height ({ type: "resize", height })
+  // so we can size the iframe to the form instead of the fixed CSS fallback
+  // (which left a large gap below short items). ext-apps then auto-resizes the
+  // host card to match. Trust only messages from this iframe's own window.
+  window.addEventListener("message", (e: MessageEvent) => {
+    if (e.source !== iframe.contentWindow) return;
+    const data = e.data as { type?: string; height?: number } | null;
+    if (data && data.type === "resize" && typeof data.height === "number" && data.height > 0) {
+      iframe.style.height = `${Math.ceil(data.height)}px`;
+    }
+  });
+
   const frag = document.createDocumentFragment();
   frag.appendChild(iframe);
 
