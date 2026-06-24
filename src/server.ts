@@ -799,7 +799,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       const resolved = await resolveBearer(bearerToken);
       authProvider = {
         async getAuth() {
-          return { type: "firebase", token: resolved.token };
+          return { type: "firebase", token: resolved.token, source: resolved.source };
         },
       };
     } else {

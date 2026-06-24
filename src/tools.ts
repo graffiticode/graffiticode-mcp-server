@@ -11,6 +11,7 @@ import {
   API_URL,
 } from "./api.js";
 import { mintClaimToken } from "./claim-token.js";
+import { getRenderAccessToken } from "./render-token.js";
 import { WIDGET_RESOURCE_URI, WIDGET_CSP, CLAUDE_WIDGET_RESOURCE_URI } from "./widget/index.js";
 
 // --- Help Entry Structure (matches console HelpPanel) ---
@@ -272,21 +273,31 @@ export interface ToolContext {
 // API's /form endpoint renders by taskId and derives the language from the task
 // itself, so no `lang` query param is needed.
 //
-// - firebase items: pass the access_token so the token-authenticated /form
-//   endpoint can read the owner-scoped task.
+// - firebase items: embed an access_token the token-authenticated /form
+//   endpoint accepts. The api only validates JWTs, so we must NOT embed a raw
+//   API key (it's rejected → 404, and a long-lived key in a URL leaks into
+//   logs). For a raw-key bearer we exchange it for a short-lived (5-min) access
+//   token; an OAuth bearer is already a Firebase ID token and is used directly.
 // - free-plan items: the compiled task is created anonymously, so it carries a
 //   public ACL and /form renders it by taskId with no token. (Item-level
 //   session namespacing doesn't apply here — /form keys on the task, not the
 //   item.)
-function buildFormUrl(
+async function buildFormUrl(
   auth: AuthContext,
   taskId: string | null
-): string | undefined {
+): Promise<string | undefined> {
   if (!taskId) return undefined;
   const base = `${API_URL}/form?id=${encodeURIComponent(taskId)}`;
-  return auth.type === "firebase"
-    ? `${base}&access_token=${encodeURIComponent(auth.token)}`
-    : base;
+  if (auth.type !== "firebase") return base;
+
+  let token: string | null = auth.token;
+  if (auth.source === "raw") {
+    token = await getRenderAccessToken(auth.token);
+    // Exchange failed — omit form_url rather than embed a rejected/leaky key.
+    // The widget then falls back to its "Open in Graffiticode" view link.
+    if (!token) return undefined;
+  }
+  return `${base}&access_token=${encodeURIComponent(token)}`;
 }
 
 // The app's view page for an item, opened in a full browser tab (where a
@@ -439,17 +450,29 @@ const GENERATION_STALE_MS = 4 * 60_000; // worker-died guard
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
 // The Graffiticode API's data(id) resolver returns this envelope when a task's
-// rendered data isn't available. During the brief window after create/update,
-// the item can transiently point at a template/old task whose data hasn't been
-// computed yet, so a too-eager "ready" classification would surface a 404 blob.
-// Match the envelope specifically (status:"error" + numeric error.code) so we
-// don't mistake a real item's data for an error.
-function isErrorDataPayload(data: unknown): boolean {
-  if (!data || typeof data !== "object") return false;
-  const d = data as Record<string, unknown>;
-  if (d.status !== "error") return false;
-  const err = d.error as Record<string, unknown> | undefined;
+// rendered data isn't available: { status: "error", error: { code, message } }.
+// Match it specifically (status:"error" + numeric error.code) so we don't
+// mistake a real item's data for an error.
+function isErrorEnvelope(v: unknown): boolean {
+  if (!v || typeof v !== "object") return false;
+  const o = v as Record<string, unknown>;
+  if (o.status !== "error") return false;
+  const err = o.error as Record<string, unknown> | undefined;
   return !!err && typeof err === "object" && typeof err.code === "number";
+}
+
+// During the brief window after create/update the item can transiently point at
+// a template/old task whose data hasn't been computed yet, so a too-eager
+// "ready" classification would surface a 404 blob. The envelope can arrive
+// either at the top level of the getData payload or nested under `.data` (the
+// real content lives at `.data` for a successful render, e.g. L0158/L0166), so
+// check both levels.
+function isErrorDataPayload(data: unknown): boolean {
+  if (isErrorEnvelope(data)) return true;
+  if (data && typeof data === "object") {
+    return isErrorEnvelope((data as Record<string, unknown>).data);
+  }
+  return false;
 }
 
 // get_item long-polls: while the item is still generating it waits (up to ~45s,
@@ -551,7 +574,7 @@ export async function handleGetItem(
       updated: item.updated,
     };
     await applyViewAndClaim(response, ctx.auth, item.id);
-    const formUrl = buildFormUrl(ctx.auth, item.taskId);
+    const formUrl = await buildFormUrl(ctx.auth, item.taskId);
     if (formUrl) response._meta = { form_url: formUrl };
     // Chat-facing summary for clients that render text rather than the widget
     // (e.g. Codex). Surfaces the form-view link instead of dumping the full

@@ -15,7 +15,11 @@ export const CONSOLE_URL = process.env.GRAFFITICODE_CONSOLE_BASE_URL || "https:/
 export const APP_URL = process.env.GRAFFITICODE_APP_URL || "https://app.graffiticode.org";
 
 export type AuthContext =
-  | { type: "firebase"; token: string }
+  // `source` records how the bearer was resolved (see server.ts resolveBearer):
+  // "oauth" — already a Firebase ID token; "raw" — the caller's raw Graffiticode
+  // API key (forwarded verbatim to the console, which exchanges it). It governs
+  // how buildFormUrl mints the token embedded in the render URL.
+  | { type: "firebase"; token: string; source?: "oauth" | "raw" }
   | { type: "freePlan"; sessionId: string };
 
 interface GraphQLResponse<T> {
