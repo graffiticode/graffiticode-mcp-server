@@ -17,13 +17,15 @@ export const CLAUDE_WIDGET_MIME_TYPE = RESOURCE_MIME_TYPE;
 
 // Hosts the widget embeds in its iframe. The widget's iframe loads the API
 // host's /form endpoint, which 302-redirects to the per-language renderer host
-// (Cloud Run, e.g. `l0165-<project>.us-central1.run.app`) — that redirect
-// target must be in frame-src too or the navigation is blocked (ERR_BLOCKED_BY_CSP).
-// The renderer host varies per language, so it's matched with a wildcard.
-//   - api.graffiticode.org   token-authenticated /form + /data
-//   - app.graffiticode.org   public view page (trial "Open in Graffiticode")
-//   - *.us-central1.run.app  language renderer the /form redirect lands on
+// — that redirect target must be in frame-src too or the navigation is blocked
+// ("This content is blocked" / ERR_BLOCKED_BY_CSP). The renderer is served at a
+// per-language custom domain `l<NNNN>.graffiticode.org` (e.g. l0158, l0166), so
+// it's matched with the `*.graffiticode.org` wildcard. The Cloud Run host is
+// kept as a fallback for languages still served directly off run.app.
+//   - *.graffiticode.org     api/app + the l<NNNN> language renderer redirect target
+//   - *.us-central1.run.app  fallback language renderer host
 const WIDGET_FRAME_HOSTS = [
+  "*.graffiticode.org",
   "api.graffiticode.org",
   "app.graffiticode.org",
   "*.us-central1.run.app",
