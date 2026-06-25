@@ -70,9 +70,9 @@ All requests to create_item and update_item must be natural language description
 
 get_language_info returns an inline authoring_guide summary, supported_item_types, and example_prompts — these are usually sufficient to compose a good create_item request. For deeper reference (vocabulary cues, scope boundaries, detailed item-type docs) read the user_guide_resource URI via ReadResource.
 
-Item ids are opaque handles. To reproduce or wrap an item's content in a DIFFERENT language (e.g. author an assessment in one dialect, then emit it to Learnosity), do NOT pass the item id or get_item output (src/data) to the other language — those are private to the item's own language and another language's generator cannot interpret them. Instead converge the content in its own language first, then call get_spec(item_id) to get a platform-neutral English description and pass THAT as the create_item description for the target language.
+Division of labor: the generator is the router — it identifies which languages a request needs and composes any pipeline. Your job is to send it the highest-quality description. Item ids are opaque handles. To reuse an existing item's content in a new request (any language), do NOT pass its id or get_item output (src/data) — those are private to that item's own language. Converge the content in its own language first, then call get_spec(item_id) to get a platform-neutral English description, and pass THAT (plus your intent framing) as the create_item description. Never name upstream languages or wire pipelines yourself; describe what you want and let the generator compose.
 
-Workflow: list_languages(search, domain) → get_language_info(language) → create_item(language, description) → get_item(item_id) → update_item(item_id, modification) → get_item(item_id) to iterate. To move content across languages: get_spec(item_id) → create_item(other_language, spec).
+Workflow: list_languages(search, domain) → get_language_info(language) → create_item(language, description) → get_item(item_id) → update_item(item_id, modification) → get_item(item_id) to iterate. To reuse content in a new request: get_spec(item_id) → create_item(language, spec + intent framing).
 
 create_item and update_item start generation and return immediately with status "generating"; always follow them with get_item(item_id) to retrieve the result. get_item waits for completion and returns status "ready" (with data), "failed" (with an error), or "generating" (call get_item again).`;
 
@@ -83,6 +83,8 @@ export const createItemTool = {
   description: `Create interactive content in any Graffiticode language. Describe what you want in natural language — a language-specific AI generates the result.
 
 Call list_languages() first to discover available languages, then pass the language ID here. The description should be a natural language request, not code. Be specific about the content, structure, layout, theme, and any assessment or interaction requirements.
+
+To reuse content from an existing item (any language) — e.g. "make this spreadsheet into a Learnosity question" — call get_spec(item_id) and use its returned text as this description, adding only your intent/target framing. Never paste another item's src/data or its id, and do not name upstream languages or wire a pipeline: just describe what you want and let the generator identify the languages and compose.
 
 Generation runs asynchronously: this returns immediately with an item_id and status "generating". Call get_item(item_id) to retrieve the result — get_item waits for completion and returns status "ready" with the data (or "failed").`,
   inputSchema: {
@@ -421,11 +423,34 @@ function buildReadySummary(
   return lines.join("\n\n");
 }
 
+// Conservative guard against the over-reaching inputs get_spec exists to replace: passing an item
+// id (a handle, not content) or a language-private artifact (a decompiled src / AST node pool) as
+// the description. Returns a corrective message, or null when the description looks like a request.
+// Deterministic validation — it rejects the same malformed input every time; it is not a second
+// generation path.
+function detectForwardedArtifact(description: string): string | null {
+  const d = (description ?? "").trim();
+  // A bare item-id token: one long alnum run, no spaces. A real request always has words.
+  if (/^[A-Za-z0-9_-]{16,}$/.test(d)) {
+    return "That looks like an item id, not content — item ids are opaque handles. Call get_spec(item_id) and pass its returned text (plus your intent framing) as the description.";
+  }
+  // A pasted AST node pool (get_item code/data), not a natural-language request.
+  if (/"tag"\s*:/.test(d) && /"elts"\s*:/.test(d)) {
+    return "That looks like a language-private artifact (an AST/data blob), not a request. Don't forward get_item output across languages — call get_spec(item_id) for a platform-neutral description and pass that instead.";
+  }
+  return null;
+}
+
 export async function handleCreateItem(
   ctx: ToolContext,
   args: { language: string; description: string; name?: string }
 ): Promise<unknown> {
   const { language, description, name } = args;
+
+  const misuse = detectForwardedArtifact(description);
+  if (misuse) {
+    throw new Error(misuse);
+  }
 
   // Normalize language ID (remove "L" prefix if present)
   const langId = language.replace(/^L/i, "");
