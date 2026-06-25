@@ -12,7 +12,7 @@
 // It asserts the agent did NOT route — it issued one high-quality 0158 request and let the
 // composer compose. Content is LLM-generated, so checks are fidelity/smoke, not exact-match.
 
-import { startCodeGeneration, getItemWithTask, getSpec, type AuthContext } from "../src/api.js";
+import { startCodeGeneration, getItemWithTask, getData, getSpec, type AuthContext } from "../src/api.js";
 
 const apiKey = process.env.GRAFFITICODE_API_KEY;
 if (!apiKey) {
@@ -72,12 +72,19 @@ async function main() {
   });
   const outItem = await waitReady(out.itemId, "0158 target");
   const outSrc: string = outItem?.task?.src ?? "";
-  console.log(`   learnosity item ${out.itemId} ready (${outSrc.length} chars of src)`);
+  // An assessment language carries its authored content in the compiled data (the Learnosity
+  // payload), not the terse src — check there for fidelity.
+  const outData = await getData({ auth, taskId: outItem.taskId });
+  const outDataStr = JSON.stringify(outData ?? "");
+  console.log(`   learnosity item ${out.itemId} ready (${outSrc.length} src / ${outDataStr.length} data chars)`);
 
   console.log("4) assertions…");
-  const survived = LABELS.filter((l) => outSrc.toLowerCase().includes(l.toLowerCase()));
-  check("content survived into Learnosity item", survived.length >= 2, `${survived.length}/${LABELS.length} labels`);
-  check("target item is non-empty", outSrc.trim().length > 0);
+  const survived = LABELS.filter((l) => outDataStr.toLowerCase().includes(l.toLowerCase()));
+  check("content survived into Learnosity item (data)", survived.length === LABELS.length, `${survived.length}/${LABELS.length} labels`);
+  // The agent passed only a spec + intent; the composer should have identified 0166 + 0158 and
+  // composed the pipeline itself — never the agent's job.
+  check("composer routed/composed a pipeline", /data\s+use\s+"0166"|custom\s+lang\s+"0166"/.test(outSrc));
+  check("target item is non-empty", outDataStr.length > 2);
 
   console.log(failures === 0 ? "\n✅ eval passed" : `\n❌ eval failed (${failures})`);
   process.exit(failures === 0 ? 0 : 1);
