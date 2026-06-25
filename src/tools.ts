@@ -2,6 +2,7 @@ import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import {
   getData,
   getItemWithTask as apiGetItemWithTask,
+  getSpec as apiGetSpec,
   startCodeGeneration,
   listLanguages as apiListLanguages,
   getLanguageInfo as apiGetLanguageInfo,
@@ -69,7 +70,9 @@ All requests to create_item and update_item must be natural language description
 
 get_language_info returns an inline authoring_guide summary, supported_item_types, and example_prompts — these are usually sufficient to compose a good create_item request. For deeper reference (vocabulary cues, scope boundaries, detailed item-type docs) read the user_guide_resource URI via ReadResource.
 
-Workflow: list_languages(search, domain) → get_language_info(language) → create_item(language, description) → get_item(item_id) → update_item(item_id, modification) → get_item(item_id) to iterate.
+Item ids are opaque handles. To reproduce or wrap an item's content in a DIFFERENT language (e.g. author an assessment in one dialect, then emit it to Learnosity), do NOT pass the item id or get_item output (src/data) to the other language — those are private to the item's own language and another language's generator cannot interpret them. Instead converge the content in its own language first, then call get_spec(item_id) to get a platform-neutral English description and pass THAT as the create_item description for the target language.
+
+Workflow: list_languages(search, domain) → get_language_info(language) → create_item(language, description) → get_item(item_id) → update_item(item_id, modification) → get_item(item_id) to iterate. To move content across languages: get_spec(item_id) → create_item(other_language, spec).
 
 create_item and update_item start generation and return immediately with status "generating"; always follow them with get_item(item_id) to retrieve the result. get_item waits for completion and returns status "ready" (with data), "failed" (with an error), or "generating" (call get_item again).`;
 
@@ -169,7 +172,9 @@ export const getItemTool = {
   name: "get_item",
   description: `Get an existing Graffiticode item by ID.
 
-Returns the item's data, code, and metadata. If the item is still being generated (after create_item/update_item), this waits for completion and returns it once ready. Response includes a status field: "ready" (data present), "generating" (call get_item again to keep waiting), or "failed" (with an error).`,
+Returns the item's data, code, and metadata. If the item is still being generated (after create_item/update_item), this waits for completion and returns it once ready. Response includes a status field: "ready" (data present), "generating" (call get_item again to keep waiting), or "failed" (with an error).
+
+The returned src and data are PRIVATE to this item's language — do not pass them to another language's create_item; to move this content to a different language, call get_spec(item_id) instead.`,
   inputSchema: {
     type: "object",
     properties: {
@@ -199,6 +204,31 @@ Returns the item's data, code, and metadata. If the item is still being generate
     // deprecated alias older hosts read.
     ui: { resourceUri: CLAUDE_WIDGET_RESOURCE_URI },
     "ui/resourceUri": CLAUDE_WIDGET_RESOURCE_URI,
+  },
+} as const;
+
+export const getSpecTool = {
+  name: "get_spec",
+  description: `Get a precise, platform-neutral English specification of an existing item's content.
+
+Use this to reproduce or wrap an item's content in ANOTHER language: pass the returned spec as the create_item description for the target language. The spec captures every authored detail (questions, options, answer keys, formulas, passages) with no language-specific encoding.
+
+Item ids are opaque handles. Never pass an item id or get_item output (src/data) to another language — those are private to the item's own language and another language's generator cannot interpret them. get_spec is the only correct way to move content across languages.`,
+  inputSchema: {
+    type: "object",
+    properties: {
+      item_id: {
+        type: "string",
+        description: "The item ID to describe",
+      },
+    },
+    required: ["item_id"],
+  },
+  annotations: {
+    title: "Get Item Spec",
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
   },
 } as const;
 
@@ -258,6 +288,7 @@ export const tools = [
   createItemTool,
   updateItemTool,
   getItemTool,
+  getSpecTool,
   listLanguagesTool,
   getLanguageInfoTool,
 ] as unknown as Tool[];
@@ -593,6 +624,28 @@ export async function handleGetItem(
   }
 }
 
+export async function handleGetSpec(
+  ctx: ToolContext,
+  args: { item_id: string }
+): Promise<unknown> {
+  const { item_id } = args;
+  const result = await apiGetSpec({ auth: ctx.auth, id: item_id });
+  const response: Record<string, unknown> = {
+    item_id: result.itemId,
+    language: `L${result.lang}`,
+    spec: result.spec,
+  };
+  // Surface (non-gating) fidelity telemetry so callers can see if the spec may
+  // have elided authored content. Empty missing[] ⇒ full coverage.
+  if (result.coverage && result.coverage.missing.length > 0) {
+    response._meta = {
+      coverage_missing: result.coverage.missing,
+      coverage_checked: result.coverage.checked,
+    };
+  }
+  return response;
+}
+
 export async function handleListLanguages(
   ctx: ToolContext,
   args: { domain?: string; search?: string }
@@ -652,6 +705,8 @@ export async function handleToolCall(
       return handleUpdateItem(ctx, args as { item_id: string; modification: string });
     case "get_item":
       return handleGetItem(ctx, args as { item_id: string });
+    case "get_spec":
+      return handleGetSpec(ctx, args as { item_id: string });
     case "list_languages":
       return handleListLanguages(ctx, args as { domain?: string; search?: string });
     case "get_language_info":

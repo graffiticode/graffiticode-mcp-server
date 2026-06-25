@@ -343,6 +343,34 @@ export async function getItemWithTask(options: {
   return result.item;
 }
 
+export interface ItemSpec {
+  spec: string;
+  lang: string;
+  itemId: string;
+  coverage: { checked: number; missing: string[] };
+}
+
+export async function getSpec(options: {
+  auth: AuthContext;
+  id: string;
+}): Promise<ItemSpec> {
+  const { auth, id } = options;
+
+  const query = `
+    query GetSpec($id: String!) {
+      spec(id: $id) {
+        spec
+        lang
+        itemId
+        coverage { checked missing }
+      }
+    }
+  `;
+
+  const result = await graphqlRequest<{ spec: ItemSpec }>(auth, query, { id });
+  return result.spec;
+}
+
 export async function updateItem(options: {
   auth: AuthContext;
   id: string;
