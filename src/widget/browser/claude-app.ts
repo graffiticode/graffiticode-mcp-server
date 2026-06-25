@@ -111,7 +111,8 @@ function renderCard(sc: Record<string, unknown>): void {
 
   if (status === "generating") {
     title.textContent = "Generating…";
-    text.textContent = "Your item is being created.";
+    text.textContent =
+      sc.operation === "update" ? "Your item is being updated." : "Your item is being created.";
   } else if (status === "failed") {
     title.textContent = "Generation failed";
     text.textContent =

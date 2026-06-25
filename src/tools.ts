@@ -356,11 +356,15 @@ async function applyViewAndClaim(
 function buildGeneratingResponse(
   itemId: string,
   lang: string,
-  name: string | null
+  name: string | null,
+  operation: "create" | "update"
 ): Record<string, unknown> {
   return {
     item_id: itemId,
     status: "generating",
+    // Lets the widget card say "being created" vs "being updated" while the
+    // generation runs (create_item and update_item share this shape).
+    operation,
     language: `L${lang}`,
     name: name ?? null,
     message:
@@ -406,7 +410,7 @@ export async function handleCreateItem(
     modification: description,
   });
 
-  return buildGeneratingResponse(job.itemId, langId, name ?? null);
+  return buildGeneratingResponse(job.itemId, langId, name ?? null, "create");
 }
 
 export async function handleUpdateItem(
@@ -440,7 +444,7 @@ export async function handleUpdateItem(
     currentSrc,
   });
 
-  return buildGeneratingResponse(job.itemId, existingItem.lang, existingItem.name);
+  return buildGeneratingResponse(job.itemId, existingItem.lang, existingItem.name, "update");
 }
 
 const GET_ITEM_POLL_DEADLINE_MS = 45_000; // under codex's ~60s tool-call cap
