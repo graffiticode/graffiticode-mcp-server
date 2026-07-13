@@ -88,22 +88,23 @@ const PRIVACY_HTML = `<!DOCTYPE html>
 </head>
 <body>
 <h1>Privacy Policy</h1>
-<p class="subtitle">Graffiticode MCP Server &mdash; Effective Date: April 1, 2026</p>
+<p class="subtitle">Graffiticode MCP Server &mdash; Effective Date: July 13, 2026</p>
 
 <h2>Overview</h2>
-<p>The Graffiticode MCP Server (&ldquo;the Service&rdquo;) is operated by Graffiticode. This policy describes how the Service collects, uses, and protects information when you connect to the Graffiticode MCP server through an MCP-compatible client such as Claude, ChatGPT, or other AI assistants.</p>
+<p>The Graffiticode MCP Server (&ldquo;the Service&rdquo;) is operated by Artcompiler. This policy describes how the Service collects, uses, and protects information when you connect to it through an MCP-compatible client such as Claude, ChatGPT, or another AI assistant.</p>
 
 <h2>Information We Collect</h2>
 
 <h3>Authentication Credentials</h3>
-<p>When you connect to the Service, you provide authentication credentials in one of two ways:</p>
+<p>The Service supports three ways to connect, and each handles credentials differently:</p>
 <ul>
-  <li><strong>OAuth 2.1 access tokens</strong> &mdash; issued during the OAuth authorization flow. These tokens are used to authenticate requests and are not stored persistently by the MCP server.</li>
-  <li><strong>API keys</strong> &mdash; passed as Bearer tokens. API keys are exchanged for short-lived session tokens and are not logged or stored beyond the authentication step.</li>
+  <li><strong>No credentials (free plan)</strong> &mdash; you may connect without signing in. We do not collect any account identity. Your items are scoped to an anonymous session identifier (see <em>Free-plan sessions</em> below).</li>
+  <li><strong>API keys</strong> &mdash; passed as a Bearer token and forwarded to the Graffiticode platform to authenticate the request. API keys are not written to our logs.</li>
+  <li><strong>OAuth 2.1</strong> &mdash; if you authorize through the OAuth flow, we store an OAuth record so your session can be refreshed without asking you to sign in repeatedly. <strong>That record includes the email address of the Google account you authorized with, together with an access token and a refresh token.</strong> It is persisted through the Graffiticode auth service, not merely held in memory.</li>
 </ul>
 
 <h3>Content You Create</h3>
-<p>When you use the Service&rsquo;s tools (create_item, update_item, get_item), the natural language descriptions you provide and the items you create are stored in the Graffiticode platform. This includes:</p>
+<p>When you use the Service&rsquo;s content tools (<code>create_item</code>, <code>update_item</code>, <code>get_item</code>, <code>get_spec</code>), the natural language descriptions you provide and the items you create are sent to the Graffiticode platform and stored there. This includes:</p>
 <ul>
   <li>Natural language descriptions and modification requests</li>
   <li>Generated code and compiled output data</li>
@@ -111,46 +112,57 @@ const PRIVACY_HTML = `<!DOCTYPE html>
   <li>Item metadata (creation and update timestamps, language, name)</li>
 </ul>
 
-<h3>Automatically Collected Information</h3>
-<p>The Service may collect standard server logs including:</p>
+<h3>Free-plan Sessions</h3>
+<p>If you connect without credentials, items you create are namespaced to the session identifier your MCP client established. The Service can mint a one-time <em>claim link</em>, valid for 24 hours, that lets you transfer those items into a real Graffiticode account the first time you sign in. The claim link contains a signed token derived from the session identifier &mdash; it carries no personal data. If you never claim them, free-plan items remain associated only with that anonymous session.</p>
+
+<h3>Usage Analytics</h3>
+<p>The Service emits coarse, privacy-preserving analytics events to measure engagement (connections, tool usage, success rates). These events deliberately exclude personal data:</p>
 <ul>
-  <li>IP addresses</li>
-  <li>Request timestamps</li>
-  <li>HTTP headers (excluding authorization tokens, which are redacted)</li>
-  <li>Error messages for debugging</li>
+  <li>Sessions and tokens appear only as <strong>one-way hashes</strong>, never in raw form.</li>
+  <li>Your prompt text appears only as a <strong>character count</strong> &mdash; never the prompt itself.</li>
+  <li>Location is recorded only as a <strong>coarse country</strong> (and, where available, region) derived at our CDN edge. <strong>We do not record your IP address.</strong></li>
+  <li>We record the <strong>client kind</strong> (the name your MCP client reports, e.g. &ldquo;claude-ai&rdquo;), which identifies software, not you.</li>
 </ul>
+<p>One caveat, stated plainly: when a request fails we record a truncated backend error message so we can debug it. Error text is not intended to carry your content, but we cannot categorically rule out that a backend message quotes part of an input.</p>
+
+<h3>Server Logs</h3>
+<p>The Service writes operational logs for debugging &mdash; request timestamps, error messages, and diagnostic warnings. Authorization headers are never logged. As noted above, the client IP address is not recorded in our analytics events.</p>
 
 <h2>How We Use Your Information</h2>
-<p>We use the information described above to:</p>
 <ul>
   <li>Authenticate your requests and authorize access to your items</li>
   <li>Generate, store, and retrieve content you create through the Service</li>
   <li>Maintain conversation history to support iterative editing of items</li>
   <li>Debug errors and maintain service reliability</li>
-  <li>Improve the Service</li>
+  <li>Understand aggregate usage so we can improve the Service</li>
 </ul>
 
 <h2>Data Sharing</h2>
-<p>We do not sell your personal information. We may share data only in the following circumstances:</p>
+<p>We do not sell your personal information. Data reaches the following parties in the course of running the Service:</p>
 <ul>
-  <li><strong>Service providers</strong> &mdash; We use Google Cloud Platform to host the Service. Data is processed in accordance with Google Cloud&rsquo;s data processing terms.</li>
-  <li><strong>Firebase Authentication</strong> &mdash; Authentication tokens are processed through Firebase. See Google&rsquo;s privacy policy for details.</li>
-  <li><strong>Legal requirements</strong> &mdash; We may disclose information if required by law or legal process.</li>
+  <li><strong>Graffiticode platform</strong> &mdash; the console and API receive the content you create and the requests you make. This is where code generation happens and where your items live.</li>
+  <li><strong>Google Cloud Platform</strong> &mdash; hosts the Service (Cloud Run) and receives its operational and analytics logs (Cloud Logging).</li>
+  <li><strong>Firebase Authentication (Google)</strong> &mdash; processes authentication tokens. See Google&rsquo;s privacy policy for details.</li>
+  <li><strong>Cloudflare</strong> &mdash; sits in front of the Service as our CDN and edge network, and necessarily handles your connection. Cloudflare is also the source of the coarse country/region signal described above.</li>
+  <li><strong>GitHub</strong> &mdash; the Service fetches its public agent-skill catalog from a public GitHub repository at request time. <strong>No user data is sent to GitHub</strong>; GitHub sees only the Service&rsquo;s own outbound requests.</li>
+  <li><strong>Legal requirements</strong> &mdash; we may disclose information if required by law or legal process.</li>
 </ul>
 
 <h2>Data Retention</h2>
 <ul>
-  <li><strong>Items and content</strong> &mdash; Retained as long as your Graffiticode account is active, or until you delete them.</li>
-  <li><strong>Authentication tokens</strong> &mdash; Cached in memory for up to 55 minutes and discarded when the server session ends.</li>
-  <li><strong>Server logs</strong> &mdash; Retained for up to 90 days for debugging purposes.</li>
+  <li><strong>Items and content</strong> &mdash; retained as long as your Graffiticode account is active, or until you delete them.</li>
+  <li><strong>OAuth records</strong> &mdash; the stored email, access token, and refresh token persist until the token is revoked or expires. Access tokens are valid for 55 minutes and are rotated on refresh.</li>
+  <li><strong>API keys</strong> &mdash; not stored by the Service; forwarded per request and discarded.</li>
+  <li><strong>Free-plan claim tokens</strong> &mdash; valid for 24 hours, after which the link expires.</li>
+  <li><strong>Server logs</strong> &mdash; retained for up to 90 days for debugging purposes.</li>
 </ul>
 
 <h2>Security</h2>
-<p>We protect your data using:</p>
 <ul>
   <li>HTTPS/TLS encryption for all data in transit</li>
-  <li>OAuth 2.1 with PKCE for secure authentication flows</li>
-  <li>Short-lived authentication tokens with automatic refresh</li>
+  <li>OAuth 2.1 with PKCE (S256) for secure authentication flows</li>
+  <li>Short-lived tokens with automatic refresh and rotation</li>
+  <li>Long-lived API keys are exchanged for short-lived tokens rather than being embedded in render URLs</li>
   <li>Deployment on Google Cloud Run with managed infrastructure security</li>
 </ul>
 
@@ -160,6 +172,7 @@ const PRIVACY_HTML = `<!DOCTYPE html>
   <li>Request access to or deletion of your data by contacting us</li>
   <li>Delete items you&rsquo;ve created through the Graffiticode console at <a href="https://console.graffiticode.org">console.graffiticode.org</a></li>
   <li>Revoke API keys at any time through your Graffiticode account settings</li>
+  <li>Disconnect the Service from your MCP client at any time, which stops all further data flow</li>
 </ul>
 
 <h2>Changes to This Policy</h2>
@@ -168,7 +181,7 @@ const PRIVACY_HTML = `<!DOCTYPE html>
 <h2>Contact</h2>
 <p>For questions about this privacy policy or your data, contact:</p>
 <ul>
-  <li>Email: <a href="mailto:jeff@artcompiler.com">jeff@artcompiler.com</a></li>
+  <li>Email: <a href="mailto:support@graffiticode.org">support@graffiticode.org</a></li>
   <li>GitHub: <a href="https://github.com/graffiticode/graffiticode-mcp-server">github.com/graffiticode/graffiticode-mcp-server</a></li>
   <li>About this server: <a href="/about">/about</a></li>
 </ul>
@@ -181,11 +194,19 @@ const TERMS_HTML = `<!DOCTYPE html>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <title>Terms of Service — Graffiticode MCP Server</title>
-<style>body{font-family:system-ui,-apple-system,sans-serif;max-width:720px;margin:0 auto;padding:2rem;line-height:1.6;color:#1a1a1a}h1{font-size:1.8rem;border-bottom:2px solid #c47a5a;padding-bottom:.5rem}h2{font-size:1.2rem;margin-top:2rem;color:#333}ul{padding-left:1.5rem}a{color:#c47a5a}</style>
+<style>
+  body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif; max-width: 720px; margin: 0 auto; padding: 2rem 1rem; line-height: 1.6; color: #1a1a1a; }
+  h1 { font-size: 1.8rem; margin-bottom: 0.25rem; }
+  h2 { font-size: 1.3rem; margin-top: 2rem; border-bottom: 1px solid #e0e0e0; padding-bottom: 0.3rem; }
+  ul { padding-left: 1.5rem; }
+  li { margin-bottom: 0.5rem; }
+  a { color: #1a73e8; }
+  .subtitle { color: #555; font-size: 0.95rem; margin-bottom: 2rem; }
+</style>
 </head>
 <body>
 <h1>Terms of Service</h1>
-<p><strong>Graffiticode MCP Server</strong><br>Effective Date: April 1, 2026</p>
+<p class="subtitle">Graffiticode MCP Server &mdash; Effective Date: July 13, 2026</p>
 
 <h2>Acceptance of Terms</h2>
 <p>By connecting to or using the Graffiticode MCP Server ("the Service"), you agree to these Terms of Service. If you do not agree, do not use the Service.</p>
@@ -194,7 +215,8 @@ const TERMS_HTML = `<!DOCTYPE html>
 <p>The Service provides a Model Context Protocol (MCP) server that enables AI assistants to create, update, and retrieve interactive content using the Graffiticode platform. The Service routes natural language requests to language-specific backends that generate structured output.</p>
 
 <h2>Account and Authentication</h2>
-<p>To use the Service, you must authenticate with a valid Graffiticode API key or through the OAuth 2.1 authorization flow. You are responsible for keeping your credentials secure and for all activity under your account.</p>
+<p>Authentication is optional. You may connect without credentials on the free plan, or authenticate with a Graffiticode API key or through the OAuth 2.1 authorization flow to associate your work with an account. If you do authenticate, you are responsible for keeping your credentials secure and for all activity under your account.</p>
+<p>Items created on the free plan are scoped to an anonymous session and can be transferred into an account using a claim link, which is valid for 24 hours. Until claimed, they are not associated with any account and may be removed.</p>
 
 <h2>Acceptable Use</h2>
 <p>You agree not to:</p>
@@ -207,15 +229,15 @@ const TERMS_HTML = `<!DOCTYPE html>
 </ul>
 
 <h2>Intellectual Property</h2>
-<p><strong>Your Content</strong> — You retain ownership of the content you create through the Service, including natural language descriptions and the resulting generated items.</p>
-<p><strong>Graffiticode Platform</strong> — The Service, its APIs, language backends, and underlying technology are owned by Graffiticode. Nothing in these terms grants you rights to the platform's intellectual property beyond the right to use the Service as described here.</p>
-<p><strong>Open Source</strong> — The MCP server source code is available under the terms of its open source license at <a href="https://github.com/graffiticode/graffiticode-mcp-server">github.com/graffiticode/graffiticode-mcp-server</a>.</p>
+<p><strong>Your Content</strong> &mdash; You retain ownership of the content you create through the Service, including natural language descriptions and the resulting generated items.</p>
+<p><strong>Graffiticode Platform</strong> &mdash; The Service, its APIs, language backends, and underlying technology are owned by Artcompiler. Nothing in these terms grants you rights to the platform's intellectual property beyond the right to use the Service as described here.</p>
+<p><strong>Open Source</strong> &mdash; The MCP server source code is available under the MIT license at <a href="https://github.com/graffiticode/graffiticode-mcp-server">github.com/graffiticode/graffiticode-mcp-server</a>.</p>
 
 <h2>Availability and Changes</h2>
 <p>The Service is provided on an "as-is" basis. We may modify, suspend, or discontinue the Service at any time without notice. We may also update these terms from time to time; continued use after changes constitutes acceptance.</p>
 
 <h2>Limitation of Liability</h2>
-<p>To the maximum extent permitted by law, Graffiticode shall not be liable for any indirect, incidental, special, consequential, or punitive damages arising from your use of the Service. The Service is provided without warranties of any kind, express or implied.</p>
+<p>To the maximum extent permitted by law, Artcompiler shall not be liable for any indirect, incidental, special, consequential, or punitive damages arising from your use of the Service. The Service is provided without warranties of any kind, express or implied.</p>
 
 <h2>Termination</h2>
 <p>We may suspend or terminate your access to the Service at any time for violation of these terms or for any other reason at our discretion. You may stop using the Service at any time by revoking your API key or disconnecting the MCP server from your client.</p>
@@ -228,6 +250,7 @@ const TERMS_HTML = `<!DOCTYPE html>
   <li>Email: <a href="mailto:support@graffiticode.org">support@graffiticode.org</a></li>
   <li>GitHub: <a href="https://github.com/graffiticode/graffiticode-mcp-server">github.com/graffiticode/graffiticode-mcp-server</a></li>
   <li>About this server: <a href="/about">/about</a></li>
+  <li>Privacy policy: <a href="/privacy">/privacy</a></li>
 </ul>
 </body>
 </html>`;
@@ -282,30 +305,41 @@ const ABOUT_HTML = `<!DOCTYPE html>
 <h2>What it can do</h2>
 <p>The server exposes a small, fixed set of language-agnostic tools. The catalog of Graffiticode languages they route to grows over time.</p>
 <ul>
-  <li><code>list_languages</code> &mdash; discover available languages, optionally filtered by keyword or domain.</li>
+  <li><code>list_languages</code> &mdash; discover available languages, optionally filtered by keyword (<code>search</code>) or <code>domain</code>.</li>
   <li><code>get_language_info</code> &mdash; fetch a language&rsquo;s authoring guide, supported item types, and example prompts.</li>
   <li><code>create_item</code> &mdash; create a new item in a chosen language from a natural-language description.</li>
   <li><code>update_item</code> &mdash; iteratively edit an existing item. Conversation history is preserved per item.</li>
   <li><code>get_item</code> &mdash; retrieve an item by id.</li>
+  <li><code>get_spec</code> &mdash; get a platform-neutral English description of an item&rsquo;s content.</li>
 </ul>
 <p>All <code>create_item</code> and <code>update_item</code> requests are natural language &mdash; a language-specific backend handles code generation. Clients should not attempt to write Graffiticode DSL directly.</p>
+<p>Generation takes time, so <code>create_item</code> and <code>update_item</code> return immediately with a status of <code>generating</code>; call <code>get_item</code> to wait for the finished result.</p>
+<p>An item&rsquo;s <code>src</code> and <code>data</code> are private to its own language. To reuse one item&rsquo;s content in another language, call <code>get_spec</code> and pass the spec to <code>create_item</code> &mdash; never pass a raw item id or its code across languages.</p>
+
+<h2>Resources</h2>
+<p>Alongside the tools, the server exposes MCP resources:</p>
+<ul>
+  <li><strong>Language user guides</strong> &mdash; <code>graffiticode://language/{id}/user-guide</code>, the full authoring reference for a language.</li>
+  <li><strong>Agent skills</strong> &mdash; <code>graffiticode://skills/&lt;id&gt;</code>, discovered at request time from the public <a href="https://github.com/graffiticode/graffiticode-skills">graffiticode-skills</a> repo, so new skills appear without a redeploy.</li>
+  <li><strong>Inline widgets</strong> &mdash; items render as interactive widgets directly in the chat, both in Claude (MCP Apps) and in ChatGPT (Apps SDK).</li>
+</ul>
 
 <h2>When to reach for it</h2>
 <p>For human users: when you want an AI assistant to author interactive content that can be embedded, shared, or published.</p>
 <p>For agents: call <code>list_languages</code> when a user&rsquo;s request doesn&rsquo;t match a more specific tool you already have. If a language matches, fetch its info and create an item; if nothing matches, this server is the wrong tool.</p>
 
 <h2>Free plan</h2>
-<p>The no-auth path lets a user try the server before creating an account. Items created this way live in an anonymous session namespace. Each tool response includes a <code>view_url</code> for viewing the item and a <code>claim_url</code> the user can open to move the item into a real Graffiticode account on first sign-in. Claim links are valid for 24 hours.</p>
+<p>The no-auth path lets a user try the server before creating an account. Items created this way live in an anonymous session namespace. Once an item is ready, the response includes a <code>view_url</code> for viewing it and a <code>claim_url</code> the user can open to move the item into a real Graffiticode account on first sign-in. Claim links are valid for 24 hours.</p>
 
 <h2>Operator</h2>
-<p>This server is operated by Graffiticode and hosted on Google Cloud Run. Source is available at <a href="https://github.com/graffiticode/graffiticode-mcp-server">github.com/graffiticode/graffiticode-mcp-server</a>.</p>
+<p>This server is operated by Artcompiler and hosted on Google Cloud Run. Source is available under the MIT license at <a href="https://github.com/graffiticode/graffiticode-mcp-server">github.com/graffiticode/graffiticode-mcp-server</a>.</p>
 
 <h2>Links</h2>
 <ul>
   <li><a href="https://console.graffiticode.org">Graffiticode console</a> &mdash; manage your account and items</li>
   <li><a href="/privacy">Privacy policy</a></li>
   <li><a href="/terms">Terms of service</a></li>
-  <li>Contact: <a href="mailto:jeff@artcompiler.com">jeff@artcompiler.com</a></li>
+  <li>Contact: <a href="mailto:support@graffiticode.org">support@graffiticode.org</a></li>
 </ul>
 </body>
 </html>`;
@@ -346,7 +380,7 @@ const MCP_DISCOVERY = {
   site: MCP_SERVER_URL,
   description:
     "Graffiticode is a universal MCP server of smart tools for AI agents and the people who use them. Each tool is one domain language wrapped by a specialized AI; call list_languages to discover what is available.",
-  tools: ["create_item", "update_item", "get_item", "list_languages", "get_language_info"],
+  tools: ["create_item", "update_item", "get_item", "get_spec", "list_languages", "get_language_info"],
   product_url: "https://graffiticode.org",
   console_url: "https://console.graffiticode.org",
   forum_url: "https://forum.graffiticode.org",

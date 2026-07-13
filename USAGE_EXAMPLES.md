@@ -2,11 +2,15 @@
 
 These examples demonstrate the core workflows for the Graffiticode MCP server. Each can be reproduced by connecting to `https://mcp.graffiticode.org/mcp` from any MCP-compatible client.
 
+Language IDs below (L0159, L0166, L0169) are illustrative — the catalog is dynamic, so always discover it with `list_languages` rather than hard-coding IDs.
+
+> **Generation is asynchronous.** `create_item` and `update_item` return right away with `status: "generating"`. Call `get_item` to wait for the finished result — it long-polls, so you don't need your own retry loop.
+
 ---
 
 ## Example 1: Create a Concept Web Assessment
 
-This example shows the discover → create → iterate workflow using language L0169 (interactive concept web assessments).
+This example shows the discover → create → await → iterate workflow.
 
 **Step 1: Discover available languages**
 
@@ -23,7 +27,8 @@ Response:
       "id": "L0169",
       "name": "L0169",
       "description": "Interactive concept web assessment diagrams",
-      "category": "data"
+      "domains": ["assessments", "diagrams"],
+      "when_to_use": "Concept maps and node-link diagrams where the learner is assessed on the relationships between concepts."
     }
   ]
 }
@@ -39,25 +44,38 @@ Args: {
 }
 ```
 
-Response includes `item_id`, compiled `data` for rendering, and `react_usage` instructions.
+Response — note it is not finished yet:
+```json
+{
+  "item_id": "0x1a2b3c…",
+  "status": "generating"
+}
+```
 
-**Step 3: Iterate on the result**
+**Step 3: Await the result**
+
+```
+Tool: get_item
+Args: { "item_id": "0x1a2b3c…" }
+```
+
+Blocks until the item is ready, then returns `status: "ready"` with the compiled `data`, the generated code, metadata, and `react_usage` instructions.
+
+**Step 4: Iterate**
 
 ```
 Tool: update_item
 Args: {
-  "item_id": "<item_id from step 2>",
+  "item_id": "0x1a2b3c…",
   "modification": "Add Chlorophyll as a connected concept between Sunlight and Photosynthesis. Use a dark theme."
 }
 ```
 
-The server maintains conversation history, so the language AI knows the full context of what's been built.
+The server maintains conversation history, so the language AI knows the full context of what's been built. Call `get_item` again to await the updated result.
 
 ---
 
 ## Example 2: Build a Spreadsheet
-
-This example shows creating and modifying a spreadsheet using language L0166.
 
 **Step 1: Get language details**
 
@@ -66,7 +84,11 @@ Tool: get_language_info
 Args: { "language": "L0166" }
 ```
 
-Returns the language description, usage guide URL, spec URL, and React component instructions.
+Returns an inline `authoring_guide`, `supported_item_types`, `not_for` (out-of-scope uses), `example_prompts`, a `spec_url`, and a `user_guide_resource` URI. For deeper reference, read that resource:
+
+```
+ReadResource: graffiticode://language/L0166/user-guide
+```
 
 **Step 2: Create a spreadsheet**
 
@@ -92,8 +114,6 @@ Args: {
 
 ## Example 3: Create Flashcards
 
-This example shows creating study materials using language L0159.
-
 **Step 1: Discover the flashcard language**
 
 ```
@@ -109,7 +129,8 @@ Response:
       "id": "L0159",
       "name": "L0159",
       "description": "Flashcards, Match and Memory card games",
-      "category": "data"
+      "domains": ["assessments"],
+      "when_to_use": "Study and recall activities built from term/definition pairs."
     }
   ]
 }
@@ -125,26 +146,62 @@ Args: {
 }
 ```
 
-**Step 3: Retrieve the item later**
+**Step 3: Retrieve the item**
 
 ```
 Tool: get_item
 Args: { "item_id": "<item_id from step 2>" }
 ```
 
-Returns the full item data including code, compiled output, timestamps, and React rendering instructions.
+---
+
+## Example 4: Reuse Content Across Languages (`get_spec`)
+
+Say you have a spreadsheet of vocabulary (L0166) and you want flashcards (L0159) from the same content.
+
+**Do not** pass the spreadsheet's `item_id`, `src`, or `data` to `create_item` — those are private to the language that produced them, and the server will reject an item id passed as a description.
+
+Instead, bridge through a spec:
+
+**Step 1: Get a platform-neutral spec of the existing item**
+
+```
+Tool: get_spec
+Args: { "item_id": "<spreadsheet item_id>" }
+```
+
+Returns a plain-English description of the item's content — the sanctioned cross-language bridge.
+
+**Step 2: Create the new item from that spec**
+
+```
+Tool: create_item
+Args: {
+  "language": "L0159",
+  "description": "Create a flashcard set from the following content. <paste the spec text here> Front of each card is the Spanish term, back is the English definition."
+}
+```
 
 ---
 
-## Example 4: Explore the Language Catalog
+## Example 5: Explore the Language Catalog
 
-This example shows how to browse all available languages without a specific goal.
+Browse everything:
 
 ```
 Tool: list_languages
 Args: {}
 ```
 
-Returns the full catalog of available languages with IDs, names, descriptions, and categories. The catalog is dynamic and grows as new Graffiticode languages are added.
+Or narrow by domain:
 
-Follow up with `get_language_info` on any language to see its full documentation, spec URL, and usage guide.
+```
+Tool: list_languages
+Args: { "domain": "sheets" }
+```
+
+Returns language IDs, names, descriptions, `domains` memberships, and a `when_to_use` steering note. The catalog is dynamic and grows as new Graffiticode languages are added.
+
+Some languages are **vendor-gated** — their `when_to_use` says they target a specific vendor or platform. Don't select one unless the user actually named that vendor.
+
+Follow up with `get_language_info` on any language to see its full documentation.

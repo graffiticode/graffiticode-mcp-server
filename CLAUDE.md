@@ -68,11 +68,26 @@ This is a thin-router MCP server for Graffiticode. It provides a fixed set of la
 
 | Tool | Purpose |
 |------|---------|
-| `create_item(language, description)` | Create item in any language |
-| `update_item(item_id, modification)` | Update item (language auto-detected) |
-| `get_item(item_id)` | Retrieve item by ID |
-| `list_languages(category?, search?)` | Discover available languages |
+| `create_item(language, description)` | Create item in any language (async; returns `status: "generating"`) |
+| `update_item(item_id, modification)` | Update item (language auto-detected; async) |
+| `get_item(item_id)` | Retrieve item by ID (long-polls to completion) |
+| `get_spec(item_id)` | Platform-neutral English spec — the only sanctioned cross-language bridge |
+| `list_languages(domain?, search?)` | Discover available languages |
 | `get_language_info(language)` | Get language docs, examples, React usage |
+
+### User-facing docs
+
+The privacy and terms pages exist **twice**: as hardcoded HTML template literals in
+`src/server.ts` (`PRIVACY_HTML`, `TERMS_HTML`, `ABOUT_HTML` — these are what users
+actually read at `/privacy`, `/terms`, `/about`) and as `PRIVACY.md` / `TERMS.md`.
+**They are matched pairs — change both together.** They previously drifted: the
+markdown gained a "Usage Analytics" section that the served page never got.
+
+Anything asserted in the privacy copy must trace to real behavior: `src/events.ts`
+for what is logged (metadata only; never the prompt, never the client IP) and
+`src/oauth/firestore-store.ts` for what is persisted (OAuth records include the
+user's email plus access/refresh tokens). Also keep the tool list in sync in three
+places: `ABOUT_HTML`, `MCP_DISCOVERY`, and `README.md`.
 
 ### Environment Variables
 

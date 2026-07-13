@@ -1,7 +1,10 @@
 # Terms of Service
 
 **Graffiticode MCP Server**
-**Effective Date: April 1, 2026**
+**Effective Date: July 13, 2026**
+
+> This document is the source-of-truth twin of the `/terms` page served by the
+> MCP server (`TERMS_HTML` in `src/server.ts`). Change both together.
 
 ## Acceptance of Terms
 
@@ -13,7 +16,9 @@ The Service provides a Model Context Protocol (MCP) server that enables AI assis
 
 ## Account and Authentication
 
-To use the Service, you must authenticate with a valid Graffiticode API key or through the OAuth 2.1 authorization flow. You are responsible for keeping your credentials secure and for all activity under your account.
+Authentication is optional. You may connect without credentials on the free plan, or authenticate with a Graffiticode API key or through the OAuth 2.1 authorization flow to associate your work with an account. If you do authenticate, you are responsible for keeping your credentials secure and for all activity under your account.
+
+Items created on the free plan are scoped to an anonymous session and can be transferred into an account using a claim link, which is valid for 24 hours. Until claimed, they are not associated with any account and may be removed.
 
 ## Acceptable Use
 
@@ -28,8 +33,8 @@ You agree not to:
 ## Intellectual Property
 
 - **Your Content** — You retain ownership of the content you create through the Service, including natural language descriptions and the resulting generated items.
-- **Graffiticode Platform** — The Service, its APIs, language backends, and underlying technology are owned by Graffiticode. Nothing in these terms grants you rights to the platform's intellectual property beyond the right to use the Service as described here.
-- **Open Source** — The MCP server source code is available under the terms of its open source license at [github.com/graffiticode/graffiticode-mcp-server](https://github.com/graffiticode/graffiticode-mcp-server).
+- **Graffiticode Platform** — The Service, its APIs, language backends, and underlying technology are owned by Artcompiler. Nothing in these terms grants you rights to the platform's intellectual property beyond the right to use the Service as described here.
+- **Open Source** — The MCP server source code is available under the MIT license at [github.com/graffiticode/graffiticode-mcp-server](https://github.com/graffiticode/graffiticode-mcp-server).
 
 ## Availability and Changes
 
@@ -37,7 +42,7 @@ The Service is provided on an "as-is" basis. We may modify, suspend, or disconti
 
 ## Limitation of Liability
 
-To the maximum extent permitted by law, Graffiticode shall not be liable for any indirect, incidental, special, consequential, or punitive damages arising from your use of the Service. The Service is provided without warranties of any kind, express or implied.
+To the maximum extent permitted by law, Artcompiler shall not be liable for any indirect, incidental, special, consequential, or punitive damages arising from your use of the Service. The Service is provided without warranties of any kind, express or implied.
 
 ## Termination
 
