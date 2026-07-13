@@ -187,7 +187,7 @@ export const userGuideResourceTemplate = {
   name: "Graffiticode Language User Guide",
   description:
     "Agent-facing authoring guide (markdown) for a Graffiticode language. " +
-    "Substitute {id} with a language ID like L0158.",
+    "Substitute {id} with a language ID like L0166.",
   mimeType: USER_GUIDE_MIME_TYPE,
 };
 

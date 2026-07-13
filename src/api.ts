@@ -421,6 +421,10 @@ export interface Language {
   id: string;
   name: string;
   description: string;
+  // The catalog's steering text — including negative gates ("do NOT use for…").
+  // Surfaced to agents as `when_to_use` at discovery time; without it the
+  // catalog can only pull a language in, never push a wrong pick away.
+  routingHint?: string | null;
   domains: string[];
 }
 
@@ -443,6 +447,7 @@ export async function listLanguages(options: {
         id
         name
         description
+        routingHint
         domains
       }
     }
@@ -468,16 +473,24 @@ export interface ExamplePrompt {
   notes?: string | null;
 }
 
+export interface LanguageScope {
+  summary: string;
+  inScope: string[];
+  outOfScope: string[];
+}
+
 export interface LanguageInfo {
   id: string;
   name: string;
   description: string;
+  routingHint?: string | null;
   domains: string[];
   specUrl: string;
   authoringGuide: string | null;
   supportedItemTypes: string[];
   examplePrompts: ExamplePrompt[];
   usageGuide: string | null;
+  scope?: LanguageScope | null;
 }
 
 export async function getLanguageInfo(options: {
@@ -500,6 +513,7 @@ export async function getLanguageInfo(options: {
         id
         name
         description
+        routingHint
         domains
         specUrl
         authoringGuide
@@ -510,6 +524,11 @@ export async function getLanguageInfo(options: {
           notes
         }
         usageGuide
+        scope {
+          summary
+          inScope
+          outOfScope
+        }
       }
     }
   `;

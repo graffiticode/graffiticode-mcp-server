@@ -64,7 +64,9 @@ function buildContextualPrompt(
 
 export const SERVER_INSTRUCTIONS = `Graffiticode is an open-ended platform of domain-specific tools for creating interactive content — assessments, spreadsheets, flashcards, and more. The catalog of available tools grows over time.
 
-When the user's request doesn't match another available tool, call list_languages() to check if Graffiticode has a language that fits. Use the search parameter to match by keyword, or the domain parameter to narrow by domain (e.g., 'assessments', 'sheets', 'diagrams', 'learnosity') when the user's context implies one. If a match exists, call get_language_info() to learn what the language can create and get its user guide resource URI, then call create_item() with a natural language description.
+When the user's request doesn't match another available tool, call list_languages() to check if Graffiticode has a language that fits. Use the search parameter to match by keyword, or the domain parameter to narrow by domain (e.g., 'assessments', 'sheets', 'diagrams') when the user's context implies one. If a match exists, call get_language_info() to learn what the language can create and get its user guide resource URI, then call create_item() with a natural language description.
+
+Some languages are gated: they target a specific vendor or platform and carry a \`when_to_use\` note saying so. Never pick one unless the user actually named that vendor or platform — matching item types (multiple-choice, cloze, short text) is never sufficient. If no language fits the request, tell the user what Graffiticode does have and ask, rather than settling for the nearest match.
 
 All requests to create_item and update_item must be natural language descriptions of what to create or change. A language-specific AI backend handles all code generation. Do not attempt to generate Graffiticode DSL code directly.
 
@@ -238,17 +240,19 @@ export const listLanguagesTool = {
   name: "list_languages",
   description: `Discover available Graffiticode languages. Use this to find a language that matches the user's needs.
 
-The catalog is dynamic and grows over time. Use the search parameter to match by keyword (e.g., "spreadsheet", "assessment", "flashcard"), or the domain parameter to narrow to a domain (e.g., "assessments"). Returns language IDs, names, descriptions, and domain memberships.`,
+The catalog is dynamic and grows over time. Use the search parameter to match by keyword (e.g., "spreadsheet", "flashcard", "chart"), or the domain parameter to narrow to a domain (e.g., "assessments"). Returns language IDs, names, descriptions, domain memberships, and a \`when_to_use\` steering note.
+
+Read \`when_to_use\` before choosing: it states the conditions a language requires and, where one exists, the gate that rules it out. Honor its negative clauses — a language that says "do NOT use for X" must not be chosen for X, however well its question types or item types seem to match. If nothing in the returned set fits the request, say so and ask the user rather than forcing the closest match.`,
   inputSchema: {
     type: "object",
     properties: {
       domain: {
         type: "string",
-        description: "Filter by domain (e.g., 'assessments', 'sheets', 'diagrams', 'learnosity'). Omit to see every Graffiticode language. Discover available values from the `domains` field on returned languages.",
+        description: "Filter by domain (e.g., 'assessments', 'sheets', 'diagrams'). Omit to see every Graffiticode language. Discover available values from the `domains` field on returned languages. The 'learnosity' domain is vendor-gated — scope to it only when the user names Learnosity (or a Learnosity Item Bank / Items API / Learnosity-integrated LMS).",
       },
       search: {
         type: "string",
-        description: "Search by keyword (e.g., 'assessment', 'spreadsheet', 'flashcard')",
+        description: "Search by keyword (e.g., 'spreadsheet', 'flashcard', 'chart')",
       },
     },
   },
@@ -686,6 +690,7 @@ export async function handleListLanguages(
       id: `L${lang.id}`,
       name: lang.name,
       description: lang.description,
+      ...(lang.routingHint ? { when_to_use: lang.routingHint } : {}),
       domains: lang.domains,
     })),
   };
@@ -708,9 +713,13 @@ export async function handleGetLanguageInfo(
     id: `L${info.id}`,
     name: info.name,
     description: info.description,
+    ...(info.routingHint ? { when_to_use: info.routingHint } : {}),
     domains: info.domains,
     authoring_guide: info.authoringGuide ?? null,
     supported_item_types: info.supportedItemTypes ?? [],
+    // The scope's negative half is the strongest anti-signal the catalog has —
+    // it is the only text that tells an agent when NOT to pick this language.
+    not_for: info.scope?.outOfScope ?? [],
     example_prompts: info.examplePrompts ?? [],
     user_guide_resource: `graffiticode://language/L${info.id}/user-guide`,
     spec_url: info.specUrl,
