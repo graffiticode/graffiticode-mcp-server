@@ -32,9 +32,13 @@ const WIDGET_FRAME_HOSTS = [
 ];
 
 // CSP for the ChatGPT / Skybridge resource (`openai/widgetCSP`, snake_case).
+// ChatGPT requires full origins *with scheme* (e.g. `https://api.graffiticode.org`,
+// `https://*.graffiticode.org`) — bare hosts are not parsed, so the widget can't
+// frame the /form iframe and ChatGPT shows "This content is blocked". Mirror the
+// scheme-prefixed form used by CLAUDE_WIDGET_CSP below.
 export const WIDGET_CSP = {
-  frame_domains: WIDGET_FRAME_HOSTS,
-  connect_domains: WIDGET_FRAME_HOSTS,
+  frame_domains: WIDGET_FRAME_HOSTS.map((h) => `https://${h}`),
+  connect_domains: WIDGET_FRAME_HOSTS.map((h) => `https://${h}`),
 };
 
 // CSP for the MCP Apps resource (`_meta.ui.csp`, camelCase). frameDomains maps
