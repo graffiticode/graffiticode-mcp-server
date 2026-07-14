@@ -3,10 +3,11 @@
  *
  * Two kinds of output:
  *
- * 1. `dist/widget/claude-app.bundle.js` — the MCP Apps widget entry
- *    (`src/widget/browser/claude-app.ts`), a self-contained IIFE inlined into the
- *    resource HTML by `generateClaudeWidgetHtml()`. tsc does not compile it (it
- *    needs DOM libs and must be a browser bundle).
+ * 1. `dist/widget/widget.bundle.js` — the widget entry (`src/widget/browser/entry.ts`),
+ *    a self-contained IIFE inlined into the resource HTML by `generateWidgetHtml()`.
+ *    It picks the host adapter (ext-apps / window.openai) at runtime, so one bundle
+ *    serves both hosts. tsc does not compile browser/*.ts (they need DOM libs and
+ *    must be a browser bundle).
  *
  * 2. `dist/widget/lang/<id>.mjs` — one ES module per natively-renderable language
  *    (see `src/widget/languages.ts`), served over HTTP and loaded by the widget at
