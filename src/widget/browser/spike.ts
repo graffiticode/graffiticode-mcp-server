@@ -37,6 +37,12 @@ const stages = document.getElementById("stages")!;
 
 type Status = "ok" | "fail" | "info";
 
+// The host renders us in an opaque sandbox (Claude: <sha256>.claudemcpcontent.com)
+// with no devtools reachable, so when the frame comes up blank there is no way to
+// see what the probe saw. Everything logged is also beaconed back to the server and
+// shows up in `npm run gcp:logs`.
+const lines: string[] = [];
+
 function log(status: Status, label: string, detail = ""): void {
   const row = document.createElement("div");
   row.className = `row ${status}`;
@@ -47,7 +53,59 @@ function log(status: Status, label: string, detail = ""): void {
   text.textContent = ` ${label}${detail ? " — " + detail : ""}`;
   row.append(tag, text);
   out.appendChild(row);
+  lines.push(`${status.toUpperCase()} ${label}${detail ? " — " + detail : ""}`);
   console.log(`[spike] ${status.toUpperCase()} ${label} ${detail}`);
+}
+
+/**
+ * Why is the frame blank? Measure the things that could hide content even though
+ * the script ran: zero geometry, a display/visibility/opacity reset (the language
+ * stylesheets carry Tailwind preflight, which we inject into document.head), or a
+ * host that never sized the view.
+ */
+function diagnostics(): Record<string, unknown> {
+  const b = document.body;
+  const bs = getComputedStyle(b);
+  const os = getComputedStyle(out);
+  const r = b.getBoundingClientRect();
+  return {
+    bodyScrollHeight: b.scrollHeight,
+    bodyClientHeight: b.clientHeight,
+    bodyRect: { w: Math.round(r.width), h: Math.round(r.height) },
+    viewport: { w: window.innerWidth, h: window.innerHeight },
+    bodyStyle: {
+      display: bs.display,
+      visibility: bs.visibility,
+      opacity: bs.opacity,
+      color: bs.color,
+      background: bs.backgroundColor,
+      overflow: bs.overflow,
+    },
+    reportStyle: { display: os.display, visibility: os.visibility, opacity: os.opacity, color: os.color },
+    reportChildren: out.childElementCount,
+    reportText: (out.textContent ?? "").slice(0, 80),
+    stageChildren: stages.childElementCount,
+    docHidden: document.hidden,
+    origin: location.origin,
+    href: location.href.slice(0, 120),
+  };
+}
+
+async function beacon(): Promise<void> {
+  try {
+    await fetch(`${__MCP_ORIGIN__}/spike/report`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        ua: navigator.userAgent,
+        lines,
+        csp: appliedCsp,
+        diagnostics: diagnostics(),
+      }),
+    });
+  } catch {
+    /* the beacon is instrumentation; never let it break the probe */
+  }
 }
 
 const err = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -57,12 +115,14 @@ const err = (e: unknown) => (e instanceof Error ? e.message : String(e));
 // The violation event carries `originalPolicy` — the host's ENTIRE applied CSP.
 // One violation tells us everything: whether resourceDomains reached script-src,
 // what frame-src is really set to, whether blob:/data: survived.
+let appliedCsp = "(no violation observed)";
 let policyPrinted = false;
 document.addEventListener("securitypolicyviolation", (e) => {
   const ev = e as SecurityPolicyViolationEvent;
   log("info", `CSP violation: ${ev.effectiveDirective}`, `blocked ${ev.blockedURI}`);
   if (!policyPrinted && ev.originalPolicy) {
     policyPrinted = true;
+    appliedCsp = ev.originalPolicy;
     const pre = document.createElement("pre");
     pre.textContent = ev.originalPolicy.replace(/;\s*/g, ";\n");
     out.appendChild(pre);
@@ -257,6 +317,10 @@ async function main(): Promise<void> {
       ? `dynamic import() works → use it (rendered: ${[...mounted].join(", ") || "none"})`
       : "dynamic import() blocked → use the script-tag fallback"
   );
+
+  // Let the CSP violation land and the host settle before snapshotting geometry.
+  await new Promise((r) => setTimeout(r, 500));
+  await beacon();
 }
 
 void main();

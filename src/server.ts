@@ -798,6 +798,38 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     return;
   }
 
+  // SPIKE (temporary): the probe beacons its findings here. The host sandbox is
+  // opaque (no reachable devtools), so when the widget frame comes up blank this is
+  // the only way to see what the probe actually observed inside it.
+  if (SPIKE_ENABLED && url.pathname === "/spike/report" && req.method === "POST") {
+    let body = "";
+    req.on("data", (c) => {
+      body += c;
+      if (body.length > 1_000_000) req.destroy();
+    });
+    req.on("end", () => {
+      try {
+        const r = JSON.parse(body);
+        const host = /Electron/.test(r.ua ?? "")
+          ? "claude-desktop"
+          : /HeadlessChrome/.test(r.ua ?? "")
+            ? "headless"
+            : "browser";
+        console.log(
+          `[spike-report] host=${host}\n` +
+            `  lines:\n${(r.lines ?? []).map((l: string) => "    " + l).join("\n")}\n` +
+            `  csp: ${r.csp}\n` +
+            `  diagnostics: ${JSON.stringify(r.diagnostics, null, 2).split("\n").join("\n  ")}`
+        );
+      } catch (err) {
+        console.log(`[spike-report] unparseable: ${(err as Error)?.message}`);
+      }
+      res.writeHead(204);
+      res.end();
+    });
+    return;
+  }
+
   // Health check
   if (url.pathname === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });

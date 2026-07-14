@@ -16,8 +16,12 @@ export const SPIKE_ENABLED = process.env.WIDGET_SPIKE === "1";
 
 export function spikeCsp(origin: string) {
   return {
-    camel: { resourceDomains: [origin] },
-    snake: { resource_domains: [origin] },
+    // connectDomains is here only so the probe can beacon its findings back to the
+    // server (see /spike/report) — the host renders the widget in an opaque sandbox
+    // we cannot open devtools on, so a beacon is the only way to see what it sees.
+    // The SHIPPING widget needs no connectDomains at all.
+    camel: { resourceDomains: [origin], connectDomains: [origin] },
+    snake: { resource_domains: [origin], connect_domains: [origin] },
   };
 }
 
