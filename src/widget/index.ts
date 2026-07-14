@@ -2,17 +2,47 @@
  * Widget module exports for ChatGPT Apps / Skybridge and Claude MCP Apps integration
  */
 import { RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
+import { createHash } from "node:crypto";
+import { generateSpikeWidgetHtml } from "./spike-widget.js";
 
 export { generateFormWidgetHtml } from "./form-widget.js";
 export { generateClaudeWidgetHtml } from "./claude-widget.js";
-export { generateSpikeWidgetHtml } from "./spike-widget.js";
+export { generateSpikeWidgetHtml };
 
 // SPIKE (temporary): when WIDGET_SPIKE=1 the widget resources serve the loading
 // probe instead of the real widget, so it exercises the real per-host pointer
-// plumbing. Its CSP declares only `resourceDomains` — the origin serving the
+// plumbing. Its CSP declares `resourceDomains` — the origin serving the
 // per-language bundles — and deliberately NO frameDomains, which is the posture
 // the native widget will ship with.
 export const SPIKE_ENABLED = process.env.WIDGET_SPIKE === "1";
+
+/**
+ * The resource URI is the host's CACHE KEY.
+ *
+ * Learned the hard way: the spike originally reused the stable widget URIs, so
+ * Claude kept replaying the FIRST widget HTML it ever read and every subsequent
+ * fix was invisible — the probe running in its sandbox was several builds stale.
+ * Hashing the content into the URI means any change to the bootstrap mints a new
+ * URI and the host is forced to re-read it.
+ *
+ * This applies to the SHIPPING widget too, not just the spike.
+ */
+function contentHash(s: string): string {
+  return createHash("sha256").update(s).digest("hex").slice(0, 8);
+}
+
+let spikeUris: { openai: string; mcp: string } | null = null;
+
+export function spikeResourceUris(origin: string): { openai: string; mcp: string } {
+  if (!spikeUris) {
+    const h = contentHash(generateSpikeWidgetHtml(origin));
+    spikeUris = {
+      openai: `ui://graffiticode/spike-oai.${h}.html`,
+      mcp: `ui://graffiticode/spike-mcp.${h}.html`,
+    };
+  }
+  return spikeUris;
+}
 
 export function spikeCsp(origin: string) {
   return {

@@ -52,6 +52,7 @@ import {
   generateSpikeWidgetHtml,
   SPIKE_ENABLED,
   spikeCsp,
+  spikeResourceUris,
 } from "./widget/index.js";
 import { normalizeLanguageId, isNativeLanguage } from "./widget/languages.js";
 import {
@@ -607,7 +608,27 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
   // List available resources (widgets for ChatGPT and Claude, plus skills
   // discovered at request time from the public graffiticode-skills repo).
   server.setRequestHandler(ListResourcesRequestSchema, async () => {
+    const spike = SPIKE_ENABLED ? spikeResourceUris(MCP_SERVER_URL) : null;
+    const spikeCspMeta = SPIKE_ENABLED ? spikeCsp(MCP_SERVER_URL) : null;
     const resources: Array<Record<string, unknown>> = [
+      ...(spike && spikeCspMeta
+        ? [
+            {
+              uri: spike.openai,
+              name: "Graffiticode Loading Spike (ChatGPT)",
+              mimeType: WIDGET_MIME_TYPE,
+              description: "Temporary widget-loading probe",
+              _meta: { ui: { csp: spikeCspMeta.camel }, "openai/widgetCSP": spikeCspMeta.snake },
+            },
+            {
+              uri: spike.mcp,
+              name: "Graffiticode Loading Spike (Claude)",
+              mimeType: CLAUDE_WIDGET_MIME_TYPE,
+              description: "Temporary widget-loading probe",
+              _meta: { ui: { csp: spikeCspMeta.camel } },
+            },
+          ]
+        : []),
       {
         uri: WIDGET_RESOURCE_URI,
         name: "Graffiticode Form Widget",
@@ -644,22 +665,24 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
   server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     const { uri } = request.params;
 
-    // SPIKE (temporary): serve the loading probe at both widget URIs, so it runs
-    // through the real per-host pointer plumbing. Declares resourceDomains (the
-    // bundle origin) and no frameDomains. Off unless WIDGET_SPIKE=1.
-    if (SPIKE_ENABLED && (uri === WIDGET_RESOURCE_URI || uri === CLAUDE_WIDGET_RESOURCE_URI)) {
-      const csp = spikeCsp(MCP_SERVER_URL);
-      const isOpenAI = uri === WIDGET_RESOURCE_URI;
-      return {
-        contents: [
-          {
-            uri,
-            mimeType: isOpenAI ? WIDGET_MIME_TYPE : CLAUDE_WIDGET_MIME_TYPE,
-            text: generateSpikeWidgetHtml(MCP_SERVER_URL),
-            _meta: { ui: { csp: csp.camel }, "openai/widgetCSP": csp.snake },
-          },
-        ],
-      };
+    // SPIKE (temporary): serve the loading probe at its content-hashed URIs, so a
+    // rebuilt probe is never served from the host's cache. Declares resourceDomains
+    // (the bundle origin) and no frameDomains. Off unless WIDGET_SPIKE=1.
+    if (SPIKE_ENABLED) {
+      const spike = spikeResourceUris(MCP_SERVER_URL);
+      if (uri === spike.openai || uri === spike.mcp) {
+        const csp = spikeCsp(MCP_SERVER_URL);
+        return {
+          contents: [
+            {
+              uri,
+              mimeType: uri === spike.openai ? WIDGET_MIME_TYPE : CLAUDE_WIDGET_MIME_TYPE,
+              text: generateSpikeWidgetHtml(MCP_SERVER_URL),
+              _meta: { ui: { csp: csp.camel }, "openai/widgetCSP": csp.snake },
+            },
+          ],
+        };
+      }
     }
 
     if (uri === WIDGET_RESOURCE_URI) {

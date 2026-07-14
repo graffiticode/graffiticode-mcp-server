@@ -13,7 +13,15 @@ import {
 } from "./api.js";
 import { mintClaimToken } from "./claim-token.js";
 import { getRenderAccessToken } from "./render-token.js";
-import { WIDGET_RESOURCE_URI, WIDGET_CSP, CLAUDE_WIDGET_RESOURCE_URI } from "./widget/index.js";
+import {
+  WIDGET_RESOURCE_URI,
+  WIDGET_CSP,
+  CLAUDE_WIDGET_RESOURCE_URI,
+  SPIKE_ENABLED,
+  spikeResourceUris,
+} from "./widget/index.js";
+
+const MCP_SERVER_URL = process.env.MCP_SERVER_URL || "https://mcp.graffiticode.org";
 
 // --- Help Entry Structure (matches console HelpPanel) ---
 
@@ -316,13 +324,29 @@ export function isOpenAIClient(clientName?: string): boolean {
 // switch to Skybridge only on a positive OpenAI match. `openai/outputTemplate`
 // stays on the Skybridge widget (OpenAI-only key, ignored by Claude).
 export function toolsForClient(clientName?: string): Tool[] {
-  const uiUri = isOpenAIClient(clientName) ? WIDGET_RESOURCE_URI : CLAUDE_WIDGET_RESOURCE_URI;
+  const openai = isOpenAIClient(clientName);
+  // SPIKE (temporary): point at the content-hashed spike URIs. The host caches a
+  // widget by its resource URI, so a stable URI would keep replaying a stale build.
+  const spike = SPIKE_ENABLED ? spikeResourceUris(MCP_SERVER_URL) : null;
+  const uiUri = spike
+    ? openai
+      ? spike.openai
+      : spike.mcp
+    : openai
+      ? WIDGET_RESOURCE_URI
+      : CLAUDE_WIDGET_RESOURCE_URI;
   return tools.map((t) => {
     const meta = (t as { _meta?: Record<string, unknown> })._meta;
     if (!meta || !("ui" in meta)) return t;
+    const outputTemplate = spike ? spike.openai : WIDGET_RESOURCE_URI;
     return {
       ...t,
-      _meta: { ...meta, ui: { resourceUri: uiUri }, "ui/resourceUri": uiUri },
+      _meta: {
+        ...meta,
+        "openai/outputTemplate": outputTemplate,
+        ui: { resourceUri: uiUri },
+        "ui/resourceUri": uiUri,
+      },
     } as Tool;
   });
 }
