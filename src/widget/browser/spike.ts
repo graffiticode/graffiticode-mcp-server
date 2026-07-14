@@ -19,6 +19,8 @@
  * the module loaded and React is the problem; if the import itself rejects, CSP is.
  */
 
+import { App } from "@modelcontextprotocol/ext-apps";
+
 // Injected by the HTML generator.
 declare const __MCP_ORIGIN__: string;
 declare const __CASES__: Array<{
@@ -174,7 +176,46 @@ function loadScript(src: string, type?: string): Promise<void> {
   });
 }
 
+/**
+ * Complete the host handshake.
+ *
+ * The first cut of this probe had NO bridge at all — a deliberate choice, so a
+ * bridge failure could not confound the CSP results. That backfired: MCP Apps
+ * hosts perform a `ui/initialize` handshake and size the view from it, so with no
+ * `App.connect()` the host had no height for us and rendered an empty frame — even
+ * though the probe ran fine and fetched both bundles. The handshake is what makes
+ * the view visible, so it has to happen before anything is worth reporting.
+ *
+ * Both bridges are best-effort: a failure is logged, not fatal, and the probes run
+ * either way (they need no host).
+ */
+async function connectHost(): Promise<void> {
+  const openai = (window as unknown as { openai?: { notifyIntrinsicHeight?: (h: number) => void } }).openai;
+
+  try {
+    const app = new App({ name: "graffiticode-spike", version: "1.0.0" });
+    // Bounded: a host that never answers the handshake must not hang the probes,
+    // or we'd render an empty frame again — same symptom, different cause.
+    await Promise.race([
+      app.connect(),
+      new Promise((_, rej) => setTimeout(() => rej(new Error("handshake timed out after 3s")), 3000)),
+    ]);
+    log("ok", "host bridge", "ext-apps ui/initialize handshake ok (MCP Apps)");
+  } catch (e) {
+    if (openai) log("info", "host bridge", "no ext-apps; using window.openai (Skybridge)");
+    else log("fail", "host bridge", err(e));
+  }
+
+  // Skybridge sizes from an explicit call rather than the ext-apps auto-resize.
+  if (openai?.notifyIntrinsicHeight) {
+    const report = () => openai.notifyIntrinsicHeight!(document.body.scrollHeight);
+    new ResizeObserver(report).observe(document.body);
+    report();
+  }
+}
+
 async function main(): Promise<void> {
+  await connectHost();
   log("info", `origin: ${__MCP_ORIGIN__}`);
   log("info", `UA: ${navigator.userAgent.slice(0, 70)}`);
   tripCsp();
