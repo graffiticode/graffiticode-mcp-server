@@ -110,77 +110,42 @@ export function generateFormWidgetHtml(): string {
         var formUrl = meta.form_url;
         var sc = toolOutput.structuredContent || toolOutput;
 
-        if (!formUrl) {
-          // Free-plan / non-renderable: show a claim CTA instead of a blank iframe.
-          var claimUrl = sc.claim_url;
-          var viewUrl = sc.view_url;
-          var link = claimUrl || viewUrl;
-          var btnLabel = claimUrl ? 'Sign in to view & save' : 'Open in Graffiticode';
-          var msg = claimUrl
-            ? 'Sign in to view it and save it to your account.'
-            : 'Open it in Graffiticode to view.';
-          var html = '<div class="card"><div class="card-title">Your item is ready</div>'
-            + '<div class="card-text">' + msg + '</div>';
-          if (link) {
-            html += '<div class="card-actions"><button class="btn" id="gc-open">' + btnLabel + '</button></div>';
-          }
-          html += '</div>';
-          contentEl.innerHTML = html;
-          contentEl.className = '';
-          var openBtn = document.getElementById('gc-open');
-          if (openBtn && link) {
-            openBtn.addEventListener('click', function() {
-              if (window.openai.openExternal) {
-                window.openai.openExternal({ href: link });
-              } else {
-                window.open(link, '_blank', 'noopener');
-              }
-            });
-          }
-          return;
+        // Web-chat hosts block the embedded form iframe with a hardcoded frame-src
+        // that ignores our declared frameDomains (ChatGPT: frame-src 'none'). So we
+        // render an "open in browser" CTA instead of a doomed iframe. Prefer the app
+        // view_url (claim_url for free-plan), fall back to the embed form_url so
+        // there's always a way to open the item. See OUTSTANDING.md.
+        var claimUrl = sc.claim_url;
+        var viewUrl = sc.view_url;
+        var link = claimUrl || viewUrl || formUrl;
+        var btnLabel = claimUrl ? 'Sign in to view & save' : 'Open in Graffiticode';
+        var msg = claimUrl
+          ? 'Sign in to view it and save it to your account.'
+          : 'Open it in Graffiticode to view.';
+        var html = '<div class="card"><div class="card-title">Your item is ready</div>'
+          + '<div class="card-text">' + msg + '</div>';
+        if (link) {
+          html += '<div class="card-actions"><button class="btn" id="gc-open">' + btnLabel + '</button></div>';
         }
-
-        // Create and insert iframe
-        var iframe = document.createElement('iframe');
-        iframe.src = formUrl;
-        iframe.allow = 'clipboard-read; clipboard-write';
-
-        contentEl.innerHTML = '';
+        html += '</div>';
+        contentEl.innerHTML = html;
         contentEl.className = '';
-        contentEl.appendChild(iframe);
 
-        // Report height for ChatGPT auto-sizing
-        if (window.openai.notifyIntrinsicHeight) {
-          window.openai.notifyIntrinsicHeight(650);
-        }
-
-        // Listen for messages from the form iframe
-        window.addEventListener('message', function(event) {
-          // Renderer reports its content height so we size the iframe to the
-          // form instead of the fixed fallback. Trust only this iframe's window.
-          if (event.source === iframe.contentWindow &&
-              event.data && event.data.type === 'resize' &&
-              typeof event.data.height === 'number' && event.data.height > 0) {
-            var h = Math.ceil(event.data.height);
-            iframe.style.height = h + 'px';
-            if (window.openai.notifyIntrinsicHeight) {
-              window.openai.notifyIntrinsicHeight(h + 50);
-            }
-            return;
-          }
-          if (event.origin === 'https://api.graffiticode.org') {
-            if (event.data && event.data.type === 'data-updated') {
-              if (window.openai.setWidgetState) {
-                window.openai.setWidgetState({ formData: event.data.data });
-              }
-            }
-          }
-        });
-
-        // Handle theme changes from ChatGPT
         if (window.openai.theme === 'dark') {
           document.body.style.background = '#1f2937';
         }
+
+        var openBtn = document.getElementById('gc-open');
+        if (openBtn && link) {
+          openBtn.addEventListener('click', function() {
+            if (window.openai.openExternal) {
+              window.openai.openExternal({ href: link });
+            } else {
+              window.open(link, '_blank', 'noopener');
+            }
+          });
+        }
+        return;
       }
 
       // Start trying to render

@@ -6,14 +6,15 @@
  * postMessage, delivers the tool result via `ontoolresult`, surfaces host
  * context (theme), and auto-reports size changes to the host.
  *
- * Rendering:
- *   - `_meta.form_url` present: embed the rendered item in an iframe, with a
- *     footer link below it. Free-plan items render too — their compiled task is
- *     public by taskId — and get a "Sign in to save" link (claim_url); signed-in
- *     items get an "Open in Graffiticode" link (view_url).
- *   - otherwise: show a status card driven by `structuredContent.status` —
- *     "generating" (in progress, no link), "failed" (error message), or a claim/
- *     open CTA built from `claim_url` / `view_url` once ready. Never blank.
+ * Rendering: web-chat hosts (Claude, ChatGPT) block the embedded form iframe with
+ * a hardcoded frame-src that ignores our declared frameDomains (Claude:
+ * `frame-src 'self' blob: data:`, ChatGPT: `frame-src 'none'`), so we do NOT embed
+ * a cross-origin iframe here. Instead we always render a status card driven by
+ * `structuredContent.status` — "generating" (in progress, no link), "failed"
+ * (error message), or an open/claim CTA once ready: "Sign in to save" (claim_url,
+ * free-plan) or "Open in Graffiticode" (view_url, falling back to _meta.form_url),
+ * opened in a real browser tab via the host open-link API. Never blank.
+ * See OUTSTANDING.md — re-enable inline framing if/when hosts honor frameDomains.
  *
  * This file is NOT compiled by `tsc` (excluded in tsconfig). It is bundled to a
  * single IIFE by `scripts/build-widget.mjs` and inlined into the resource HTML
@@ -50,53 +51,19 @@ function linkButton(label: string, url: string, className: string): HTMLButtonEl
   return btn;
 }
 
-function renderIframe(formUrl: string, sc: Record<string, unknown>): void {
-  const iframe = document.createElement("iframe");
-  iframe.src = formUrl;
-  iframe.allow = "clipboard-read; clipboard-write";
-
-  // The embedded renderer posts its content height ({ type: "resize", height })
-  // so we can size the iframe to the form instead of the fixed CSS fallback
-  // (which left a large gap below short items). ext-apps then auto-resizes the
-  // host card to match. Trust only messages from this iframe's own window.
-  window.addEventListener("message", (e: MessageEvent) => {
-    if (e.source !== iframe.contentWindow) return;
-    const data = e.data as { type?: string; height?: number } | null;
-    if (data && data.type === "resize" && typeof data.height === "number" && data.height > 0) {
-      iframe.style.height = `${Math.ceil(data.height)}px`;
-    }
-  });
-
-  const frag = document.createDocumentFragment();
-  frag.appendChild(iframe);
-
-  // Free-plan items carry a claim_url ("sign in to save"); their view_url points
-  // at a session-scoped item the app can't load anonymously, so prefer the claim
-  // link. Signed-in items have only view_url ("open in Graffiticode").
-  const claimUrl = typeof sc.claim_url === "string" ? sc.claim_url : undefined;
-  const viewUrl = typeof sc.view_url === "string" ? sc.view_url : undefined;
-  if (claimUrl) {
-    frag.appendChild(linkButton("Sign in to save ↗", claimUrl, "footer-link"));
-  } else if (viewUrl) {
-    frag.appendChild(linkButton("Open in Graffiticode ↗", viewUrl, "footer-link"));
-  }
-
-  if (!contentEl) return;
-  contentEl.className = "";
-  contentEl.replaceChildren(frag);
-}
-
-// Shown when there's no rendered item to embed (no _meta.form_url): while a
-// generation is still running, when it failed, or as a claim/open CTA once an
-// item is ready but can't be iframed. Status-driven so we never tell the user to
-// "open" something that doesn't exist yet.
-function renderCard(sc: Record<string, unknown>): void {
+// Status card: while a generation is still running, when it failed, or as a
+// claim/open CTA once an item is ready. The item can't be embedded (host CSP
+// blocks the cross-origin iframe), so "ready" always offers an open-in-browser
+// CTA. Status-driven so we never tell the user to "open" something not ready yet.
+function renderCard(sc: Record<string, unknown>, formUrl?: string): void {
   if (!contentEl) return;
 
   const status = typeof sc.status === "string" ? sc.status : undefined;
   const claimUrl = typeof sc.claim_url === "string" ? sc.claim_url : undefined;
   const viewUrl = typeof sc.view_url === "string" ? sc.view_url : undefined;
-  const link = claimUrl ?? viewUrl;
+  // Prefer the app view_url (or claim_url for free-plan); fall back to the embed
+  // form_url so there's always a way to open the item in a browser tab.
+  const link = claimUrl ?? viewUrl ?? formUrl;
 
   const card = document.createElement("div");
   card.className = "card";
@@ -148,12 +115,8 @@ function render(params: {
 
   const sc = params.structuredContent ?? {};
   const meta = params._meta ?? {};
-
-  if (typeof meta.form_url === "string") {
-    renderIframe(meta.form_url, sc);
-  } else {
-    renderCard(sc);
-  }
+  const formUrl = typeof meta.form_url === "string" ? meta.form_url : undefined;
+  renderCard(sc, formUrl);
 }
 
 // Register handlers before connecting so no early notifications are missed.
