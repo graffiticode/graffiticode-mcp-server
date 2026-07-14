@@ -14,15 +14,36 @@ npm run gcp:deploy    # Deploy from source to Cloud Run (mcp-service, us-central
 npm run gcp:logs      # View Cloud Run logs
 ```
 
-No test suite is configured.
-
 ## Testing / debugging
 
-The standard tool for manually testing this server is the **MCP Inspector** —
-the official MCP server testing/debugging app (`npx @modelcontextprotocol/inspector`).
-When the user says "the inspector" or "the MCP test app", they mean this. Point
-it at the running server (`npm run start`, default `http://localhost:3001/mcp`,
-Streamable HTTP transport) to exercise tools, resources, and the MCP Apps widget.
+There is no unit-test suite. Two **eval harnesses** stand in for one; both hit a
+live console and cost real API calls, so run them deliberately, not on every edit.
+
+```bash
+# Routing eval: does a model pick the RIGHT language for a prompt?
+ANTHROPIC_API_KEY=… GRAFFITICODE_API_KEY=… npm run eval:routing
+ANTHROPIC_API_KEY=… GRAFFITICODE_API_KEY=… npm run eval:routing -- --catalog-only
+
+# Cross-language eval: exercises the get_spec adoption path end-to-end
+GRAFFITICODE_API_KEY=… npx tsx scripts/eval-cross-language.ts
+```
+
+`scripts/eval-routing.ts` puts a real model in front of the real agent-facing surface
+(`SERVER_INSTRUCTIONS` + the live `list_languages`/`get_language_info` schemas and handlers,
+plus SKILL.md bodies read from a local `../graffiticode-skills` checkout — override with
+`GRAFFITICODE_SKILLS_PATH`) and asserts which `language` it passes to a stubbed `create_item`.
+Nothing is generated. It exists to lock down a specific regression: prompts that merely
+*mention* an assessment ("a 5-question quiz on the water cycle") routing to the **vendor-gated**
+Learnosity languages (L0158/L0176), which may only be chosen when the user names Learnosity.
+Routing is stochastic, so each case runs N times (`EVAL_RUNS`, default 3) — a 1-of-N failure is
+still a regression. **Run this after touching `SERVER_INSTRUCTIONS`, tool descriptions, the
+language catalog, or the skills repo** — those are exactly the inputs it guards.
+
+For manual testing, the standard tool is the **MCP Inspector** — the official MCP server
+testing/debugging app (`npx @modelcontextprotocol/inspector`). When the user says "the
+inspector" or "the MCP test app", they mean this. Point it at the running server
+(`npm run start`, default `http://localhost:3001/mcp`, Streamable HTTP transport) to exercise
+tools, resources, and the MCP Apps widget.
 
 ## Architecture
 
@@ -31,8 +52,8 @@ This is a thin-router MCP server for Graffiticode. It provides a fixed set of la
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │  MCP Server (thin router)                                           │
-│  Tools: create_item, update_item, get_item, list_languages,        │
-│         get_language_info                                           │
+│  Tools: create_item, update_item, get_item, get_spec,               │
+│         list_languages, get_language_info                           │
 └─────────────────────────────────────────────────────────────────────┘
                               │
                               ▼
@@ -47,8 +68,9 @@ This is a thin-router MCP server for Graffiticode. It provides a fixed set of la
 
 ### Core Modules
 
-- **`src/auth.ts`** - Firebase auth: API key → custom token → ID token. Tokens cached 55 min.
-- **`src/api.ts`** - GraphQL client for Graffiticode API. All language discovery and code generation is backend-driven.
+- **`src/api.ts`** - GraphQL client for Graffiticode API. All language discovery and code generation is backend-driven. Defines `AuthContext`, the value threaded through every handler: `{ type: "firebase", token, source: "oauth" | "raw" }` or `{ type: "freePlan", sessionId }`. `buildAuthHeaders` turns the former into `Authorization: Bearer` and the latter into `X-Free-Plan-Session`. There is **no** `src/auth.ts` and no Firebase custom-token/ID-token exchange in this repo — `resolveBearer()` in `server.ts` classifies the incoming bearer and the console does the rest.
+- **`src/render-token.ts`** - Exchanges a raw Graffiticode API key for a short-lived (5-min) ES256 access token via the auth service's `/authenticate/api-key`, cached per key and de-duped in flight. This is what goes in the widget's `form_url`. **Never embed the raw API key there** — `api.graffiticode.org` only accepts JWTs, so a raw key 401s → falls back to anonymous → 404s on private tasks, *and* leaks a permanent credential into URLs and request logs.
+- **`src/events.ts`** - Structured funnel events (`mcp_connect`, `mcp_tool`) emitted as one JSON line per event to stdout → Cloud Logging, aggregated by the console's `scripts/mcp-funnel-report.ts`. Instrumentation is best-effort and must never break a request. The privacy contract is load-bearing and asserted in the user-facing copy: never log raw prompts (only `desc_len`), never log raw session UUIDs or bearer tokens (only a one-way hash), never log the client IP (only coarse `CF-IPCountry` geo). The free-plan session hash reuses `deriveSessionNamespace` so the logged `session` joins to what the console stamps on items and claims.
 - **`src/tools.ts`** - MCP tool definitions and handlers. Routes requests to backend based on language parameter.
 - **`src/resources.ts`** - MCP resource handlers: per-language user guides, and **agent skills** discovered at request time from the public `graffiticode-skills` GitHub repo (each top-level dir = one skill `<id>/SKILL.md`, exposed as `graffiticode://skills/<id>`). Catalog is fetched via the GitHub contents API + raw content, cached ~60s (stale-while-revalidate). Adding a skill to that repo surfaces it with no rebuild/redeploy; nothing is vendored into this repo.
 - **`src/oauth/`** - OAuth 2.1 + PKCE for hosted mode: dynamic client registration, authorize/callback/token endpoints, Firestore-backed store. Hosted auth accepts either an OAuth access token or a raw Graffiticode API key as the Bearer credential.
@@ -62,7 +84,7 @@ This is a thin-router MCP server for Graffiticode. It provides a fixed set of la
 - **Conversation history.** `update_item` reads the item's `help` field (JSON array of prior user messages), builds a contextual prompt from the last 6 entries plus current `src`, calls `generateCode`, then appends a new entry and writes the updated array back. Iterative edits depend on this round-trip — don't drop the `help` write.
 - **Language ID normalization.** Clients may pass `L0166` or `0166`; handlers strip the leading `L` before calling the API, and responses re-add it.
 - **`create_item` flow.** Creates an empty item from the language template, then delegates to `handleUpdateItem` with the user's description — so template seeding and first-turn generation share one code path.
-- **Inline-render URL (`_meta.form_url`).** `buildFormUrl(auth, …)` in `tools.ts` puts a render URL on the tool result's `_meta` (widget-only, hidden from the model) **only for authenticated (firebase) items** — `${API_URL}/form?lang=&id=<taskId>&access_token=<token>` — which the widget iframes. Free-plan items are session-scoped (namespaced by `X-Free-Plan-Session`) and aren't readable by an auth-less iframe, so they get **no** `form_url`; the widget falls back to a claim-CTA card from `view_url`/`claim_url`/`claim_message`. `view_url` (`${APP_URL}/form/<itemId>`, via `buildViewUrl`) is always set as the "Open in Graffiticode" link.
+- **Inline-render URL (`_meta.form_url`).** `buildFormUrl(auth, …)` in `tools.ts` puts a render URL on the tool result's `_meta` (widget-only, hidden from the model) **only for authenticated (firebase) items** — `${API_URL}/form?lang=&id=<taskId>&access_token=<token>` — which the widget iframes. The `access_token` is the 5-min ES256 token from `render-token.ts`, never the raw API key. Free-plan items are session-scoped (namespaced by `X-Free-Plan-Session`) and aren't readable by an auth-less iframe, so they get **no** `form_url`; the widget falls back to a claim-CTA card from `view_url`/`claim_url`/`claim_message`. `view_url` (`${APP_URL}/form/<itemId>`, via `buildViewUrl`) is always set as the "Open in Graffiticode" link.
 
 ### MCP Tools (fixed set, language-agnostic)
 
