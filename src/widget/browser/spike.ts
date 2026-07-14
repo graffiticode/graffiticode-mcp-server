@@ -91,21 +91,45 @@ function diagnostics(): Record<string, unknown> {
   };
 }
 
+// Image-GET beacon. Uses img-src (fed by resourceDomains, which the bundle loads
+// PROVE is honored), so it works even if connect-src blocks fetch() — which is
+// exactly the hypothesis, since the fetch() beacon never arrived despite a
+// declared connectDomains. Checkpoints tell us how far the probe got even if it
+// dies before the final report.
+function ping(tag: string, extra: Record<string, unknown> = {}): void {
+  try {
+    const img = new Image();
+    const q = new URLSearchParams({ tag, ...Object.fromEntries(Object.entries(extra).map(([k, v]) => [k, String(v)])) });
+    img.src = `${__MCP_ORIGIN__}/spike/ping.gif?${q.toString()}`;
+  } catch {
+    /* never let instrumentation break the probe */
+  }
+}
+
 async function beacon(): Promise<void> {
+  const d = diagnostics();
+  // The rich report over fetch (connect-src). If this arrives, connect-src works.
   try {
     await fetch(`${__MCP_ORIGIN__}/spike/report`, {
       method: "POST",
       headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({
-        ua: navigator.userAgent,
-        lines,
-        csp: appliedCsp,
-        diagnostics: diagnostics(),
-      }),
+      body: JSON.stringify({ ua: navigator.userAgent, lines, csp: appliedCsp, diagnostics: d }),
     });
-  } catch {
-    /* the beacon is instrumentation; never let it break the probe */
+    ping("fetch-ok");
+  } catch (e) {
+    ping("fetch-blocked", { err: err(e).slice(0, 60) });
   }
+  // The same key facts over img-src, guaranteed to reach us. Kept short (URL limits).
+  ping("report", {
+    bh: d.bodyScrollHeight as number,
+    vh: (d.viewport as { h: number }).h,
+    disp: (d.bodyStyle as { display: string }).display,
+    vis: (d.bodyStyle as { visibility: string }).visibility,
+    op: (d.bodyStyle as { opacity: string }).opacity,
+    rc: d.reportChildren as number,
+    sc: d.stageChildren as number,
+    csp: appliedCsp.replace(/\s+/g, " ").slice(0, 200),
+  });
 }
 
 const err = (e: unknown) => (e instanceof Error ? e.message : String(e));
@@ -275,7 +299,9 @@ async function connectHost(): Promise<void> {
 }
 
 async function main(): Promise<void> {
+  ping("start"); // proves the script reached main() at all
   await connectHost();
+  ping("after-connect");
   log("info", `origin: ${__MCP_ORIGIN__}`);
   log("info", `UA: ${navigator.userAgent.slice(0, 70)}`);
   tripCsp();
@@ -285,6 +311,7 @@ async function main(): Promise<void> {
   for (const c of __CASES__) {
     if (await p2DynamicImport(c)) anyImported = true;
   }
+  ping("after-p2", { imported: anyImported, mounted: [...mounted].join("+") });
 
   // P3/P4 — transport fallbacks. Exercised on the first language only; they test
   // how code gets in, not which component it is.

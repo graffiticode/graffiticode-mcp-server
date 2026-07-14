@@ -821,6 +821,18 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     return;
   }
 
+  // SPIKE (temporary): image-GET beacon. Uses img-src (fed by resourceDomains,
+  // which the probe proves is honored) so it lands even when connect-src blocks the
+  // fetch() report. Query string is logged; body is a 1x1 gif.
+  if (SPIKE_ENABLED && url.pathname === "/spike/ping.gif") {
+    const q = Object.fromEntries(url.searchParams.entries());
+    console.log(`[spike-ping] ${JSON.stringify(q)}`);
+    const gif = Buffer.from("R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==", "base64");
+    res.writeHead(200, { "Content-Type": "image/gif", "Content-Length": gif.length.toString(), "Cache-Control": "no-store" });
+    res.end(gif);
+    return;
+  }
+
   // SPIKE (temporary): the probe beacons its findings here. The host sandbox is
   // opaque (no reachable devtools), so when the widget frame comes up blank this is
   // the only way to see what the probe actually observed inside it.
