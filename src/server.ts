@@ -821,15 +821,15 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     return;
   }
 
-  // SPIKE (temporary): image-GET beacon. Uses img-src (fed by resourceDomains,
-  // which the probe proves is honored) so it lands even when connect-src blocks the
-  // fetch() report. Query string is logged; body is a 1x1 gif.
-  if (SPIKE_ENABLED && url.pathname === "/spike/ping.gif") {
+  // SPIKE (temporary): script-GET beacon. fetch() (connect-src) and <img> (img-src)
+  // both never arrived from Claude's sandbox while the bundles loaded fine — Claude
+  // feeds resourceDomains into script-src only. So the beacon rides script-src: the
+  // query carries the data, we log it and return empty JS.
+  if (SPIKE_ENABLED && url.pathname === "/spike/beacon.js") {
     const q = Object.fromEntries(url.searchParams.entries());
-    console.log(`[spike-ping] ${JSON.stringify(q)}`);
-    const gif = Buffer.from("R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAAICTAEAOw==", "base64");
-    res.writeHead(200, { "Content-Type": "image/gif", "Content-Length": gif.length.toString(), "Cache-Control": "no-store" });
-    res.end(gif);
+    console.log(`[spike-beacon] ${JSON.stringify(q)}`);
+    res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store" });
+    res.end("/* spike beacon */");
     return;
   }
 

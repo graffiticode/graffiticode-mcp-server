@@ -91,16 +91,19 @@ function diagnostics(): Record<string, unknown> {
   };
 }
 
-// Image-GET beacon. Uses img-src (fed by resourceDomains, which the bundle loads
-// PROVE is honored), so it works even if connect-src blocks fetch() — which is
-// exactly the hypothesis, since the fetch() beacon never arrived despite a
-// declared connectDomains. Checkpoints tell us how far the probe got even if it
-// dies before the final report.
+// Script-GET beacon. Earlier attempts died silently: fetch() (connect-src) and
+// <img> (img-src) both never arrived, even though the language bundles load fine.
+// The bundles load via import()/<script src>, i.e. script-src — the ONE directive
+// Claude demonstrably feeds from resourceDomains. So the beacon rides script-src
+// too: inject a <script src> whose query carries the data. The server logs the
+// query and returns empty JS. Guaranteed to reach us by the same path the bundles do.
 function ping(tag: string, extra: Record<string, unknown> = {}): void {
   try {
-    const img = new Image();
     const q = new URLSearchParams({ tag, ...Object.fromEntries(Object.entries(extra).map(([k, v]) => [k, String(v)])) });
-    img.src = `${__MCP_ORIGIN__}/spike/ping.gif?${q.toString()}`;
+    const s = document.createElement("script");
+    s.src = `${__MCP_ORIGIN__}/spike/beacon.js?${q.toString()}`;
+    s.onload = s.onerror = () => s.remove();
+    document.head.appendChild(s);
   } catch {
     /* never let instrumentation break the probe */
   }
