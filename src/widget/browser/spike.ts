@@ -5,13 +5,13 @@
  * at render time inside the host's sandbox, and does React render there?
  *
  * Deliberately has NO host-bridge dependency (no ext-apps `App`, no
- * `window.openai`). It renders from an embedded fixture, so a bridge failure
- * cannot confound the CSP/import results. Everything it learns is printed into
- * the widget itself, so the answer is visible in the host UI.
+ * `window.openai`). It renders from embedded fixtures, so a bridge failure cannot
+ * confound the CSP/import results. Everything it learns is printed into the widget
+ * itself, so the answer is visible in the host UI.
  *
  * Probes:
  *   P1  the host's applied CSP, read off a deliberately-tripped violation
- *   P2  dynamic `import(<origin>/widget/lang/L0166.mjs)` + mount   ← the open question
+ *   P2  dynamic `import(<origin>/widget/lang/<id>.mjs)` + mount, per language ← the open question
  *   P3  dynamically-inserted `<script type="module" src=…>`
  *   P4  dynamically-inserted classic `<script src=…iife.js>` + global  ← the proven fallback
  *
@@ -19,14 +19,19 @@
  * the module loaded and React is the problem; if the import itself rejects, CSP is.
  */
 
-// Injected by the HTML generator: the origin serving the language bundles.
+// Injected by the HTML generator.
 declare const __MCP_ORIGIN__: string;
-// Injected by the HTML generator: a real L0166 `data` object (shape produced by
-// the l0166 compiler — title/instructions/validation/interaction.cells).
-declare const __FIXTURE__: Record<string, unknown>;
+declare const __CASES__: Array<{
+  id: string;
+  data: Record<string, unknown>;
+  /** Text that must appear once rendered (DOM-rendered languages). */
+  needles?: string[];
+  /** Whether the language draws to a canvas/svg instead of text (e.g. ECharts). */
+  graphic?: boolean;
+}>;
 
 const out = document.getElementById("out")!;
-const stage = document.getElementById("stage")!;
+const stages = document.getElementById("stages")!;
 
 type Status = "ok" | "fail" | "info";
 
@@ -40,7 +45,6 @@ function log(status: Status, label: string, detail = ""): void {
   text.textContent = ` ${label}${detail ? " — " + detail : ""}`;
   row.append(tag, text);
   out.appendChild(row);
-  // Also to the console, so the desktop apps' devtools capture it.
   console.log(`[spike] ${status.toUpperCase()} ${label} ${detail}`);
 }
 
@@ -81,59 +85,80 @@ interface LangModule {
   mount: (el: HTMLElement, data: unknown) => void;
 }
 
-let mounted = false;
-
 // React 18's createRoot().render() is asynchronous — the DOM is not populated when
-// mount() returns, so we must settle before asserting. Counting children synchronously
-// would report a pass on an empty stage.
-const settle = () => new Promise((r) => setTimeout(r, 600));
+// mount() returns. Counting synchronously would report a pass on an empty stage.
+// ECharts also needs a tick (and a laid-out container) before it paints.
+const settle = () => new Promise((r) => setTimeout(r, 800));
 
-async function tryMount(mod: LangModule, label: string): Promise<void> {
+const mounted = new Set<string>();
+
+async function tryMount(mod: LangModule, c: (typeof __CASES__)[number], label: string): Promise<void> {
   try {
     const style = document.createElement("style");
     style.textContent = mod.styles;
     document.head.appendChild(style);
-    stage.replaceChildren();
-    mod.mount(stage, __FIXTURE__);
+
+    const stage = document.createElement("div");
+    stage.className = "stage";
+    stage.style.width = "460px";
+    stage.style.minHeight = c.graphic ? "260px" : "0";
+    stages.appendChild(stage);
+
+    mod.mount(stage, c.data);
     await settle();
 
     const nodes = stage.querySelectorAll("*").length;
-    // The fixture's cell text must actually appear — proves Form consumed `data`,
-    // not just that some DOM got created.
-    const text = stage.textContent ?? "";
-    const cellsRendered = ["Rent", "Groceries", "Savings"].filter((c) => text.includes(c));
-
     if (nodes === 0) {
-      log("fail", `${label}: mount() produced no DOM`, "React did not render");
-    } else if (cellsRendered.length === 0) {
-      log("fail", `${label}: rendered ${nodes} nodes but no fixture data`, "Form ignored `data`");
-    } else {
-      mounted = true;
-      log("ok", `${label}: FORM RENDERED`, `${nodes} nodes, cells: ${cellsRendered.join(", ")}`);
+      log("fail", `${label} ${c.id}: no DOM`, "React did not render");
+      return;
     }
+
+    // A chart paints to <canvas>/<svg> and has no text; a spreadsheet has text and
+    // no canvas. Assert on whichever this language actually produces, so a pass
+    // means "the component really rendered the fixture", not just "some DOM exists".
+    if (c.graphic) {
+      const g = stage.querySelector("canvas, svg");
+      if (!g) {
+        log("fail", `${label} ${c.id}: ${nodes} nodes but no canvas/svg`, "chart did not paint");
+        return;
+      }
+      const w = (g as HTMLCanvasElement).width || g.clientWidth;
+      mounted.add(c.id);
+      log("ok", `${label} ${c.id}: CHART RENDERED`, `${nodes} nodes, <${g.tagName.toLowerCase()}> ${w}px`);
+      return;
+    }
+
+    const text = stage.textContent ?? "";
+    const found = (c.needles ?? []).filter((n) => text.includes(n));
+    if ((c.needles ?? []).length && found.length === 0) {
+      log("fail", `${label} ${c.id}: ${nodes} nodes but no fixture data`, "Form ignored `data`");
+      return;
+    }
+    mounted.add(c.id);
+    log("ok", `${label} ${c.id}: FORM RENDERED`, `${nodes} nodes, found: ${found.join(", ")}`);
   } catch (e) {
     // Module loaded, React failed. Distinguishes a CSP problem from a render problem.
-    log("fail", `${label}: mount() threw`, err(e));
+    log("fail", `${label} ${c.id}: mount() threw`, err(e));
   }
 }
 
 // ------------------------------------------------------------------- the probes
 
-const ESM_URL = `${__MCP_ORIGIN__}/widget/lang/L0166.mjs`;
-const IIFE_URL = `${__MCP_ORIGIN__}/widget/lang/L0166.iife.js`;
+const esmUrl = (id: string) => `${__MCP_ORIGIN__}/widget/lang/${id}.mjs`;
+const iifeUrl = (id: string) => `${__MCP_ORIGIN__}/widget/lang/${id}.iife.js`;
 
-async function p2DynamicImport(): Promise<boolean> {
+async function p2DynamicImport(c: (typeof __CASES__)[number]): Promise<boolean> {
   try {
-    const mod = (await import(/* @vite-ignore */ ESM_URL)) as LangModule;
+    const mod = (await import(/* @vite-ignore */ esmUrl(c.id))) as LangModule;
     if (typeof mod?.mount !== "function") {
-      log("fail", "P2 dynamic import()", "resolved but no mount export");
+      log("fail", `P2 import ${c.id}`, "resolved but no mount export");
       return false;
     }
-    log("ok", "P2 dynamic import()", "module resolved");
-    await tryMount(mod, "P2");
+    log("ok", `P2 import ${c.id}`, "module resolved");
+    await tryMount(mod, c, "P2");
     return true;
   } catch (e) {
-    log("fail", "P2 dynamic import()", err(e));
+    log("fail", `P2 import ${c.id}`, err(e));
     return false;
   }
 }
@@ -149,42 +174,47 @@ function loadScript(src: string, type?: string): Promise<void> {
   });
 }
 
-async function p3ModuleScriptTag(): Promise<void> {
+async function main(): Promise<void> {
+  log("info", `origin: ${__MCP_ORIGIN__}`);
+  log("info", `UA: ${navigator.userAgent.slice(0, 70)}`);
+  tripCsp();
+
+  // P2 — the open question, run for every registered language.
+  let anyImported = false;
+  for (const c of __CASES__) {
+    if (await p2DynamicImport(c)) anyImported = true;
+  }
+
+  // P3/P4 — transport fallbacks. Exercised on the first language only; they test
+  // how code gets in, not which component it is.
+  const first = __CASES__[0];
   try {
-    await loadScript(ESM_URL, "module");
+    await loadScript(esmUrl(first.id), "module");
     log("ok", "P3 <script type=module src>", "loaded");
   } catch (e) {
     log("fail", "P3 <script type=module src>", err(e));
   }
-}
 
-async function p4ClassicScriptTag(): Promise<void> {
   try {
-    await loadScript(IIFE_URL);
-    const g = (window as unknown as Record<string, LangModule | undefined>)["GC_L0166"];
+    await loadScript(iifeUrl(first.id));
+    const g = (window as unknown as Record<string, LangModule | undefined>)[`GC_${first.id}`];
     if (!g || typeof g.mount !== "function") {
-      log("fail", "P4 classic <script src>", "loaded but global GC_L0166 missing");
-      return;
+      log("fail", "P4 classic <script src>", `loaded but global GC_${first.id} missing`);
+    } else {
+      log("ok", "P4 classic <script src>", "loaded, global present");
+      // Only mount from the fallback if the primary path didn't already render.
+      if (!mounted.has(first.id)) await tryMount(g, first, "P4");
     }
-    log("ok", "P4 classic <script src>", "loaded, global present");
-    // Only mount from the fallback if the primary path didn't already render.
-    if (!mounted) await tryMount(g, "P4");
   } catch (e) {
     log("fail", "P4 classic <script src>", err(e));
   }
-}
 
-async function main(): Promise<void> {
-  log("info", `origin: ${__MCP_ORIGIN__}`);
-  log("info", `UA: ${navigator.userAgent.slice(0, 80)}`);
-  tripCsp();
-  const imported = await p2DynamicImport();
-  await p3ModuleScriptTag();
-  await p4ClassicScriptTag();
   log(
     "info",
     "VERDICT",
-    imported ? "dynamic import() works → use it" : "dynamic import() blocked → use the script-tag fallback"
+    anyImported
+      ? `dynamic import() works → use it (rendered: ${[...mounted].join(", ") || "none"})`
+      : "dynamic import() blocked → use the script-tag fallback"
   );
 }
 

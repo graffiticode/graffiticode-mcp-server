@@ -30,6 +30,7 @@ export interface NativeLanguage {
  */
 export const NATIVE_LANGUAGES: NativeLanguage[] = [
   { id: "L0166", pkg: "@graffiticode/l0166" },
+  { id: "L0173", pkg: "@graffiticode/l0173" },
 ];
 
 /**
