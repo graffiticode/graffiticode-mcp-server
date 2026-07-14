@@ -36,7 +36,7 @@ import { createServer, IncomingMessage, ServerResponse } from "http";
 import { readFileSync } from "fs";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
-import { tools, handleToolCall, SERVER_INSTRUCTIONS } from "./tools.js";
+import { tools, handleToolCall, SERVER_INSTRUCTIONS, toolsForClient, isOpenAIClient } from "./tools.js";
 import type { AuthContext } from "./api.js";
 import { identify, logConnect, logToolCall, type EventOutcome, type SessionMeta } from "./events.js";
 import { EXTENSION_ID, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
@@ -453,10 +453,19 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
     }
   );
 
-  // List available tools
+  // List available tools. The widget a tool's _meta.ui.resourceUri points at is
+  // host-dependent (ChatGPT needs the Skybridge widget, Claude the MCP-Apps one) —
+  // see toolsForClient(). Log the host so the OpenAI matcher can be tuned if a
+  // client name doesn't match.
   server.setRequestHandler(ListToolsRequestSchema, async () => {
+    const clientName = server.getClientVersion()?.name;
+    console.log(
+      `[widget] tools/list host=${clientName ?? "?"} → ${
+        isOpenAIClient(clientName) ? "skybridge" : "mcp-app"
+      }`
+    );
     return {
-      tools,
+      tools: toolsForClient(clientName),
     };
   });
 

@@ -299,6 +299,34 @@ export const tools = [
   getLanguageInfoTool,
 ] as unknown as Tool[];
 
+// True for ChatGPT / OpenAI Apps hosts (incl. Codex). Used to pick which widget
+// a tool's `_meta.ui.resourceUri` points at — see toolsForClient().
+export function isOpenAIClient(clientName?: string): boolean {
+  return !!clientName && /openai|chatgpt|codex/i.test(clientName);
+}
+
+// Per-host widget wiring. Both Claude and ChatGPT now read `_meta.ui.resourceUri`
+// as the widget template pointer, but they need DIFFERENT widgets:
+//   - ChatGPT/OpenAI: the Skybridge widget (WIDGET_RESOURCE_URI, `text/html+skybridge`),
+//     which its /backend-api/ecosystem/widget endpoint can fetch. Pointing it at the
+//     MCP-Apps widget makes ChatGPT 404 ("Failed to fetch template").
+//   - Claude / other MCP-Apps hosts: the ext-apps widget (CLAUDE_WIDGET_RESOURCE_URI,
+//     `text/html;profile=mcp-app`).
+// Default is the MCP-Apps widget so Claude (and unknown hosts) never regress; we
+// switch to Skybridge only on a positive OpenAI match. `openai/outputTemplate`
+// stays on the Skybridge widget (OpenAI-only key, ignored by Claude).
+export function toolsForClient(clientName?: string): Tool[] {
+  const uiUri = isOpenAIClient(clientName) ? WIDGET_RESOURCE_URI : CLAUDE_WIDGET_RESOURCE_URI;
+  return tools.map((t) => {
+    const meta = (t as { _meta?: Record<string, unknown> })._meta;
+    if (!meta || !("ui" in meta)) return t;
+    return {
+      ...t,
+      _meta: { ...meta, ui: { resourceUri: uiUri }, "ui/resourceUri": uiUri },
+    } as Tool;
+  });
+}
+
 // --- Tool Handlers ---
 
 export interface ToolContext {
