@@ -38,8 +38,9 @@ with the right `frameDomains`). The block is host-side.
 
 ## ChatGPT web: "Failed to fetch template" — widget template-pointer collision
 
-**Status:** open (2026-07-14). ChatGPT web fails to load the widget with
-"Error loading app — Failed to fetch template"; console shows
+**Status:** RESOLVED (2026-07-14) via per-host `ui.resourceUri` (see below).
+Was: ChatGPT web failed with "Error loading app — Failed to fetch template";
+console showed
 `GET …/backend-api/ecosystem/widget?…template_pointer=ui://graffiticode/claude-form-widget.html… 404`.
 
 **Cause.** Each tool's `_meta` declares BOTH `openai/outputTemplate` (→ the
@@ -51,16 +52,15 @@ the `text/html;profile=mcp-app` resource → 404. (Also a known ChatGPT-side
 regression — OpenAI community "ecosystem/widget 404 … ongoing since late May".)
 Independent of the widget-content edits; it's about the `_meta` template pointers.
 
-**Fix options (not yet applied — needs a decision + ChatGPT re-test):**
-- **Content-negotiate one URI (durable):** capture `clientInfo.name` at `initialize`,
-  set `ui.resourceUri` = `openai/outputTemplate` = one URI, and in `resources/read`
-  return `text/html+skybridge` (+ `window.openai` widget) for ChatGPT vs
-  `text/html;profile=mcp-app` (+ ext-apps `App` widget) for Claude. Resolves the
-  collision cleanly.
-- **Drop the `openai/*` Skybridge keys (experiment):** remove `openai/outputTemplate`
-  / `openai/widgetCSP` / `openai/resultCanProduceWidget` so ChatGPT treats the tool
-  as pure MCP-Apps and loads `ui.resourceUri` via the MCP-Apps bridge (not the
-  404ing Skybridge endpoint). Low risk (ChatGPT is already broken), but a bet.
+**Fix applied (per-host `ui.resourceUri`).** `tools/list` is host-aware
+(`toolsForClient()` in `src/tools.ts`, wired in `src/server.ts` via
+`server.getClientVersion()?.name`): OpenAI/ChatGPT hosts (`/openai|chatgpt|codex/i`)
+get the Skybridge widget (`ui://graffiticode/form-widget.html`, `text/html+skybridge`)
+which `/ecosystem/widget` can fetch; Claude/other/unknown hosts get the ext-apps
+widget (`ui://graffiticode/claude-form-widget.html`). Defaults to MCP-Apps so Claude
+never regresses. A `[widget] tools/list host=… → …` log line records the client name
+so the OpenAI matcher can be tuned if a new client name doesn't match. Confirmed
+working across ChatGPT web + desktop and Claude web + desktop (2026-07-14).
 
 **What still needs doing / to revisit**
 1. **Re-enable inline framing** once a host honors server-declared `frameDomains`.
