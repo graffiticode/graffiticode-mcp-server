@@ -777,6 +777,15 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
   // `Access-Control-Allow-Origin: *` set above is load-bearing, not incidental.
   const langBundle = url.pathname.match(/^\/widget\/lang\/([A-Za-z0-9]+)(\.iife)?\.(?:m)?js$/);
   if (langBundle) {
+    // SPIKE (temporary): a beacon riding the PROVEN bundle path — ?b=1 means "log
+    // the query, don't serve the bundle". Lets the probe exfil over the exact URL
+    // path Claude's script-src is known to allow. See browser/spike.ts.
+    if (SPIKE_ENABLED && url.searchParams.get("b") === "1") {
+      console.log(`[spike-beacon] path=lang ${JSON.stringify(Object.fromEntries(url.searchParams.entries()))}`);
+      res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store" });
+      res.end("/* spike beacon */");
+      return;
+    }
     const langId = normalizeLanguageId(langBundle[1]);
     const suffix = langBundle[2] ? "iife.js" : "mjs";
     if (!isNativeLanguage(langId)) {
@@ -827,7 +836,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
   // query carries the data, we log it and return empty JS.
   if (SPIKE_ENABLED && url.pathname === "/spike/beacon.js") {
     const q = Object.fromEntries(url.searchParams.entries());
-    console.log(`[spike-beacon] ${JSON.stringify(q)}`);
+    console.log(`[spike-beacon] path=spike ${JSON.stringify(q)}`);
     res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store" });
     res.end("/* spike beacon */");
     return;

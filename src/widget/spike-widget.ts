@@ -6,6 +6,7 @@
  */
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
+import { createHash } from "node:crypto";
 
 const BUNDLE_URL = new URL("./spike.bundle.js", import.meta.url);
 
@@ -72,6 +73,13 @@ function loadBundle(): string {
   return cached;
 }
 
+// A per-build stamp: the first 8 chars of the probe bundle's own hash. A beacon
+// carrying this proves THIS build ran, disambiguating a CSP block from a stale
+// widget cached by the host.
+function buildStamp(): string {
+  return createHash("sha256").update(loadBundle()).digest("hex").slice(0, 8);
+}
+
 /** @param origin absolute origin serving /widget/lang/*.mjs (must match the CSP resourceDomains) */
 export function generateSpikeWidgetHtml(origin: string): string {
   const script = loadBundle();
@@ -100,6 +108,7 @@ export function generateSpikeWidgetHtml(origin: string): string {
   <div id="stages"></div>
   <script>
     window.__MCP_ORIGIN__ = ${JSON.stringify(origin)};
+    window.__BUILD__ = ${JSON.stringify(buildStamp())};
     window.__CASES__ = ${JSON.stringify(CASES)};
   </script>
   <script>${script}</script>

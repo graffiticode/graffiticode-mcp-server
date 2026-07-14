@@ -23,6 +23,9 @@ import { App } from "@modelcontextprotocol/ext-apps";
 
 // Injected by the HTML generator.
 declare const __MCP_ORIGIN__: string;
+// A per-build stamp, so a beacon proves WHICH build actually ran — disambiguates
+// "CSP blocked the beacon" from "a stale widget build is running".
+declare const __BUILD__: string;
 declare const __CASES__: Array<{
   id: string;
   data: Record<string, unknown>;
@@ -97,13 +100,30 @@ function diagnostics(): Record<string, unknown> {
 // Claude demonstrably feeds from resourceDomains. So the beacon rides script-src
 // too: inject a <script src> whose query carries the data. The server logs the
 // query and returns empty JS. Guaranteed to reach us by the same path the bundles do.
+function fireScript(url: string): void {
+  const s = document.createElement("script");
+  s.src = url;
+  s.onload = s.onerror = () => s.remove();
+  document.head.appendChild(s);
+}
+
+// Two channels, to localize the block:
+//   A) /spike/beacon.js  — a DIFFERENT path from the bundles
+//   B) /widget/lang/L0166.mjs?b=1&… — the EXACT path the bundles load from (proven)
+// The bundles are classic/module <script src> on script-src and demonstrably work,
+// yet the /spike/beacon.js beacon (same directive) did not arrive. If B lands and A
+// doesn't, Claude's script-src is path-restricted to referenced bundle URLs. The
+// build stamp proves this build actually ran (vs a stale cached widget).
 function ping(tag: string, extra: Record<string, unknown> = {}): void {
   try {
-    const q = new URLSearchParams({ tag, ...Object.fromEntries(Object.entries(extra).map(([k, v]) => [k, String(v)])) });
-    const s = document.createElement("script");
-    s.src = `${__MCP_ORIGIN__}/spike/beacon.js?${q.toString()}`;
-    s.onload = s.onerror = () => s.remove();
-    document.head.appendChild(s);
+    const q = new URLSearchParams({
+      b: "1",
+      build: __BUILD__,
+      tag,
+      ...Object.fromEntries(Object.entries(extra).map(([k, v]) => [k, String(v)])),
+    });
+    fireScript(`${__MCP_ORIGIN__}/spike/beacon.js?${q.toString()}`);
+    fireScript(`${__MCP_ORIGIN__}/widget/lang/L0166.mjs?${q.toString()}`);
   } catch {
     /* never let instrumentation break the probe */
   }
