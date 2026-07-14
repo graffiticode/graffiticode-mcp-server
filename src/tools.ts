@@ -13,15 +13,7 @@ import {
 } from "./api.js";
 import { mintClaimToken } from "./claim-token.js";
 import { getRenderAccessToken } from "./render-token.js";
-import {
-  WIDGET_RESOURCE_URI,
-  WIDGET_CSP,
-  CLAUDE_WIDGET_RESOURCE_URI,
-  SPIKE_ENABLED,
-  spikeResourceUris,
-} from "./widget/index.js";
-
-const MCP_SERVER_URL = process.env.MCP_SERVER_URL || "https://mcp.graffiticode.org";
+import { widgetResourceUris, widgetCsp } from "./widget/index.js";
 
 // --- Help Entry Structure (matches console HelpPanel) ---
 
@@ -121,20 +113,10 @@ Generation runs asynchronously: this returns immediately with an item_id and sta
     destructiveHint: false,
     openWorldHint: true,
   },
-  _meta: {
-    // ChatGPT Apps metadata
-    "openai/outputTemplate": WIDGET_RESOURCE_URI,
-    "openai/widgetCSP": WIDGET_CSP,
-    // Signals to Codex/ChatGPT hosts that this tool's result can render a
-    // widget. Codex Desktop checks this before issuing read-mcp-resource (the
-    // inline-UI path is still flag-gated there, but this keeps us correct for
-    // when it ships). See openai/codex#21019.
-    "openai/resultCanProduceWidget": true,
-    // Claude / MCP Apps metadata: nested key is preferred; flat key is the
-    // deprecated alias older hosts read.
-    ui: { resourceUri: CLAUDE_WIDGET_RESOURCE_URI },
-    "ui/resourceUri": CLAUDE_WIDGET_RESOURCE_URI,
-  },
+  // Marks this tool as widget-bearing. The resource URIs and CSP are filled in
+  // per-request by toolsForClient() — they're content-hashed at runtime and differ
+  // by host, so they can't be static here.
+  _meta: { "openai/resultCanProduceWidget": true },
 } as const;
 
 export const updateItemTool = {
@@ -164,20 +146,10 @@ Like create_item, generation runs asynchronously: this returns immediately with 
     destructiveHint: false,
     openWorldHint: true,
   },
-  _meta: {
-    // ChatGPT Apps metadata
-    "openai/outputTemplate": WIDGET_RESOURCE_URI,
-    "openai/widgetCSP": WIDGET_CSP,
-    // Signals to Codex/ChatGPT hosts that this tool's result can render a
-    // widget. Codex Desktop checks this before issuing read-mcp-resource (the
-    // inline-UI path is still flag-gated there, but this keeps us correct for
-    // when it ships). See openai/codex#21019.
-    "openai/resultCanProduceWidget": true,
-    // Claude / MCP Apps metadata: nested key is preferred; flat key is the
-    // deprecated alias older hosts read.
-    ui: { resourceUri: CLAUDE_WIDGET_RESOURCE_URI },
-    "ui/resourceUri": CLAUDE_WIDGET_RESOURCE_URI,
-  },
+  // Marks this tool as widget-bearing. The resource URIs and CSP are filled in
+  // per-request by toolsForClient() — they're content-hashed at runtime and differ
+  // by host, so they can't be static here.
+  _meta: { "openai/resultCanProduceWidget": true },
 } as const;
 
 export const getItemTool = {
@@ -203,20 +175,10 @@ The returned src and data are PRIVATE to this item's language — do not pass th
     destructiveHint: false,
     openWorldHint: false,
   },
-  _meta: {
-    // ChatGPT Apps metadata
-    "openai/outputTemplate": WIDGET_RESOURCE_URI,
-    "openai/widgetCSP": WIDGET_CSP,
-    // Signals to Codex/ChatGPT hosts that this tool's result can render a
-    // widget. Codex Desktop checks this before issuing read-mcp-resource (the
-    // inline-UI path is still flag-gated there, but this keeps us correct for
-    // when it ships). See openai/codex#21019.
-    "openai/resultCanProduceWidget": true,
-    // Claude / MCP Apps metadata: nested key is preferred; flat key is the
-    // deprecated alias older hosts read.
-    ui: { resourceUri: CLAUDE_WIDGET_RESOURCE_URI },
-    "ui/resourceUri": CLAUDE_WIDGET_RESOURCE_URI,
-  },
+  // Marks this tool as widget-bearing. The resource URIs and CSP are filled in
+  // per-request by toolsForClient() — they're content-hashed at runtime and differ
+  // by host, so they can't be static here.
+  _meta: { "openai/resultCanProduceWidget": true },
 } as const;
 
 export const getSpecTool = {
@@ -313,37 +275,30 @@ export function isOpenAIClient(clientName?: string): boolean {
   return !!clientName && /openai|chatgpt|codex/i.test(clientName);
 }
 
-// Per-host widget wiring. Both Claude and ChatGPT now read `_meta.ui.resourceUri`
-// as the widget template pointer, but they need DIFFERENT widgets:
-//   - ChatGPT/OpenAI: the Skybridge widget (WIDGET_RESOURCE_URI, `text/html+skybridge`),
-//     which its /backend-api/ecosystem/widget endpoint can fetch. Pointing it at the
-//     MCP-Apps widget makes ChatGPT 404 ("Failed to fetch template").
-//   - Claude / other MCP-Apps hosts: the ext-apps widget (CLAUDE_WIDGET_RESOURCE_URI,
-//     `text/html;profile=mcp-app`).
-// Default is the MCP-Apps widget so Claude (and unknown hosts) never regress; we
-// switch to Skybridge only on a positive OpenAI match. `openai/outputTemplate`
-// stays on the Skybridge widget (OpenAI-only key, ignored by Claude).
+// Per-host widget wiring. Both Claude and ChatGPT read `_meta.ui.resourceUri` as
+// the widget template pointer, but they need DIFFERENT resources:
+//   - ChatGPT/OpenAI: the Skybridge-mimetype resource (`text/html+skybridge`),
+//     which its /backend-api/ecosystem/widget endpoint can fetch. Pointing it at
+//     the MCP-Apps resource makes ChatGPT 404 ("Failed to fetch template").
+//   - Claude / other MCP-Apps hosts: the `text/html;profile=mcp-app` resource.
+// The two serve identical HTML; only the mimeType differs. URIs are content-hashed
+// (the host caches by URI, so a stable URI replays a stale build) and computed at
+// runtime, so they're injected here rather than baked into the static _meta.
+// Default is the MCP-Apps resource so Claude (and unknown hosts) never regress.
 export function toolsForClient(clientName?: string): Tool[] {
   const openai = isOpenAIClient(clientName);
-  // SPIKE (temporary): point at the content-hashed spike URIs. The host caches a
-  // widget by its resource URI, so a stable URI would keep replaying a stale build.
-  const spike = SPIKE_ENABLED ? spikeResourceUris(MCP_SERVER_URL) : null;
-  const uiUri = spike
-    ? openai
-      ? spike.openai
-      : spike.mcp
-    : openai
-      ? WIDGET_RESOURCE_URI
-      : CLAUDE_WIDGET_RESOURCE_URI;
+  const uris = widgetResourceUris();
+  const csp = widgetCsp();
+  const uiUri = openai ? uris.openai : uris.mcp;
   return tools.map((t) => {
     const meta = (t as { _meta?: Record<string, unknown> })._meta;
-    if (!meta || !("ui" in meta)) return t;
-    const outputTemplate = spike ? spike.openai : WIDGET_RESOURCE_URI;
+    if (!meta || !("openai/resultCanProduceWidget" in meta)) return t;
     return {
       ...t,
       _meta: {
         ...meta,
-        "openai/outputTemplate": outputTemplate,
+        "openai/outputTemplate": uris.openai,
+        "openai/widgetCSP": csp.snake,
         ui: { resourceUri: uiUri },
         "ui/resourceUri": uiUri,
       },

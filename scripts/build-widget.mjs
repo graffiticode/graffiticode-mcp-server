@@ -44,23 +44,14 @@ const SHARED = {
   legalComments: "none",
 };
 
-// The MCP Apps widget entry.
+// The unified widget entry (both hosts; picks the adapter at runtime).
 await build({
   ...SHARED,
-  entryPoints: ["src/widget/browser/claude-app.ts"],
-  outfile: "dist/widget/claude-app.bundle.js",
+  entryPoints: ["src/widget/browser/entry.ts"],
+  outfile: "dist/widget/widget.bundle.js",
   format: "iife",
 });
-console.log("Bundled dist/widget/claude-app.bundle.js");
-
-// The loading spike (temporary; served only when WIDGET_SPIKE=1).
-await build({
-  ...SHARED,
-  entryPoints: ["src/widget/browser/spike.ts"],
-  outfile: "dist/widget/spike.bundle.js",
-  format: "iife",
-});
-console.log("Bundled dist/widget/spike.bundle.js");
+console.log("Bundled dist/widget/widget.bundle.js");
 
 /**
  * The per-language entry, generated in memory.
@@ -110,35 +101,19 @@ export function mount(el, data) {
 await mkdir("dist/widget/lang", { recursive: true });
 
 await Promise.all(
-  NATIVE_LANGUAGES.flatMap(({ id, pkg }) => {
-    const stdin = {
-      contents: entrySource(pkg),
-      resolveDir: process.cwd(),
-      sourcefile: `${id}-entry.js`,
-      loader: "js",
-    };
-    const common = {
+  NATIVE_LANGUAGES.map(({ id, pkg }) =>
+    build({
       ...SHARED,
-      stdin,
+      stdin: {
+        contents: entrySource(pkg),
+        resolveDir: process.cwd(),
+        sourcefile: `${id}-entry.js`,
+        loader: "js",
+      },
+      outfile: `dist/widget/lang/${id}.mjs`,
+      format: "esm",
       loader: { ".css": "text" },
       define: { "process.env.NODE_ENV": '"production"' },
-    };
-    return [
-      // ESM, for `await import(url)`.
-      build({ ...common, outfile: `dist/widget/lang/${id}.mjs`, format: "esm" }).then(() =>
-        console.log(`Bundled dist/widget/lang/${id}.mjs`)
-      ),
-      // IIFE exposing a global, for the classic-<script> fallback. A classic
-      // script cannot load the ESM build (a bare `export` is a syntax error), so
-      // the fallback path needs its own artifact. Cheap insurance: if a host turns
-      // out to block dynamic import(), this is the proven path (cf. ext-apps
-      // map-server, which injects a classic script at runtime).
-      build({
-        ...common,
-        outfile: `dist/widget/lang/${id}.iife.js`,
-        format: "iife",
-        globalName: `GC_${id}`,
-      }).then(() => console.log(`Bundled dist/widget/lang/${id}.iife.js`)),
-    ];
-  })
+    }).then(() => console.log(`Bundled dist/widget/lang/${id}.mjs`))
+  )
 );

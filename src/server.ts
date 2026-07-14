@@ -42,17 +42,11 @@ import type { AuthContext } from "./api.js";
 import { identify, logConnect, logToolCall, type EventOutcome, type SessionMeta } from "./events.js";
 import { EXTENSION_ID, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import {
-  generateFormWidgetHtml,
-  generateClaudeWidgetHtml,
-  WIDGET_RESOURCE_URI,
+  generateWidgetHtml,
+  widgetResourceUris,
+  widgetCsp,
   WIDGET_MIME_TYPE,
-  CLAUDE_WIDGET_RESOURCE_URI,
   CLAUDE_WIDGET_MIME_TYPE,
-  CLAUDE_WIDGET_CSP,
-  generateSpikeWidgetHtml,
-  SPIKE_ENABLED,
-  spikeCsp,
-  spikeResourceUris,
 } from "./widget/index.js";
 import { normalizeLanguageId, isNativeLanguage } from "./widget/languages.js";
 import {
@@ -608,39 +602,22 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
   // List available resources (widgets for ChatGPT and Claude, plus skills
   // discovered at request time from the public graffiticode-skills repo).
   server.setRequestHandler(ListResourcesRequestSchema, async () => {
-    const spike = SPIKE_ENABLED ? spikeResourceUris(MCP_SERVER_URL) : null;
-    const spikeCspMeta = SPIKE_ENABLED ? spikeCsp(MCP_SERVER_URL) : null;
+    const uris = widgetResourceUris();
+    const csp = widgetCsp();
     const resources: Array<Record<string, unknown>> = [
-      ...(spike && spikeCspMeta
-        ? [
-            {
-              uri: spike.openai,
-              name: "Graffiticode Loading Spike (ChatGPT)",
-              mimeType: WIDGET_MIME_TYPE,
-              description: "Temporary widget-loading probe",
-              _meta: { ui: { csp: spikeCspMeta.camel }, "openai/widgetCSP": spikeCspMeta.snake },
-            },
-            {
-              uri: spike.mcp,
-              name: "Graffiticode Loading Spike (Claude)",
-              mimeType: CLAUDE_WIDGET_MIME_TYPE,
-              description: "Temporary widget-loading probe",
-              _meta: { ui: { csp: spikeCspMeta.camel } },
-            },
-          ]
-        : []),
       {
-        uri: WIDGET_RESOURCE_URI,
+        uri: uris.openai,
         name: "Graffiticode Form Widget",
         mimeType: WIDGET_MIME_TYPE,
-        description: "Interactive form widget for ChatGPT",
+        description: "Interactive item widget for ChatGPT",
+        _meta: { ui: { csp: csp.camel }, "openai/widgetCSP": csp.snake },
       },
       {
-        uri: CLAUDE_WIDGET_RESOURCE_URI,
+        uri: uris.mcp,
         name: "Graffiticode Form Widget (Claude)",
         mimeType: CLAUDE_WIDGET_MIME_TYPE,
-        description: "Interactive form widget for Claude",
-        _meta: { ui: { csp: CLAUDE_WIDGET_CSP } },
+        description: "Interactive item widget for Claude",
+        _meta: { ui: { csp: csp.camel } },
       },
     ];
     // Skills are best-effort: a GitHub outage must not break resource listing.
@@ -665,46 +642,19 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
   server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     const { uri } = request.params;
 
-    // SPIKE (temporary): serve the loading probe at its content-hashed URIs, so a
-    // rebuilt probe is never served from the host's cache. Declares resourceDomains
-    // (the bundle origin) and no frameDomains. Off unless WIDGET_SPIKE=1.
-    if (SPIKE_ENABLED) {
-      const spike = spikeResourceUris(MCP_SERVER_URL);
-      if (uri === spike.openai || uri === spike.mcp) {
-        const csp = spikeCsp(MCP_SERVER_URL);
-        return {
-          contents: [
-            {
-              uri,
-              mimeType: uri === spike.openai ? WIDGET_MIME_TYPE : CLAUDE_WIDGET_MIME_TYPE,
-              text: generateSpikeWidgetHtml(MCP_SERVER_URL),
-              _meta: { ui: { csp: csp.camel }, "openai/widgetCSP": csp.snake },
-            },
-          ],
-        };
-      }
-    }
-
-    if (uri === WIDGET_RESOURCE_URI) {
+    const widgetUris = widgetResourceUris();
+    if (uri === widgetUris.openai || uri === widgetUris.mcp) {
+      const csp = widgetCsp();
+      const isOpenAI = uri === widgetUris.openai;
       return {
         contents: [
           {
-            uri: WIDGET_RESOURCE_URI,
-            mimeType: WIDGET_MIME_TYPE,
-            text: generateFormWidgetHtml(),
-          },
-        ],
-      };
-    }
-
-    if (uri === CLAUDE_WIDGET_RESOURCE_URI) {
-      return {
-        contents: [
-          {
-            uri: CLAUDE_WIDGET_RESOURCE_URI,
-            mimeType: CLAUDE_WIDGET_MIME_TYPE,
-            text: generateClaudeWidgetHtml(),
-            _meta: { ui: { csp: CLAUDE_WIDGET_CSP } },
+            uri,
+            mimeType: isOpenAI ? WIDGET_MIME_TYPE : CLAUDE_WIDGET_MIME_TYPE,
+            text: generateWidgetHtml(MCP_SERVER_URL),
+            _meta: isOpenAI
+              ? { ui: { csp: csp.camel }, "openai/widgetCSP": csp.snake }
+              : { ui: { csp: csp.camel } },
           },
         ],
       };
@@ -775,26 +725,16 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
   // These are ES modules, and module scripts are ALWAYS fetched in CORS mode (unlike
   // classic scripts) from an opaque, host-specific sandbox origin — so the
   // `Access-Control-Allow-Origin: *` set above is load-bearing, not incidental.
-  const langBundle = url.pathname.match(/^\/widget\/lang\/([A-Za-z0-9]+)(\.iife)?\.(?:m)?js$/);
+  const langBundle = url.pathname.match(/^\/widget\/lang\/([A-Za-z0-9]+)\.mjs$/);
   if (langBundle) {
-    // SPIKE (temporary): a beacon riding the PROVEN bundle path — ?b=1 means "log
-    // the query, don't serve the bundle". Lets the probe exfil over the exact URL
-    // path Claude's script-src is known to allow. See browser/spike.ts.
-    if (SPIKE_ENABLED && url.searchParams.get("b") === "1") {
-      console.log(`[spike-beacon] path=lang ${JSON.stringify(Object.fromEntries(url.searchParams.entries()))}`);
-      res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store" });
-      res.end("/* spike beacon */");
-      return;
-    }
     const langId = normalizeLanguageId(langBundle[1]);
-    const suffix = langBundle[2] ? "iife.js" : "mjs";
     if (!isNativeLanguage(langId)) {
       res.writeHead(404, { "Content-Type": "text/plain" });
       res.end("Unknown language bundle");
       return;
     }
     try {
-      const bundlePath = join(dirname(fileURLToPath(import.meta.url)), "widget", "lang", `${langId}.${suffix}`);
+      const bundlePath = join(dirname(fileURLToPath(import.meta.url)), "widget", "lang", `${langId}.mjs`);
       const bundle = readFileSync(bundlePath);
       // Revalidate rather than cache immutably: the URL is stable across deploys,
       // so `immutable` would pin a stale component bundle after an `npm update` of
@@ -817,60 +757,6 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       res.writeHead(404, { "Content-Type": "text/plain" });
       res.end("Bundle not built");
     }
-    return;
-  }
-
-  // SPIKE (temporary): the probe as a plain page, so it can be opened in a browser
-  // outside any MCP host. Catches mount/render bugs without a deploy; it does NOT
-  // test the host sandbox CSP, which is the whole point of the probe — only
-  // ChatGPT/Claude can answer that.
-  if (SPIKE_ENABLED && url.pathname === "/spike") {
-    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
-    res.end(generateSpikeWidgetHtml(MCP_SERVER_URL));
-    return;
-  }
-
-  // SPIKE (temporary): script-GET beacon. fetch() (connect-src) and <img> (img-src)
-  // both never arrived from Claude's sandbox while the bundles loaded fine — Claude
-  // feeds resourceDomains into script-src only. So the beacon rides script-src: the
-  // query carries the data, we log it and return empty JS.
-  if (SPIKE_ENABLED && url.pathname === "/spike/beacon.js") {
-    const q = Object.fromEntries(url.searchParams.entries());
-    console.log(`[spike-beacon] path=spike ${JSON.stringify(q)}`);
-    res.writeHead(200, { "Content-Type": "text/javascript; charset=utf-8", "Cache-Control": "no-store" });
-    res.end("/* spike beacon */");
-    return;
-  }
-
-  // SPIKE (temporary): the probe beacons its findings here. The host sandbox is
-  // opaque (no reachable devtools), so when the widget frame comes up blank this is
-  // the only way to see what the probe actually observed inside it.
-  if (SPIKE_ENABLED && url.pathname === "/spike/report" && req.method === "POST") {
-    let body = "";
-    req.on("data", (c) => {
-      body += c;
-      if (body.length > 1_000_000) req.destroy();
-    });
-    req.on("end", () => {
-      try {
-        const r = JSON.parse(body);
-        const host = /Electron/.test(r.ua ?? "")
-          ? "claude-desktop"
-          : /HeadlessChrome/.test(r.ua ?? "")
-            ? "headless"
-            : "browser";
-        console.log(
-          `[spike-report] host=${host}\n` +
-            `  lines:\n${(r.lines ?? []).map((l: string) => "    " + l).join("\n")}\n` +
-            `  csp: ${r.csp}\n` +
-            `  diagnostics: ${JSON.stringify(r.diagnostics, null, 2).split("\n").join("\n  ")}`
-        );
-      } catch (err) {
-        console.log(`[spike-report] unparseable: ${(err as Error)?.message}`);
-      }
-      res.writeHead(204);
-      res.end();
-    });
     return;
   }
 
