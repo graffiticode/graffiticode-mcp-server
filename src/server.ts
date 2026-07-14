@@ -34,6 +34,7 @@ import {
 import type { ServerNotification } from "@modelcontextprotocol/sdk/types.js";
 import { createServer, IncomingMessage, ServerResponse } from "http";
 import { readFileSync } from "fs";
+import { createHash } from "crypto";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { tools, handleToolCall, SERVER_INSTRUCTIONS, toolsForClient, isOpenAIClient } from "./tools.js";
@@ -48,7 +49,11 @@ import {
   CLAUDE_WIDGET_RESOURCE_URI,
   CLAUDE_WIDGET_MIME_TYPE,
   CLAUDE_WIDGET_CSP,
+  generateSpikeWidgetHtml,
+  SPIKE_ENABLED,
+  spikeCsp,
 } from "./widget/index.js";
+import { normalizeLanguageId, isNativeLanguage } from "./widget/languages.js";
 import {
   handleProtectedResourceMetadata,
   handleAuthServerMetadata,
@@ -639,6 +644,24 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
   server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     const { uri } = request.params;
 
+    // SPIKE (temporary): serve the loading probe at both widget URIs, so it runs
+    // through the real per-host pointer plumbing. Declares resourceDomains (the
+    // bundle origin) and no frameDomains. Off unless WIDGET_SPIKE=1.
+    if (SPIKE_ENABLED && (uri === WIDGET_RESOURCE_URI || uri === CLAUDE_WIDGET_RESOURCE_URI)) {
+      const csp = spikeCsp(MCP_SERVER_URL);
+      const isOpenAI = uri === WIDGET_RESOURCE_URI;
+      return {
+        contents: [
+          {
+            uri,
+            mimeType: isOpenAI ? WIDGET_MIME_TYPE : CLAUDE_WIDGET_MIME_TYPE,
+            text: generateSpikeWidgetHtml(MCP_SERVER_URL),
+            _meta: { ui: { csp: csp.camel }, "openai/widgetCSP": csp.snake },
+          },
+        ],
+      };
+    }
+
     if (uri === WIDGET_RESOURCE_URI) {
       return {
         contents: [
@@ -719,6 +742,59 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       res.writeHead(404);
       res.end();
     }
+    return;
+  }
+
+  // Per-language widget bundles. The widget loads these at render time to render
+  // an item natively, instead of iframing the /form renderer. Served from our own
+  // origin, which the widget resource declares in `_meta.ui.csp.resourceDomains`.
+  //
+  // These are ES modules, and module scripts are ALWAYS fetched in CORS mode (unlike
+  // classic scripts) from an opaque, host-specific sandbox origin — so the
+  // `Access-Control-Allow-Origin: *` set above is load-bearing, not incidental.
+  const langBundle = url.pathname.match(/^\/widget\/lang\/([A-Za-z0-9]+)(\.iife)?\.(?:m)?js$/);
+  if (langBundle) {
+    const langId = normalizeLanguageId(langBundle[1]);
+    const suffix = langBundle[2] ? "iife.js" : "mjs";
+    if (!isNativeLanguage(langId)) {
+      res.writeHead(404, { "Content-Type": "text/plain" });
+      res.end("Unknown language bundle");
+      return;
+    }
+    try {
+      const bundlePath = join(dirname(fileURLToPath(import.meta.url)), "widget", "lang", `${langId}.${suffix}`);
+      const bundle = readFileSync(bundlePath);
+      // Revalidate rather than cache immutably: the URL is stable across deploys,
+      // so `immutable` would pin a stale component bundle after an `npm update` of
+      // the language package. The ETag makes the repeat fetch a cheap 304.
+      const etag = `"${createHash("sha256").update(bundle).digest("hex").slice(0, 16)}"`;
+      if (req.headers["if-none-match"] === etag) {
+        res.writeHead(304, { ETag: etag });
+        res.end();
+        return;
+      }
+      res.writeHead(200, {
+        "Content-Type": "text/javascript; charset=utf-8",
+        "Content-Length": bundle.length.toString(),
+        "Cache-Control": "public, max-age=0, must-revalidate",
+        ETag: etag,
+      });
+      res.end(bundle);
+    } catch (err) {
+      console.error(`[widget] bundle read failed for ${langId}: ${(err as Error)?.message ?? err}`);
+      res.writeHead(404, { "Content-Type": "text/plain" });
+      res.end("Bundle not built");
+    }
+    return;
+  }
+
+  // SPIKE (temporary): the probe as a plain page, so it can be opened in a browser
+  // outside any MCP host. Catches mount/render bugs without a deploy; it does NOT
+  // test the host sandbox CSP, which is the whole point of the probe — only
+  // ChatGPT/Claude can answer that.
+  if (SPIKE_ENABLED && url.pathname === "/spike") {
+    res.writeHead(200, { "Content-Type": "text/html; charset=utf-8" });
+    res.end(generateSpikeWidgetHtml(MCP_SERVER_URL));
     return;
   }
 

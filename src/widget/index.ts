@@ -5,6 +5,21 @@ import { RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 
 export { generateFormWidgetHtml } from "./form-widget.js";
 export { generateClaudeWidgetHtml } from "./claude-widget.js";
+export { generateSpikeWidgetHtml } from "./spike-widget.js";
+
+// SPIKE (temporary): when WIDGET_SPIKE=1 the widget resources serve the loading
+// probe instead of the real widget, so it exercises the real per-host pointer
+// plumbing. Its CSP declares only `resourceDomains` — the origin serving the
+// per-language bundles — and deliberately NO frameDomains, which is the posture
+// the native widget will ship with.
+export const SPIKE_ENABLED = process.env.WIDGET_SPIKE === "1";
+
+export function spikeCsp(origin: string) {
+  return {
+    camel: { resourceDomains: [origin] },
+    snake: { resource_domains: [origin] },
+  };
+}
 
 // ChatGPT / Skybridge widget constants
 export const WIDGET_RESOURCE_URI = "ui://graffiticode/form-widget.html";
