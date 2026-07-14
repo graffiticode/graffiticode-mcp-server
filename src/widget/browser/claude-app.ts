@@ -6,15 +6,16 @@
  * postMessage, delivers the tool result via `ontoolresult`, surfaces host
  * context (theme), and auto-reports size changes to the host.
  *
- * Rendering: web-chat hosts (Claude, ChatGPT) block the embedded form iframe with
- * a hardcoded frame-src that ignores our declared frameDomains (Claude:
- * `frame-src 'self' blob: data:`, ChatGPT: `frame-src 'none'`), so we do NOT embed
- * a cross-origin iframe here. Instead we always render a status card driven by
- * `structuredContent.status` — "generating" (in progress, no link), "failed"
- * (error message), or an open/claim CTA once ready: "Sign in to save" (claim_url,
- * free-plan) or "Open in Graffiticode" (view_url, falling back to _meta.form_url),
- * opened in a real browser tab via the host open-link API. Never blank.
- * See OUTSTANDING.md — re-enable inline framing if/when hosts honor frameDomains.
+ * Rendering is ADAPTIVE per host:
+ *   - `_meta.form_url` present: embed the rendered item in an iframe. Desktop apps
+ *     honor our declared frameDomains and show it inline. Web hosts (Claude/ChatGPT)
+ *     apply a hardcoded frame-src that ignores frameDomains and block the frame
+ *     (Claude `'self' blob: data:`, ChatGPT `'none'`) — we detect that via the
+ *     `securitypolicyviolation` event (plus a load/timeout safety net) and fall
+ *     back to the open-in-browser CTA. See OUTSTANDING.md.
+ *   - otherwise: a status card driven by `structuredContent.status` — "generating",
+ *     "failed", or an open/claim CTA ("Sign in to save" claim_url, else
+ *     "Open in Graffiticode" view_url→form_url). Never blank.
  *
  * This file is NOT compiled by `tsc` (excluded in tsconfig). It is bundled to a
  * single IIFE by `scripts/build-widget.mjs` and inlined into the resource HTML
@@ -49,6 +50,79 @@ function linkButton(label: string, url: string, className: string): HTMLButtonEl
   btn.textContent = label;
   btn.addEventListener("click", () => openExternal(url));
   return btn;
+}
+
+// Embed the rendered item. Hosts that allow the cross-origin frame (desktop apps)
+// show it inline; hosts that block it with a hardcoded sandbox frame-src (Claude/
+// ChatGPT web) fire a `securitypolicyviolation` — we catch that and fall back to
+// the open-in-browser CTA. `load` marks a successful (unblocked) embed so the
+// timeout safety net never replaces a working inline frame (e.g. a renderer that
+// doesn't post its height). See OUTSTANDING.md.
+function renderIframe(formUrl: string, sc: Record<string, unknown>): void {
+  if (!contentEl) return;
+
+  const iframe = document.createElement("iframe");
+  iframe.src = formUrl;
+  iframe.allow = "clipboard-read; clipboard-write";
+
+  let loaded = false;
+  let done = false;
+  const cleanup = () => {
+    window.removeEventListener("message", onMessage);
+    document.removeEventListener("securitypolicyviolation", onViolation);
+    clearTimeout(timer);
+  };
+  const fallbackToCta = () => {
+    if (done) return;
+    done = true;
+    cleanup();
+    renderCard(sc, formUrl);
+  };
+
+  // The embedded renderer posts its content height so we size the iframe to the
+  // form. Receiving it also proves the frame loaded (not blocked). Trust only
+  // messages from this iframe's own window.
+  const onMessage = (e: MessageEvent) => {
+    if (e.source !== iframe.contentWindow) return;
+    const data = e.data as { type?: string; height?: number } | null;
+    if (data && data.type === "resize" && typeof data.height === "number" && data.height > 0) {
+      loaded = true;
+      iframe.style.height = `${Math.ceil(data.height)}px`;
+    }
+  };
+  // Host CSP blocked our form frame (web): switch to the CTA immediately.
+  const onViolation = (e: SecurityPolicyViolationEvent) => {
+    const dir = e.effectiveDirective || e.violatedDirective || "";
+    if (dir.indexOf("frame-src") !== -1) fallbackToCta();
+  };
+  // A successful cross-origin load fires `load` (even though we can't read it);
+  // a frame-src block does not. So `load` ⇒ not blocked ⇒ keep the inline frame.
+  iframe.addEventListener("load", () => {
+    loaded = true;
+  });
+  window.addEventListener("message", onMessage);
+  document.addEventListener("securitypolicyviolation", onViolation);
+  // Safety net for a silent block (no violation event, no load): fall back only
+  // if nothing indicated the frame is alive.
+  const timer = setTimeout(() => {
+    if (!loaded) fallbackToCta();
+  }, 7000);
+
+  const frag = document.createDocumentFragment();
+  frag.appendChild(iframe);
+
+  // Free-plan items carry a claim_url ("sign in to save"); signed-in items have a
+  // view_url ("open in Graffiticode"). Shown as a footer link below the frame.
+  const claimUrl = typeof sc.claim_url === "string" ? sc.claim_url : undefined;
+  const viewUrl = typeof sc.view_url === "string" ? sc.view_url : undefined;
+  if (claimUrl) {
+    frag.appendChild(linkButton("Sign in to save ↗", claimUrl, "footer-link"));
+  } else if (viewUrl) {
+    frag.appendChild(linkButton("Open in Graffiticode ↗", viewUrl, "footer-link"));
+  }
+
+  contentEl.className = "";
+  contentEl.replaceChildren(frag);
 }
 
 // Status card: while a generation is still running, when it failed, or as a
@@ -116,7 +190,11 @@ function render(params: {
   const sc = params.structuredContent ?? {};
   const meta = params._meta ?? {};
   const formUrl = typeof meta.form_url === "string" ? meta.form_url : undefined;
-  renderCard(sc, formUrl);
+  if (formUrl) {
+    renderIframe(formUrl, sc);
+  } else {
+    renderCard(sc);
+  }
 }
 
 // Register handlers before connecting so no early notifications are missed.

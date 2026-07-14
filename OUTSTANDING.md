@@ -2,9 +2,15 @@
 
 ## Web-chat hosts ignore widget `frameDomains` → inline form iframe is blocked
 
-**Status:** open (2026-07-14). Worked around by rendering an "Open in Graffiticode"
-CTA instead of the inline iframe (see `src/widget/browser/claude-app.ts` and
-`src/widget/form-widget.ts`).
+**Status:** open (2026-07-14). Rendering is ADAPTIVE: the widget still embeds the
+inline iframe (desktop apps honor `frameDomains` and render inline), and falls back
+to an "Open in Graffiticode" CTA only when the host blocks the frame — detected via
+the `securitypolicyviolation` event (web hosts), with a load/timeout safety net.
+See `src/widget/browser/claude-app.ts` and `src/widget/form-widget.ts`.
+
+**Desktop vs web:** Claude/ChatGPT **desktop** apps DO honor declared `frameDomains`
+and render the form inline. The **web** apps apply the hardcoded `frame-src` below
+and get the CTA fallback.
 
 **Symptom.** Rendering a Graffiticode form inline in claude.ai or chatgpt.com (web)
 shows the browser's "This content is blocked. Contact the site owner to fix the

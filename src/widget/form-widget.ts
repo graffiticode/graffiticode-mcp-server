@@ -110,41 +110,94 @@ export function generateFormWidgetHtml(): string {
         var formUrl = meta.form_url;
         var sc = toolOutput.structuredContent || toolOutput;
 
-        // Web-chat hosts block the embedded form iframe with a hardcoded frame-src
-        // that ignores our declared frameDomains (ChatGPT: frame-src 'none'). So we
-        // render an "open in browser" CTA instead of a doomed iframe. Prefer the app
-        // view_url (claim_url for free-plan), fall back to the embed form_url so
-        // there's always a way to open the item. See OUTSTANDING.md.
-        var claimUrl = sc.claim_url;
-        var viewUrl = sc.view_url;
-        var link = claimUrl || viewUrl || formUrl;
-        var btnLabel = claimUrl ? 'Sign in to view & save' : 'Open in Graffiticode';
-        var msg = claimUrl
-          ? 'Sign in to view it and save it to your account.'
-          : 'Open it in Graffiticode to view.';
-        var html = '<div class="card"><div class="card-title">Your item is ready</div>'
-          + '<div class="card-text">' + msg + '</div>';
-        if (link) {
-          html += '<div class="card-actions"><button class="btn" id="gc-open">' + btnLabel + '</button></div>';
-        }
-        html += '</div>';
-        contentEl.innerHTML = html;
-        contentEl.className = '';
-
         if (window.openai.theme === 'dark') {
           document.body.style.background = '#1f2937';
         }
 
-        var openBtn = document.getElementById('gc-open');
-        if (openBtn && link) {
-          openBtn.addEventListener('click', function() {
-            if (window.openai.openExternal) {
-              window.openai.openExternal({ href: link });
-            } else {
-              window.open(link, '_blank', 'noopener');
-            }
-          });
+        // Open-in-browser CTA: used when there's no renderable form_url, and as the
+        // fallback when the host blocks the inline iframe. Prefer the app view_url
+        // (claim_url for free-plan), fall back to the embed form_url.
+        function showCta() {
+          var claimUrl = sc.claim_url;
+          var viewUrl = sc.view_url;
+          var link = claimUrl || viewUrl || formUrl;
+          var btnLabel = claimUrl ? 'Sign in to view & save' : 'Open in Graffiticode';
+          var msg = claimUrl
+            ? 'Sign in to view it and save it to your account.'
+            : 'Open it in Graffiticode to view.';
+          var html = '<div class="card"><div class="card-title">Your item is ready</div>'
+            + '<div class="card-text">' + msg + '</div>';
+          if (link) {
+            html += '<div class="card-actions"><button class="btn" id="gc-open">' + btnLabel + '</button></div>';
+          }
+          html += '</div>';
+          contentEl.innerHTML = html;
+          contentEl.className = '';
+          var openBtn = document.getElementById('gc-open');
+          if (openBtn && link) {
+            openBtn.addEventListener('click', function() {
+              if (window.openai.openExternal) {
+                window.openai.openExternal({ href: link });
+              } else {
+                window.open(link, '_blank', 'noopener');
+              }
+            });
+          }
         }
+
+        if (!formUrl) {
+          showCta();
+          return;
+        }
+
+        // Try the inline iframe (works on desktop, which honors our frameDomains).
+        // If the host CSP blocks it (web hosts apply a hardcoded frame-src that
+        // ignores frameDomains), a securitypolicyviolation fires — fall back to the
+        // CTA. load/resize mark a live frame so the timeout safety net never
+        // replaces a working embed. See OUTSTANDING.md.
+        var iframe = document.createElement('iframe');
+        iframe.src = formUrl;
+        iframe.allow = 'clipboard-read; clipboard-write';
+        contentEl.innerHTML = '';
+        contentEl.className = '';
+        contentEl.appendChild(iframe);
+        if (window.openai.notifyIntrinsicHeight) {
+          window.openai.notifyIntrinsicHeight(650);
+        }
+
+        var loaded = false, done = false;
+        function toCta() { if (done) { return; } done = true; showCta(); }
+        iframe.addEventListener('load', function() { loaded = true; });
+        document.addEventListener('securitypolicyviolation', function(e) {
+          var dir = e.effectiveDirective || e.violatedDirective || '';
+          if (dir.indexOf('frame-src') !== -1) { toCta(); }
+        });
+
+        // Listen for messages from the form iframe (height + data updates).
+        window.addEventListener('message', function(event) {
+          if (event.source === iframe.contentWindow &&
+              event.data && event.data.type === 'resize' &&
+              typeof event.data.height === 'number' && event.data.height > 0) {
+            loaded = true;
+            var h = Math.ceil(event.data.height);
+            iframe.style.height = h + 'px';
+            if (window.openai.notifyIntrinsicHeight) {
+              window.openai.notifyIntrinsicHeight(h + 50);
+            }
+            return;
+          }
+          if (event.origin === 'https://api.graffiticode.org') {
+            if (event.data && event.data.type === 'data-updated') {
+              if (window.openai.setWidgetState) {
+                window.openai.setWidgetState({ formData: event.data.data });
+              }
+            }
+          }
+        });
+
+        // Safety net for a silent block (no violation, no load): fall back only if
+        // nothing indicated the frame is alive.
+        setTimeout(function() { if (!loaded) { toCta(); } }, 7000);
         return;
       }
 
