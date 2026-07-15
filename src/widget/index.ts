@@ -39,6 +39,28 @@ export function widgetResourceUris(): { openai: string; mcp: string } {
 }
 
 /**
+ * Classify ANY widget URI a host might have cached → which host flavor it is (or
+ * null if not a widget URI). Serves the CURRENT template at every historical URI
+ * shape, so a host holding a stale pointer resolves it instead of 404ing.
+ *
+ * This exists because tonight's URI churn (stable → content-hashed → stable) left
+ * different ChatGPT surfaces caching different pointers: web on `form-widget.html`,
+ * desktop on a now-deleted `widget-oai.<hash>.html`. Matching all shapes makes every
+ * cached pointer keep working regardless of which era it came from.
+ *   - openai (skybridge): form-widget.html | widget-oai.<anything>.html
+ *   - mcp (mcp-app):      claude-form-widget.html | widget-mcp.<anything>.html
+ */
+export function matchWidgetUri(uri: string): "openai" | "mcp" | null {
+  if (uri === "ui://graffiticode/form-widget.html" || /^ui:\/\/graffiticode\/widget-oai\.[^/]*\.html$/.test(uri)) {
+    return "openai";
+  }
+  if (uri === "ui://graffiticode/claude-form-widget.html" || /^ui:\/\/graffiticode\/widget-mcp\.[^/]*\.html$/.test(uri)) {
+    return "mcp";
+  }
+  return null;
+}
+
+/**
  * Widget CSP — the native widget loads React + the language `Form` components from
  * esm.sh at render time (see widget-html.ts for why esm.sh and not our origin), and
  * makes no other network calls (chart/formula evaluation is client-side). So

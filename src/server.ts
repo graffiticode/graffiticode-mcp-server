@@ -44,6 +44,7 @@ import {
   generateWidgetHtml,
   widgetResourceUris,
   widgetCsp,
+  matchWidgetUri,
   WIDGET_MIME_TYPE,
   CLAUDE_WIDGET_MIME_TYPE,
 } from "./widget/index.js";
@@ -640,10 +641,13 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
   server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     const { uri } = request.params;
 
-    const widgetUris = widgetResourceUris();
-    if (uri === widgetUris.openai || uri === widgetUris.mcp) {
+    // Serve the current widget template for any widget URI shape a host may have
+    // cached (current stable names AND older content-hashed names), so a stale
+    // cached pointer resolves instead of 404ing. See matchWidgetUri.
+    const widgetKind = matchWidgetUri(uri);
+    if (widgetKind) {
       const csp = widgetCsp();
-      const isOpenAI = uri === widgetUris.openai;
+      const isOpenAI = widgetKind === "openai";
       return {
         contents: [
           {
