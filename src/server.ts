@@ -458,12 +458,21 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
   // host-dependent (ChatGPT needs the Skybridge widget, Claude the MCP-Apps one) —
   // see toolsForClient(). Log the host so the OpenAI matcher can be tuned if a
   // client name doesn't match.
-  server.setRequestHandler(ListToolsRequestSchema, async () => {
-    const clientName = server.getClientVersion()?.name;
+  server.setRequestHandler(ListToolsRequestSchema, async (_req, extra) => {
+    const clientVersion = server.getClientVersion();
+    const clientName = clientVersion?.name;
+    // TEMP INSTRUMENTATION: dump every signal that might distinguish ChatGPT desktop
+    // (renders the native widget) from ChatGPT web (can't — must get no widget). If a
+    // signal differs, toolsForClient can branch on it. Remove once decided.
+    const reqInfo = (extra as { requestInfo?: { headers?: Record<string, unknown> } } | undefined)?.requestInfo;
+    const headers = reqInfo?.headers ?? {};
     console.log(
-      `[widget] tools/list host=${clientName ?? "?"} → ${
-        isOpenAIClient(clientName) ? "skybridge" : "mcp-app"
-      }`
+      `[client-probe] tools/list clientVersion=${JSON.stringify(clientVersion ?? null)} ` +
+        `ua=${JSON.stringify(headers["user-agent"] ?? null)} ` +
+        `openai-hdrs=${JSON.stringify(
+          Object.fromEntries(Object.entries(headers).filter(([k]) => /openai|chatgpt|x-/i.test(k)))
+        )} ` +
+        `→ ${isOpenAIClient(clientName) ? "skybridge" : "mcp-app"}`
     );
     return {
       tools: toolsForClient(clientName),
