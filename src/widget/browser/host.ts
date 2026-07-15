@@ -6,9 +6,24 @@
  * interface; each host gets a thin adapter. This is what lets a single native
  * renderer serve both, instead of the two drifting widgets we had before.
  *
+ * ext-apps is loaded from esm.sh at runtime (only on the Claude path), not bundled,
+ * so the inlined shell stays tiny — and ChatGPT (Skybridge) never loads it.
+ *
  * Not compiled by tsc (browser-only) — bundled by scripts/build-widget.mjs.
  */
-import { App } from "@modelcontextprotocol/ext-apps";
+
+// Injected by the HTML generator: the esm.sh URL for @modelcontextprotocol/ext-apps.
+declare const __EXT_APPS__: string;
+
+// Minimal shape of the bits of the ext-apps App we use (it's loaded dynamically).
+interface ExtApp {
+  ontoolresult?: (params: { structuredContent?: unknown; _meta?: unknown }) => void;
+  onhostcontextchanged?: (ctx: { theme?: string }) => void;
+  connect(): Promise<void>;
+  getHostContext(): { theme?: string } | undefined;
+  openLink(p: { url: string }): Promise<unknown>;
+  sendMessage(p: { role: "user"; content: Array<{ type: "text"; text: string }> }): Promise<unknown>;
+}
 
 export interface ToolResult {
   structuredContent: Record<string, unknown>;
@@ -33,38 +48,44 @@ export interface HostAdapter {
 const windowOpenai = () =>
   (window as unknown as { openai?: Record<string, unknown> }).openai;
 
-/** MCP Apps host (Claude et al.), wrapping the ext-apps App class. */
+/** MCP Apps host (Claude et al.), wrapping the ext-apps App class (loaded from
+ * esm.sh in connect(), so it's not bundled and ChatGPT never fetches it). */
 class ExtAppsHost implements HostAdapter {
-  private app = new App({ name: "graffiticode-form", version: "1.0.0" });
+  private app?: ExtApp;
   private toolCb?: (r: ToolResult) => void;
   private themeCb?: (t: string | undefined) => void;
 
   onToolResult(cb: (r: ToolResult) => void): void {
     this.toolCb = cb;
-    // Register before connect so an early notification isn't missed.
-    this.app.ontoolresult = (params) =>
-      cb({
-        structuredContent: (params.structuredContent ?? {}) as Record<string, unknown>,
-        meta: (params._meta ?? {}) as Record<string, unknown>,
-      });
   }
 
   onTheme(cb: (t: string | undefined) => void): void {
     this.themeCb = cb;
-    this.app.onhostcontextchanged = (ctx) => cb(ctx.theme);
   }
 
   async connect(): Promise<void> {
-    await this.app.connect();
-    this.themeCb?.(this.app.getHostContext()?.theme);
+    const { App } = (await import(/* @vite-ignore */ __EXT_APPS__)) as {
+      App: new (o: { name: string; version: string }) => ExtApp;
+    };
+    const app = new App({ name: "graffiticode-form", version: "1.0.0" });
+    // Register handlers before connect so an early notification isn't missed.
+    app.ontoolresult = (params) =>
+      this.toolCb?.({
+        structuredContent: (params.structuredContent ?? {}) as Record<string, unknown>,
+        meta: (params._meta ?? {}) as Record<string, unknown>,
+      });
+    app.onhostcontextchanged = (ctx) => this.themeCb?.(ctx.theme);
+    this.app = app;
+    await app.connect();
+    this.themeCb?.(app.getHostContext()?.theme);
   }
 
   openLink(url: string): void {
-    this.app.openLink({ url }).catch(() => window.open(url, "_blank", "noopener"));
+    this.app?.openLink({ url }).catch(() => window.open(url, "_blank", "noopener"));
   }
 
   sendMessage(text: string): void {
-    this.app.sendMessage({ role: "user", content: [{ type: "text", text }] }).catch(() => {
+    this.app?.sendMessage({ role: "user", content: [{ type: "text", text }] }).catch(() => {
       /* best-effort */
     });
   }

@@ -11,18 +11,42 @@
  */
 import type { HostAdapter, ToolResult } from "./host.js";
 
-// Injected by the HTML generator: the origin serving /widget/lang/<id>.mjs.
-declare const __MCP_ORIGIN__: string;
-// Injected by the HTML generator: which languages have a native bundle.
-declare const __NATIVE__: string[];
+// Injected by the HTML generator: native languages and the esm.sh URL to load each
+// one's `Form` from, plus the pinned React esm.sh URLs. esm.sh (not our origin)
+// because ChatGPT's sandbox only allows scripts from a fixed CDN allowlist.
+declare const __NATIVE__: Array<{ id: string; esm: string }>;
+declare const __REACT__: { react: string; client: string };
 
-interface LangModule {
-  styles: string;
-  mount: (el: HTMLElement, data: unknown) => void;
+interface FormModule {
+  Form: (props: { state: unknown }) => unknown;
 }
 
 function normalizeLang(lang: unknown): string {
   return `L${String(lang ?? "").replace(/^[lL]/, "")}`;
+}
+
+// Same envelope the packages' View unwraps: the item's data(id) payload is
+// { data, errors }; Form wants the inner data.
+function unwrapEnvelope(resp: unknown): { data: unknown; errors: unknown[] } {
+  if (resp && typeof resp === "object" && !Array.isArray(resp) && ("data" in resp || "errors" in resp)) {
+    const r = resp as { data?: unknown; errors?: unknown };
+    return { data: r.data, errors: Array.isArray(r.errors) ? r.errors : [] };
+  }
+  return { data: resp, errors: [] };
+}
+
+// The package store (their un-exported lib/lib/state.js) + a generic reducer. Enough
+// to RENDER any item; language-specific edit semantics are not reproduced (edits
+// won't persist until the packages export their reducer).
+function makeState(initial: unknown): { data: unknown; errors: unknown[]; apply: (a: { type: string; args?: Record<string, unknown> }) => void; setErrors: (n: unknown) => void } {
+  let data = initial;
+  let errors: unknown[] = [];
+  return {
+    get data() { return data; },
+    get errors() { return errors; },
+    apply(a) { data = a.type === "init" ? { ...(a.args ?? {}) } : { ...(data as object), ...(a.args ?? {}) }; },
+    setErrors(n) { errors = Array.isArray(n) ? n : []; },
+  };
 }
 
 const el = <K extends keyof HTMLElementTagNameMap>(
@@ -60,15 +84,16 @@ export function startRenderer(host: HostAdapter): void {
     if (status === "failed") return showStatus(sc, "failed");
 
     const lang = normalizeLang(sc.language);
-    if (__NATIVE__.includes(lang) && sc.data) {
+    const native = __NATIVE__.find((n) => n.id === lang);
+    if (native && sc.data) {
       try {
-        await mountNative(lang, sc.data);
+        await mountNative(native.esm, sc.data);
         appendFooterLink(sc);
         reportHeight();
         return;
       } catch (err) {
         // A native mount failure must not leave a blank frame — fall through to
-        // the content card, which needs no bundle.
+        // the content card.
         console.error("[widget] native mount failed:", err);
       }
     }
@@ -76,14 +101,23 @@ export function startRenderer(host: HostAdapter): void {
     reportHeight();
   }
 
-  async function mountNative(lang: string, data: unknown): Promise<void> {
-    const mod = (await import(`${__MCP_ORIGIN__}/widget/lang/${lang}.mjs`)) as LangModule;
-    const style = el("style");
-    style.textContent = mod.styles;
-    document.head.appendChild(style);
+  // Load React and the language's Form from esm.sh (pinned to one React version so
+  // hooks work), then mount. esm.sh is the only script origin ChatGPT's sandbox
+  // allows besides inline; Claude honors it via resourceDomains. Same path both hosts.
+  async function mountNative(formEsmUrl: string, raw: unknown): Promise<void> {
+    const [react, reactDom, mod] = (await Promise.all([
+      import(/* @vite-ignore */ __REACT__.react),
+      import(/* @vite-ignore */ __REACT__.client),
+      import(/* @vite-ignore */ formEsmUrl),
+    ])) as [{ createElement: (...a: unknown[]) => unknown }, { createRoot: (el: HTMLElement) => { render: (n: unknown) => void } }, FormModule];
+
+    const { data, errors } = unwrapEnvelope(raw);
+    const state = makeState(data);
+    state.setErrors(errors);
+
     root.className = "";
     root.replaceChildren();
-    mod.mount(root, data);
+    reactDom.createRoot(root).render(react.createElement(mod.Form, { state }));
   }
 
   // --- Fallback content card (non-native languages) -------------------------
@@ -113,7 +147,9 @@ export function startRenderer(host: HostAdapter): void {
   // Render real content from the data we already hold, so the card is a preview,
   // not an ad for our website. Shapes verified against the language compilers.
   function cardBody(lang: string, sc: Record<string, unknown>): HTMLElement | null {
-    const data = sc.data as Record<string, unknown> | undefined;
+    // sc.data is the { data, errors } envelope (same as native render); unwrap it
+    // before reading language-specific fields.
+    const data = unwrapEnvelope(sc.data).data as Record<string, unknown> | undefined;
 
     // Learnosity assessments: data = { type, request: { questions: [...] } }.
     if ((lang === "L0158" || lang === "L0176") && data) {

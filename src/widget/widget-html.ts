@@ -2,46 +2,39 @@
  * The shared widget HTML — one document for both hosts.
  *
  * The interactive logic is `browser/entry.ts`, bundled by scripts/build-widget.mjs
- * and served separately at `/widget/widget.bundle.js`. The template LOADS it by URL
- * rather than inlining it: inlining made the template ~440KB (React + renderer),
- * which ChatGPT's Skybridge template-fetch endpoint rejected ("Failed to fetch
- * template"). The loader is a few KB; the bundle is fetched over `script-src`
- * (resourceDomains), the same channel the per-language bundles use.
+ * and INLINED here. The bundle is small (~15KB) because React, the ext-apps `App`,
+ * and every language `Form` are loaded at render time from esm.sh — not bundled.
+ * Inlining is required: ChatGPT's widget sandbox only allows scripts that are inline
+ * or from a fixed CDN allowlist (esm.sh/unpkg/jsdelivr), NOT from our own origin.
  *
  * The bundle picks the host adapter at runtime, so the same HTML serves Claude and
- * ChatGPT; the two resources differ only in mimeType and CSP. `__MCP_ORIGIN__`
- * (bundle origin) and `__NATIVE__` (languages with a native bundle) are injected here.
+ * ChatGPT; the two resources differ only in mimeType and CSP. Injected globals:
+ * `__NATIVE__` (native languages + their esm.sh Form URLs), `__REACT__` (pinned
+ * React esm.sh URLs), `__EXT_APPS__` (ext-apps esm.sh URL).
  */
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
-import { createHash } from "node:crypto";
-import { NATIVE_LANGUAGES } from "./languages.js";
+import { NATIVE_LANGUAGES, REACT_VERSION, esmUrl } from "./languages.js";
 
-export const WIDGET_BUNDLE_PATH = "/widget/widget.bundle.js";
 const BUNDLE_URL = new URL("./widget.bundle.js", import.meta.url);
+const EXT_APPS_VERSION = "1.7.2";
 
-let cachedBundle: Buffer | null = null;
+let cachedScript: string | null = null;
 
-/** The built widget bundle bytes (served at WIDGET_BUNDLE_PATH). */
-export function widgetBundle(): Buffer {
-  if (cachedBundle === null) {
+function loadBundle(): string {
+  if (cachedScript === null) {
     try {
-      cachedBundle = readFileSync(fileURLToPath(BUNDLE_URL));
+      cachedScript = readFileSync(fileURLToPath(BUNDLE_URL), "utf8");
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
-      throw new Error(
-        `Widget bundle not found at ${BUNDLE_URL.href}. Run "npm run build". (${message})`
-      );
+      throw new Error(`Widget bundle not found at ${BUNDLE_URL.href}. Run "npm run build". (${message})`);
     }
   }
-  return cachedBundle;
+  return cachedScript;
 }
 
-/** Cache-buster for the bundle URL; also chains into the template hash so a bundle
- * change mints a new template URI and the host re-reads (bundle URL is stable). */
-function bundleVersion(): string {
-  return createHash("sha256").update(widgetBundle()).digest("hex").slice(0, 8);
-}
+/** esm.sh origins the widget loads scripts from — declared in the widget CSP. */
+export const WIDGET_SCRIPT_ORIGINS = ["https://esm.sh"];
 
 const STYLES = `
   * { margin: 0; padding: 0; box-sizing: border-box; }
@@ -74,15 +67,14 @@ const STYLES = `
   body.dark .footer-link { color: #60a5fa; }
 `;
 
-/** @param origin absolute origin serving the bundle + /widget/lang/*.mjs (must match CSP resourceDomains) */
-export function generateWidgetHtml(origin: string): string {
-  const native = JSON.stringify(NATIVE_LANGUAGES.map((l) => l.id));
-  // Classic external script (the bundle is an IIFE): cross-origin classic scripts
-  // need no CORS, only script-src (resourceDomains) — which our CSP grants. The ?v=
-  // busts caches on a new build; the server ignores it and serves the current
-  // (ETag-revalidated) bundle regardless, so a stale-cached template still gets
-  // fresh code.
-  const bundleSrc = `${origin}${WIDGET_BUNDLE_PATH}?v=${bundleVersion()}`;
+export function generateWidgetHtml(): string {
+  const script = loadBundle();
+  const native = JSON.stringify(NATIVE_LANGUAGES.map((l) => ({ id: l.id, esm: esmUrl(l) })));
+  const react = JSON.stringify({
+    react: `https://esm.sh/react@${REACT_VERSION}`,
+    client: `https://esm.sh/react-dom@${REACT_VERSION}/client`,
+  });
+  const extApps = JSON.stringify(`https://esm.sh/@modelcontextprotocol/ext-apps@${EXT_APPS_VERSION}`);
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -93,10 +85,11 @@ export function generateWidgetHtml(origin: string): string {
 <body>
   <div id="content" class="loading">Loading…</div>
   <script>
-    window.__MCP_ORIGIN__ = ${JSON.stringify(origin)};
     window.__NATIVE__ = ${native};
+    window.__REACT__ = ${react};
+    window.__EXT_APPS__ = ${extApps};
   </script>
-  <script src="${bundleSrc}"></script>
+  <script>${script}</script>
 </body>
 </html>`;
 }

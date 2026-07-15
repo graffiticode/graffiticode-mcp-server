@@ -5,11 +5,10 @@
  * at runtime, and the two resources differ only in mimeType and (identical) CSP.
  */
 import { RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
+import { WIDGET_SCRIPT_ORIGINS } from "./widget-html.js";
 
-export { generateWidgetHtml, widgetBundle, WIDGET_BUNDLE_PATH } from "./widget-html.js";
+export { generateWidgetHtml } from "./widget-html.js";
 export { NATIVE_LANGUAGES } from "./languages.js";
-
-const MCP_SERVER_URL = process.env.MCP_SERVER_URL || "https://mcp.graffiticode.org";
 
 // ChatGPT / Skybridge resource.
 export const WIDGET_MIME_TYPE = "text/html+skybridge";
@@ -40,16 +39,16 @@ export function widgetResourceUris(): { openai: string; mcp: string } {
 }
 
 /**
- * Widget CSP — the native widget loads per-language bundles from our own origin
- * and makes no other network calls (formula/chart evaluation is client-side), so
- * `resourceDomains` is the ONLY directive it needs. Crucially, NO `frameDomains`:
- * declaring it is what draws OpenAI's "extra manual review / often not approved
- * for broad distribution" flag, and Claude verified our origin in `resourceDomains`
- * reaches `script-src`, which is all the bundle import needs.
+ * Widget CSP — the native widget loads React + the language `Form` components from
+ * esm.sh at render time (see widget-html.ts for why esm.sh and not our origin), and
+ * makes no other network calls (chart/formula evaluation is client-side). So
+ * `resourceDomains: [esm.sh]` is the only directive it needs. NO `frameDomains`
+ * (the OpenAI review flag). Claude honors resourceDomains → script-src; ChatGPT
+ * already allowlists esm.sh in its sandbox script-src.
  */
 export function widgetCsp(): { camel: Record<string, string[]>; snake: Record<string, string[]> } {
   return {
-    camel: { resourceDomains: [MCP_SERVER_URL] },
-    snake: { resource_domains: [MCP_SERVER_URL] },
+    camel: { resourceDomains: WIDGET_SCRIPT_ORIGINS },
+    snake: { resource_domains: WIDGET_SCRIPT_ORIGINS },
   };
 }
