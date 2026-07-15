@@ -65,6 +65,11 @@ console.log("Bundled dist/widget/widget.bundle.js");
  * l0166 merging `args.cells` into `interaction.cells`) are NOT reproduced, so
  * in-widget edits will not persist until the packages export their reducer.
  * See the upstream task.
+ *
+ * `unwrapEnvelope` mirrors the package's `View`: the item's `data(id)` payload is an
+ * envelope `{ data, errors }`, and Form expects the UNWRAPPED inner data. Without
+ * this, Form receives the envelope, sees no `type`/`interaction`, and renders raw
+ * JSON instead of the chart/spreadsheet.
  */
 function entrySource(pkg) {
   return `
@@ -90,10 +95,20 @@ const reducer = (data, { type, args }) => {
   }
 };
 
+// Same shape check the package's View uses (view.jsx unwrapEnvelope).
+function unwrapEnvelope(resp) {
+  if (resp && typeof resp === "object" && !Array.isArray(resp) && ("data" in resp || "errors" in resp)) {
+    return { data: resp.data, errors: Array.isArray(resp.errors) ? resp.errors : [] };
+  }
+  return { data: resp, errors: [] };
+}
+
 export const styles = css;
 
-export function mount(el, data) {
+export function mount(el, raw) {
+  const { data, errors } = unwrapEnvelope(raw);
   const state = createState(data ?? {}, reducer);
+  state.setErrors(errors);
   createRoot(el).render(createElement(Form, { state }));
 }
 `;
