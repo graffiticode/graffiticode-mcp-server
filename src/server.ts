@@ -388,6 +388,15 @@ const MCP_DISCOVERY = {
   github_url: "https://github.com/graffiticode",
 };
 
+// TEMP: in-memory ring of the last N tools/list client signals, exposed at
+// GET /debug/clients so we can compare ChatGPT web vs desktop without relying on
+// Cloud Logging (unreliable). Remove once the web/desktop question is resolved.
+const clientProbes: Array<Record<string, unknown> & { t: string }> = [];
+function recordClientProbe(info: Record<string, unknown>): void {
+  clientProbes.push({ t: new Date().toISOString(), ...info });
+  if (clientProbes.length > 30) clientProbes.shift();
+}
+
 function handleMcpDiscovery(res: ServerResponse): void {
   res.writeHead(200, {
     "Content-Type": "application/json",
@@ -461,19 +470,19 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
   server.setRequestHandler(ListToolsRequestSchema, async (_req, extra) => {
     const clientVersion = server.getClientVersion();
     const clientName = clientVersion?.name;
-    // TEMP INSTRUMENTATION: dump every signal that might distinguish ChatGPT desktop
-    // (renders the native widget) from ChatGPT web (can't — must get no widget). If a
-    // signal differs, toolsForClient can branch on it. Remove once decided.
+    // TEMP INSTRUMENTATION: record every signal that might distinguish ChatGPT desktop
+    // (renders the native widget) from ChatGPT web (can't). Kept in memory and exposed
+    // at GET /debug/clients (Cloud Logging reads are unreliable). Remove once decided.
     const reqInfo = (extra as { requestInfo?: { headers?: Record<string, unknown> } } | undefined)?.requestInfo;
     const headers = reqInfo?.headers ?? {};
-    console.log(
-      `[client-probe] tools/list clientVersion=${JSON.stringify(clientVersion ?? null)} ` +
-        `ua=${JSON.stringify(headers["user-agent"] ?? null)} ` +
-        `openai-hdrs=${JSON.stringify(
-          Object.fromEntries(Object.entries(headers).filter(([k]) => /openai|chatgpt|x-/i.test(k)))
-        )} ` +
-        `→ ${isOpenAIClient(clientName) ? "skybridge" : "mcp-app"}`
-    );
+    recordClientProbe({
+      clientVersion: clientVersion ?? null,
+      ua: (headers["user-agent"] as string) ?? null,
+      headers: Object.fromEntries(
+        Object.entries(headers).filter(([k]) => /openai|chatgpt|source|client|x-/i.test(k))
+      ),
+      route: isOpenAIClient(clientName) ? "skybridge" : "mcp-app",
+    });
     return {
       tools: toolsForClient(clientName),
     };
@@ -770,6 +779,13 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       res.writeHead(404, { "Content-Type": "text/plain" });
       res.end("Bundle not built");
     }
+    return;
+  }
+
+  // TEMP: client-signal probe (ChatGPT web vs desktop diagnosis). Remove when done.
+  if (url.pathname === "/debug/clients") {
+    res.writeHead(200, { "Content-Type": "application/json" });
+    res.end(JSON.stringify(clientProbes, null, 2));
     return;
   }
 
