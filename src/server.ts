@@ -43,6 +43,7 @@ import { identify, logConnect, logToolCall, type EventOutcome, type SessionMeta 
 import { EXTENSION_ID, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import {
   generateWidgetHtml,
+  generateChatgptCardHtml,
   widgetResourceUris,
   widgetCsp,
   WIDGET_MIME_TYPE,
@@ -646,14 +647,17 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
     if (uri === widgetUris.openai || uri === widgetUris.mcp) {
       const csp = widgetCsp();
       const isOpenAI = uri === widgetUris.openai;
+      // ChatGPT gets the small self-contained link card (its sandbox can't fetch the
+      // large native template or load our bundles); Claude gets the full native widget.
       return {
         contents: [
           {
             uri,
             mimeType: isOpenAI ? WIDGET_MIME_TYPE : CLAUDE_WIDGET_MIME_TYPE,
-            text: generateWidgetHtml(MCP_SERVER_URL),
+            text: isOpenAI ? generateChatgptCardHtml() : generateWidgetHtml(MCP_SERVER_URL),
+            // The card is self-contained (no external loads), so it needs no CSP domains.
             _meta: isOpenAI
-              ? { ui: { csp: csp.camel }, "openai/widgetCSP": csp.snake }
+              ? { ui: { csp: {} }, "openai/widgetCSP": {} }
               : { ui: { csp: csp.camel } },
           },
         ],

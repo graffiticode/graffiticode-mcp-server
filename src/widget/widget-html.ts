@@ -91,3 +91,73 @@ export function generateWidgetHtml(origin: string): string {
 export function widgetContentHash(origin: string): string {
   return createHash("sha256").update(generateWidgetHtml(origin)).digest("hex").slice(0, 8);
 }
+
+/**
+ * The ChatGPT (Skybridge) card — a tiny, SELF-CONTAINED template.
+ *
+ * ChatGPT's sandbox can't load the native widget: its Skybridge template-fetch
+ * rejects our large template (the "Failed to fetch template" error on web), and its
+ * script-src blocks loading our component bundles from our origin. So on ChatGPT we
+ * don't attempt native rendering — we show a substantive card (item name + status)
+ * with an "Open in Graffiticode" link to the full interactive item. No external
+ * scripts, no bundle: small enough to always fetch, and CSP-proof. Claude keeps the
+ * full native widget (separate resource).
+ */
+export function generateChatgptCardHtml(): string {
+  return `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <style>${STYLES}</style>
+</head>
+<body>
+  <div id="content" class="loading">Loading…</div>
+  <script>
+  (function () {
+    var root = document.getElementById("content");
+    function h(px) { try { if (window.openai && window.openai.notifyIntrinsicHeight) window.openai.notifyIntrinsicHeight(px); } catch (e) {} }
+    function esc(s) { var d = document.createElement("div"); d.textContent = s == null ? "" : String(s); return d.innerHTML; }
+    var tries = 0;
+    function render() {
+      var o = window.openai;
+      var out = o && (o.toolOutput || o.props);
+      if (!out || !Object.keys(out).length) {
+        if (++tries < 120) return setTimeout(render, 500);
+      }
+      var sc = (out && (out.structuredContent || out)) || {};
+      if (o && o.theme === "dark") document.body.classList.add("dark");
+      var status = sc.status;
+      var name = sc.name || "Your item";
+      var claim = sc.claim_url, view = sc.view_url;
+      var link = claim || view;
+      var html;
+      if (status === "generating") {
+        html = '<div class="card"><div class="card-title">Generating…</div>' +
+               '<div class="card-text">' + esc(sc.operation === "update" ? "Your item is being updated." : "Your item is being created.") + '</div></div>';
+      } else if (status === "failed") {
+        html = '<div class="card"><div class="card-title">Generation failed</div>' +
+               '<div class="card-text">' + esc(sc.error || "Something went wrong.") + '</div></div>';
+      } else {
+        html = '<div class="card"><div class="card-title">' + esc(name) + '</div>' +
+               '<div class="card-text">Your ' + esc((sc.language || "item")) + ' item is ready. Open it in Graffiticode to view and edit it interactively.</div>';
+        if (link) {
+          html += '<div class="card-actions"><button class="btn" id="gc-open">' + (claim ? "Sign in to view &amp; save" : "Open in Graffiticode") + '</button></div>';
+        }
+        html += '</div>';
+      }
+      root.className = "";
+      root.innerHTML = html;
+      var btn = document.getElementById("gc-open");
+      if (btn && link) btn.addEventListener("click", function () {
+        try { if (window.openai && window.openai.openExternal) return window.openai.openExternal({ href: link }); } catch (e) {}
+        window.open(link, "_blank", "noopener");
+      });
+      h(document.body.scrollHeight + 24);
+    }
+    render();
+  })();
+  </script>
+</body>
+</html>`;
+}
