@@ -18,20 +18,6 @@ export interface NativeLanguage {
   id: string;
   /** npm package exporting the presentational `Form` component. */
   pkg: string;
-  /** Published version, pinned into the esm.sh URL for reproducibility. */
-  version: string;
-}
-
-/** React version the widget pins everywhere (via esm.sh `?deps`) so the language
- * `Form` and react-dom share ONE React instance — otherwise hooks throw. */
-export const REACT_VERSION = "18.3.1";
-
-/** The esm.sh URL the widget dynamic-imports a language's `Form` from.
- * esm.sh is used because ChatGPT's widget sandbox only allows scripts from a fixed
- * CDN allowlist (esm.sh/unpkg/jsdelivr), NOT from our own origin — while Claude
- * honors esm.sh in resourceDomains. `?deps` pins React so there's a single copy. */
-export function esmUrl(l: NativeLanguage): string {
-  return `https://esm.sh/${l.pkg}@${l.version}?deps=react@${REACT_VERSION},react-dom@${REACT_VERSION}`;
 }
 
 /**
@@ -43,12 +29,8 @@ export function esmUrl(l: NativeLanguage): string {
  * `({state, targetOrigin})`).
  */
 export const NATIVE_LANGUAGES: NativeLanguage[] = [
-  { id: "L0166", pkg: "@graffiticode/l0166", version: "0.1.6" },
-  { id: "L0173", pkg: "@graffiticode/l0173", version: "0.1.0" },
-  { id: "L0169", pkg: "@graffiticode/l0169", version: "0.1.0" },
-  // NOT L0172: its Form renders a Figma <iframe> (BoardView → figma.com/embed),
-  // which would need frameDomains:figma.com in the CSP — exactly the iframe/embed
-  // pattern we removed to pass OpenAI review. It belongs in the fallback set.
+  { id: "L0166", pkg: "@graffiticode/l0166" },
+  { id: "L0173", pkg: "@graffiticode/l0173" },
 ];
 
 /**

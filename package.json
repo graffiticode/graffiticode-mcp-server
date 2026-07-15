@@ -22,7 +22,6 @@
   "devDependencies": {
     "@anthropic-ai/sdk": "^0.111.0",
     "@graffiticode/l0166": "^0.1.6",
-    "@graffiticode/l0169": "^0.1.0",
     "@graffiticode/l0173": "^0.1.0",
     "@types/node": "^20.10.0",
     "esbuild": "^0.25.12",
