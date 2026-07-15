@@ -78,9 +78,10 @@ const STYLES = `
 export function generateWidgetHtml(origin: string): string {
   const native = JSON.stringify(NATIVE_LANGUAGES.map((l) => l.id));
   // Classic external script (the bundle is an IIFE): cross-origin classic scripts
-  // need no CORS, only script-src (resourceDomains) — which our CSP grants. The
-  // ?v= busts caches AND folds the bundle's hash into this template's text, so
-  // widgetContentHash() changes when the bundle changes.
+  // need no CORS, only script-src (resourceDomains) — which our CSP grants. The ?v=
+  // busts caches on a new build; the server ignores it and serves the current
+  // (ETag-revalidated) bundle regardless, so a stale-cached template still gets
+  // fresh code.
   const bundleSrc = `${origin}${WIDGET_BUNDLE_PATH}?v=${bundleVersion()}`;
   return `<!DOCTYPE html>
 <html>
@@ -98,11 +99,4 @@ export function generateWidgetHtml(origin: string): string {
   <script src="${bundleSrc}"></script>
 </body>
 </html>`;
-}
-
-/** The resource URI is the host's cache key (the spike proved this the hard way),
- * so hash the served HTML into it: any change to the widget mints a new URI and
- * the host is forced to re-read instead of replaying a stale build. */
-export function widgetContentHash(origin: string): string {
-  return createHash("sha256").update(generateWidgetHtml(origin)).digest("hex").slice(0, 8);
 }
