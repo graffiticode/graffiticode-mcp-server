@@ -31,6 +31,10 @@ export interface NativeLanguage {
 export const NATIVE_LANGUAGES: NativeLanguage[] = [
   { id: "L0166", pkg: "@graffiticode/l0166" },
   { id: "L0173", pkg: "@graffiticode/l0173" },
+  { id: "L0169", pkg: "@graffiticode/l0169" },
+  // NOT L0172: its Form renders a Figma <iframe> (BoardView → figma.com/embed),
+  // which would need frameDomains:figma.com in the CSP — exactly the iframe/embed
+  // pattern we removed to pass OpenAI review. It belongs in the fallback set.
 ];
 
 /**

@@ -7,7 +7,7 @@
 import { RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import { widgetContentHash } from "./widget-html.js";
 
-export { generateWidgetHtml, widgetContentHash } from "./widget-html.js";
+export { generateWidgetHtml, widgetContentHash, widgetBundle, WIDGET_BUNDLE_PATH } from "./widget-html.js";
 export { NATIVE_LANGUAGES } from "./languages.js";
 
 const MCP_SERVER_URL = process.env.MCP_SERVER_URL || "https://mcp.graffiticode.org";

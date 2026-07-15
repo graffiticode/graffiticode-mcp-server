@@ -1,27 +1,32 @@
 /**
  * The shared widget HTML — one document for both hosts.
  *
- * The interactive logic is `browser/entry.ts`, bundled to a single IIFE by
- * scripts/build-widget.mjs and inlined here. The bundle picks the host adapter at
- * runtime, so the same HTML serves Claude (MCP Apps) and ChatGPT (Skybridge); the
- * two resources differ only in mimeType and CSP, set in the resource envelope.
+ * The interactive logic is `browser/entry.ts`, bundled by scripts/build-widget.mjs
+ * and served separately at `/widget/widget.bundle.js`. The template LOADS it by URL
+ * rather than inlining it: inlining made the template ~440KB (React + renderer),
+ * which ChatGPT's Skybridge template-fetch endpoint rejected ("Failed to fetch
+ * template"). The loader is a few KB; the bundle is fetched over `script-src`
+ * (resourceDomains), the same channel the per-language bundles use.
  *
- * `__MCP_ORIGIN__` (bundle origin, must match the CSP resourceDomains) and
- * `__NATIVE__` (languages with a native bundle) are injected here.
+ * The bundle picks the host adapter at runtime, so the same HTML serves Claude and
+ * ChatGPT; the two resources differ only in mimeType and CSP. `__MCP_ORIGIN__`
+ * (bundle origin) and `__NATIVE__` (languages with a native bundle) are injected here.
  */
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
 import { NATIVE_LANGUAGES } from "./languages.js";
 
+export const WIDGET_BUNDLE_PATH = "/widget/widget.bundle.js";
 const BUNDLE_URL = new URL("./widget.bundle.js", import.meta.url);
 
-let cachedScript: string | null = null;
+let cachedBundle: Buffer | null = null;
 
-function loadBundle(): string {
-  if (cachedScript === null) {
+/** The built widget bundle bytes (served at WIDGET_BUNDLE_PATH). */
+export function widgetBundle(): Buffer {
+  if (cachedBundle === null) {
     try {
-      cachedScript = readFileSync(fileURLToPath(BUNDLE_URL), "utf8");
+      cachedBundle = readFileSync(fileURLToPath(BUNDLE_URL));
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
       throw new Error(
@@ -29,7 +34,13 @@ function loadBundle(): string {
       );
     }
   }
-  return cachedScript;
+  return cachedBundle;
+}
+
+/** Cache-buster for the bundle URL; also chains into the template hash so a bundle
+ * change mints a new template URI and the host re-reads (bundle URL is stable). */
+function bundleVersion(): string {
+  return createHash("sha256").update(widgetBundle()).digest("hex").slice(0, 8);
 }
 
 const STYLES = `
@@ -63,10 +74,14 @@ const STYLES = `
   body.dark .footer-link { color: #60a5fa; }
 `;
 
-/** @param origin absolute origin serving /widget/lang/*.mjs (must match CSP resourceDomains) */
+/** @param origin absolute origin serving the bundle + /widget/lang/*.mjs (must match CSP resourceDomains) */
 export function generateWidgetHtml(origin: string): string {
-  const script = loadBundle();
   const native = JSON.stringify(NATIVE_LANGUAGES.map((l) => l.id));
+  // Classic external script (the bundle is an IIFE): cross-origin classic scripts
+  // need no CORS, only script-src (resourceDomains) — which our CSP grants. The
+  // ?v= busts caches AND folds the bundle's hash into this template's text, so
+  // widgetContentHash() changes when the bundle changes.
+  const bundleSrc = `${origin}${WIDGET_BUNDLE_PATH}?v=${bundleVersion()}`;
   return `<!DOCTYPE html>
 <html>
 <head>
@@ -80,7 +95,7 @@ export function generateWidgetHtml(origin: string): string {
     window.__MCP_ORIGIN__ = ${JSON.stringify(origin)};
     window.__NATIVE__ = ${native};
   </script>
-  <script>${script}</script>
+  <script src="${bundleSrc}"></script>
 </body>
 </html>`;
 }

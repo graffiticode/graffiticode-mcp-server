@@ -45,6 +45,8 @@ import {
   generateWidgetHtml,
   widgetResourceUris,
   widgetCsp,
+  widgetBundle,
+  WIDGET_BUNDLE_PATH,
   WIDGET_MIME_TYPE,
   CLAUDE_WIDGET_MIME_TYPE,
 } from "./widget/index.js";
@@ -714,6 +716,34 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     } catch {
       res.writeHead(404);
       res.end();
+    }
+    return;
+  }
+
+  // The widget entry bundle. The template loads this by URL instead of inlining it,
+  // so ChatGPT's Skybridge template fetch stays small. Classic IIFE, so no CORS is
+  // required for the load itself, but we set it anyway (harmless) and revalidate by
+  // ETag — the ?v= query already busts caches on a new build.
+  if (url.pathname === WIDGET_BUNDLE_PATH) {
+    try {
+      const bundle = widgetBundle();
+      const etag = `"${createHash("sha256").update(bundle).digest("hex").slice(0, 16)}"`;
+      if (req.headers["if-none-match"] === etag) {
+        res.writeHead(304, { ETag: etag });
+        res.end();
+        return;
+      }
+      res.writeHead(200, {
+        "Content-Type": "text/javascript; charset=utf-8",
+        "Content-Length": bundle.length.toString(),
+        "Cache-Control": "public, max-age=0, must-revalidate",
+        ETag: etag,
+      });
+      res.end(bundle);
+    } catch (err) {
+      console.error(`[widget] bundle read failed: ${(err as Error)?.message ?? err}`);
+      res.writeHead(404, { "Content-Type": "text/plain" });
+      res.end("Bundle not built");
     }
     return;
   }
