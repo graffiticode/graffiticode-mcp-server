@@ -388,15 +388,6 @@ const MCP_DISCOVERY = {
   github_url: "https://github.com/graffiticode",
 };
 
-// TEMP: in-memory ring of the last N tools/list client signals, exposed at
-// GET /debug/clients so we can compare ChatGPT web vs desktop without relying on
-// Cloud Logging (unreliable). Remove once the web/desktop question is resolved.
-const clientProbes: Array<Record<string, unknown> & { t: string }> = [];
-function recordClientProbe(info: Record<string, unknown>): void {
-  clientProbes.push({ t: new Date().toISOString(), ...info });
-  if (clientProbes.length > 30) clientProbes.shift();
-}
-
 function handleMcpDiscovery(res: ServerResponse): void {
   res.writeHead(200, {
     "Content-Type": "application/json",
@@ -467,22 +458,16 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
   // host-dependent (ChatGPT needs the Skybridge widget, Claude the MCP-Apps one) —
   // see toolsForClient(). Log the host so the OpenAI matcher can be tuned if a
   // client name doesn't match.
-  server.setRequestHandler(ListToolsRequestSchema, async (_req, extra) => {
-    const clientVersion = server.getClientVersion();
-    const clientName = clientVersion?.name;
-    // TEMP INSTRUMENTATION: record every signal that might distinguish ChatGPT desktop
-    // (renders the native widget) from ChatGPT web (can't). Kept in memory and exposed
-    // at GET /debug/clients (Cloud Logging reads are unreliable). Remove once decided.
-    const reqInfo = (extra as { requestInfo?: { headers?: Record<string, unknown> } } | undefined)?.requestInfo;
-    const headers = reqInfo?.headers ?? {};
-    recordClientProbe({
-      clientVersion: clientVersion ?? null,
-      ua: (headers["user-agent"] as string) ?? null,
-      headers: Object.fromEntries(
-        Object.entries(headers).filter(([k]) => /openai|chatgpt|source|client|x-/i.test(k))
-      ),
-      route: isOpenAIClient(clientName) ? "skybridge" : "mcp-app",
-    });
+  server.setRequestHandler(ListToolsRequestSchema, async () => {
+    const clientName = server.getClientVersion()?.name;
+    // OpenAI/ChatGPT clients (incl. Codex) get no widget — its sandbox can't reliably
+    // render ours, and web vs desktop are indistinguishable at the MCP layer, so we
+    // give them all the text-link experience. Claude gets the native widget.
+    console.log(
+      `[widget] tools/list host=${clientName ?? "?"} → ${
+        isOpenAIClient(clientName) ? "text-link (no widget)" : "native widget"
+      }`
+    );
     return {
       tools: toolsForClient(clientName),
     };
@@ -779,13 +764,6 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       res.writeHead(404, { "Content-Type": "text/plain" });
       res.end("Bundle not built");
     }
-    return;
-  }
-
-  // TEMP: client-signal probe (ChatGPT web vs desktop diagnosis). Remove when done.
-  if (url.pathname === "/debug/clients") {
-    res.writeHead(200, { "Content-Type": "application/json" });
-    res.end(JSON.stringify(clientProbes, null, 2));
     return;
   }
 
