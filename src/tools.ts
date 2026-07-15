@@ -13,7 +13,7 @@ import {
 } from "./api.js";
 import { mintClaimToken } from "./claim-token.js";
 import { getRenderAccessToken } from "./render-token.js";
-import { widgetResourceUris, widgetCsp } from "./widget/index.js";
+import { widgetResourceUris } from "./widget/index.js";
 
 // --- Help Entry Structure (matches console HelpPanel) ---
 
@@ -275,33 +275,34 @@ export function isOpenAIClient(clientName?: string): boolean {
   return !!clientName && /openai|chatgpt|codex/i.test(clientName);
 }
 
-// Per-host widget wiring. Both Claude and ChatGPT read `_meta.ui.resourceUri` as
-// the widget template pointer, but they need DIFFERENT resources:
-//   - ChatGPT/OpenAI: the Skybridge-mimetype resource (`text/html+skybridge`),
-//     which its /backend-api/ecosystem/widget endpoint can fetch. Pointing it at
-//     the MCP-Apps resource makes ChatGPT 404 ("Failed to fetch template").
-//   - Claude / other MCP-Apps hosts: the `text/html;profile=mcp-app` resource.
-// The two serve identical HTML; only the mimeType differs. URIs are content-hashed
-// (the host caches by URI, so a stable URI replays a stale build) and computed at
-// runtime, so they're injected here rather than baked into the static _meta.
-// Default is the MCP-Apps resource so Claude (and unknown hosts) never regress.
+// Per-host widget wiring.
+//   - Claude / MCP-Apps hosts: point at the `text/html;profile=mcp-app` resource,
+//     which renders the item NATIVELY inline.
+//   - ChatGPT / OpenAI: NO widget. Its sandbox can't render ours (the Skybridge
+//     template-fetch rejects our template, and its script-src blocks our bundles),
+//     so instead of a broken widget or a link-only card (which risks OpenAI's
+//     "static frame with no meaningful interaction" review rule), we declare no
+//     widget at all. ChatGPT then renders the tool result's text summary, which
+//     already surfaces the "Open in Graffiticode" link — a clean, defensible
+//     tools-only experience. The item's real value (NL generation) happens in-chat.
+// The widget resource URI is content-hashed (the host caches by URI) and computed at
+// runtime, so it's injected here rather than baked into the static _meta.
 export function toolsForClient(clientName?: string): Tool[] {
   const openai = isOpenAIClient(clientName);
-  const uris = widgetResourceUris();
-  const csp = widgetCsp();
-  const uiUri = openai ? uris.openai : uris.mcp;
+  const uiUri = widgetResourceUris().mcp;
   return tools.map((t) => {
     const meta = (t as { _meta?: Record<string, unknown> })._meta;
     if (!meta || !("openai/resultCanProduceWidget" in meta)) return t;
+    // ChatGPT: strip all widget metadata → renders the text summary + link.
+    if (openai) {
+      const rest = { ...(t as Record<string, unknown>) };
+      delete rest._meta;
+      return rest as Tool;
+    }
+    // Claude: point at the native MCP-Apps widget.
     return {
       ...t,
-      _meta: {
-        ...meta,
-        "openai/outputTemplate": uris.openai,
-        "openai/widgetCSP": csp.snake,
-        ui: { resourceUri: uiUri },
-        "ui/resourceUri": uiUri,
-      },
+      _meta: { ...meta, ui: { resourceUri: uiUri }, "ui/resourceUri": uiUri },
     } as Tool;
   });
 }
