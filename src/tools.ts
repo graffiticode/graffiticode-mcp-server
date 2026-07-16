@@ -408,40 +408,49 @@ export const tools = [
   getLanguageInfoTool,
 ] as unknown as Tool[];
 
-// True for ChatGPT / OpenAI Apps hosts (incl. Codex). Used to pick which widget
-// a tool's `_meta.ui.resourceUri` points at — see toolsForClient().
+/**
+ * Whether to serve the native MCP Apps widget to this client.
+ *
+ * WHITELIST, deliberately — only hosts we've verified render our widget correctly
+ * (the Claude family: `claude-ai`, `claude-code`/Cowork, `claude-desktop`). Everyone
+ * else — ChatGPT web/desktop/mobile, Codex, and any unknown client — gets NO UI and
+ * the compact text + link. We whitelist rather than blacklist OpenAI because we
+ * cannot reliably enumerate ChatGPT's client names (the consumer app reports a name
+ * our old `/openai|chatgpt|codex/` blacklist missed, so the widget leaked to it and
+ * got stuck "Generating…" on web). A whitelist guarantees a clean, consistent no-UI
+ * OpenAI experience for submission regardless of what name ChatGPT connects as.
+ */
+export function isWidgetHost(clientName?: string): boolean {
+  return !!clientName && /claude/i.test(clientName);
+}
+
+// Kept for the funnel/logging classification; NOT used for widget routing anymore.
 export function isOpenAIClient(clientName?: string): boolean {
   return !!clientName && /openai|chatgpt|codex/i.test(clientName);
 }
 
-// Per-host widget wiring.
-//   - Claude / MCP-Apps hosts: point at the `text/html;profile=mcp-app` resource,
-//     which renders the item NATIVELY inline.
-//   - ChatGPT / OpenAI: NO widget. Its sandbox can't render ours (the Skybridge
-//     template-fetch rejects our template, and its script-src blocks our bundles),
-//     so instead of a broken widget or a link-only card (which risks OpenAI's
-//     "static frame with no meaningful interaction" review rule), we declare no
-//     widget at all. ChatGPT then renders the tool result's text summary, which
-//     already surfaces the "Open in Graffiticode" link — a clean, defensible
-//     tools-only experience. The item's real value (NL generation) happens in-chat.
+// Per-host widget wiring. Only verified MCP Apps hosts (Claude) get the native
+// widget; everyone else (incl. all ChatGPT/OpenAI surfaces) gets no widget metadata
+// at all and renders the tool result's text summary + "Open in Graffiticode" link.
 // The widget resource URI is content-hashed (the host caches by URI) and computed at
 // runtime, so it's injected here rather than baked into the static _meta.
 export function toolsForClient(clientName?: string): Tool[] {
-  const openai = isOpenAIClient(clientName);
+  const widgetHost = isWidgetHost(clientName);
   const uiUri = widgetResourceUris().mcp;
   return tools.map((t) => {
     const meta = (t as { _meta?: Record<string, unknown> })._meta;
     if (!meta || !("openai/resultCanProduceWidget" in meta)) return t;
-    // ChatGPT: strip all widget metadata → renders the text summary + link.
-    if (openai) {
+    // Non-widget hosts (ChatGPT/OpenAI/unknown): strip ALL widget metadata — no
+    // ui.resourceUri, no outputTemplate, no resultCanProduceWidget hint.
+    if (!widgetHost) {
       const rest = { ...(t as Record<string, unknown>) };
       delete rest._meta;
       return rest as Tool;
     }
-    // Claude: point at the native MCP-Apps widget.
+    // Claude: point at the native MCP-Apps widget (drop the openai-only marker).
     return {
       ...t,
-      _meta: { ...meta, ui: { resourceUri: uiUri }, "ui/resourceUri": uiUri },
+      _meta: { ui: { resourceUri: uiUri }, "ui/resourceUri": uiUri },
     } as Tool;
   });
 }

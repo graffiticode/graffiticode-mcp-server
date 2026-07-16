@@ -37,7 +37,7 @@ import { readFileSync } from "fs";
 import { createHash } from "crypto";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
-import { tools, handleToolCall, SERVER_INSTRUCTIONS, toolsForClient, isOpenAIClient } from "./tools.js";
+import { tools, handleToolCall, SERVER_INSTRUCTIONS, toolsForClient, isWidgetHost } from "./tools.js";
 import { formatToolResult } from "./tool-result.js";
 import type { AuthContext } from "./api.js";
 import { identify, logConnect, logToolCall, type EventOutcome, type SessionMeta } from "./events.js";
@@ -466,7 +466,7 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
     // give them all the text-link experience. Claude gets the native widget.
     console.log(
       `[widget] tools/list host=${clientName ?? "?"} → ${
-        isOpenAIClient(clientName) ? "text-link (no widget)" : "native widget"
+        isWidgetHost(clientName) ? "native widget" : "text-link (no widget)"
       }`
     );
     return {
@@ -547,9 +547,10 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
         meta: sessionMeta,
       });
 
-      // OpenAI/ChatGPT clients render no widget, so drop the _meta hydration
-      // payload (src/data/claim) rather than ship it to a surface that can't use it.
-      const omitMeta = isOpenAIClient(server.getClientVersion()?.name);
+      // Non-widget hosts (everything but Claude) render no widget, so drop the
+      // _meta hydration payload (src/data/claim) rather than ship it to a surface
+      // that can't use it.
+      const omitMeta = !isWidgetHost(server.getClientVersion()?.name);
       return formatToolResult(result, { omitMeta });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -583,17 +584,21 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
   // List available resources (the Claude MCP App widget, plus skills
   // discovered at request time from the public graffiticode-skills repo).
   server.setRequestHandler(ListResourcesRequestSchema, async () => {
-    const uris = widgetResourceUris();
-    const csp = widgetCsp();
-    const resources: Array<Record<string, unknown>> = [
-      {
+    const resources: Array<Record<string, unknown>> = [];
+    // Advertise the widget resource ONLY to widget hosts (Claude). Non-widget hosts
+    // (ChatGPT/OpenAI) get a UI-free surface — nothing for the submission "Scan Tools"
+    // step to discover as linked UI.
+    if (isWidgetHost(server.getClientVersion()?.name)) {
+      const uris = widgetResourceUris();
+      const csp = widgetCsp();
+      resources.push({
         uri: uris.mcp,
         name: "Graffiticode Form Widget",
         mimeType: CLAUDE_WIDGET_MIME_TYPE,
         description: "Interactive item widget for MCP Apps hosts such as Claude",
         _meta: { ui: { csp: csp.camel } },
-      },
-    ];
+      });
+    }
     // Skills are best-effort: a GitHub outage must not break resource listing.
     try {
       resources.push(...(await listSkillResources()));

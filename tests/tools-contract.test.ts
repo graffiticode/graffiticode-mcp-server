@@ -16,8 +16,11 @@ test("every structured tool declares an output schema", () => {
   }
 });
 
-test("OpenAI clients receive no widget metadata", () => {
-  for (const client of ["ChatGPT", "openai-apps", "codex-mcp-client"]) {
+test("only Claude gets widget metadata; every other client (incl. unknowns) gets none", () => {
+  // Whitelist semantics: the widget goes to verified MCP Apps hosts (Claude) only.
+  // Crucially this covers client names a naive OpenAI blacklist would MISS — the
+  // ChatGPT consumer app and any unknown client — which is why the widget leaked before.
+  for (const client of ["ChatGPT", "openai-apps", "codex-mcp-client", "web-sandbox", "gpt", "some-unknown-host", undefined as unknown as string]) {
     for (const tool of toolsForClient(client) as ToolRecord[]) {
       assert.equal(tool._meta, undefined, `${client}/${tool.name} exposes widget metadata`);
     }
