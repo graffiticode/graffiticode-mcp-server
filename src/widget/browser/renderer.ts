@@ -25,6 +25,23 @@ function normalizeLang(lang: unknown): string {
   return `L${String(lang ?? "").replace(/^[lL]/, "")}`;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return !!value && typeof value === "object" && !Array.isArray(value);
+}
+
+/** Merge the model-visible result with the namespaced widget hydration payload. */
+export function mergeToolPayload(r: ToolResult): Record<string, unknown> {
+  const namespaced = isRecord(r.meta.graffiticode)
+    ? r.meta.graffiticode
+    : r.meta;
+  return { ...r.structuredContent, ...namespaced };
+}
+
+function unwrapData(raw: unknown): unknown {
+  if (isRecord(raw) && ("data" in raw || "errors" in raw)) return raw.data;
+  return raw;
+}
+
 const el = <K extends keyof HTMLElementTagNameMap>(
   tag: K,
   cls?: string,
@@ -53,16 +70,17 @@ export function startRenderer(host: HostAdapter): void {
   }
 
   async function render(r: ToolResult): Promise<void> {
-    const sc = r.structuredContent;
+    const sc = mergeToolPayload(r);
     const status = typeof sc.status === "string" ? sc.status : undefined;
 
     if (status === "generating") return showStatus(sc, "generating");
     if (status === "failed") return showStatus(sc, "failed");
 
     const lang = normalizeLang(sc.language);
-    if (__NATIVE__.includes(lang) && sc.data) {
+    if (__NATIVE__.includes(lang) && sc.data !== undefined) {
       try {
         await mountNative(lang, sc.data);
+        appendRefineAction(sc);
         appendFooterLink(sc);
         reportHeight();
         return;
@@ -83,7 +101,9 @@ export function startRenderer(host: HostAdapter): void {
     document.head.appendChild(style);
     root.className = "";
     root.replaceChildren();
-    mod.mount(root, data);
+    const mountPoint = el("div", "native-content");
+    root.appendChild(mountPoint);
+    mod.mount(mountPoint, data);
   }
 
   // --- Fallback content card (non-native languages) -------------------------
@@ -96,14 +116,7 @@ export function startRenderer(host: HostAdapter): void {
     const body = cardBody(lang, sc);
     if (body) card.appendChild(body);
 
-    // Primary action stays in-host: refine the item without leaving the chat.
-    const actions = el("div", "card-actions");
-    const refine = el("button", "btn", "Refine this item");
-    refine.addEventListener("click", () =>
-      host.sendMessage("Refine this item: ")
-    );
-    actions.appendChild(refine);
-    card.appendChild(actions);
+    appendRefineAction(sc, card);
 
     root.className = "";
     root.replaceChildren(card);
@@ -113,7 +126,8 @@ export function startRenderer(host: HostAdapter): void {
   // Render real content from the data we already hold, so the card is a preview,
   // not an ad for our website. Shapes verified against the language compilers.
   function cardBody(lang: string, sc: Record<string, unknown>): HTMLElement | null {
-    const data = sc.data as Record<string, unknown> | undefined;
+    const unwrapped = unwrapData(sc.data);
+    const data = isRecord(unwrapped) ? unwrapped : undefined;
 
     // Learnosity assessments: data = { type, request: { questions: [...] } }.
     if ((lang === "L0158" || lang === "L0176") && data) {
@@ -163,6 +177,33 @@ export function startRenderer(host: HostAdapter): void {
   }
 
   // --- Shared pieces --------------------------------------------------------
+
+  function appendRefineAction(sc: Record<string, unknown>, container?: HTMLElement): void {
+    const itemId = typeof sc.item_id === "string" ? sc.item_id : undefined;
+    if (!itemId) return;
+
+    const form = el("form", "refine-form");
+    const input = el("input", "refine-input");
+    input.type = "text";
+    input.placeholder = "Describe what to change";
+    input.setAttribute("aria-label", "Describe how to refine this item");
+    const submit = el("button", "btn", "Refine");
+    submit.type = "submit";
+    form.append(input, submit);
+    form.addEventListener("submit", (event) => {
+      event.preventDefault();
+      const modification = input.value.trim();
+      if (!modification) {
+        input.focus();
+        return;
+      }
+      host.sendMessage(
+        `Please update Graffiticode item ${itemId}: ${modification}`,
+      );
+      input.value = "";
+    });
+    (container ?? root).appendChild(form);
+  }
 
   function appendFooterLink(sc: Record<string, unknown>, container?: HTMLElement): void {
     const claimUrl = typeof sc.claim_url === "string" ? sc.claim_url : undefined;

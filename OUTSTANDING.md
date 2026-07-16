@@ -1,75 +1,32 @@
 # Outstanding issues
 
-## Web-chat hosts ignore widget `frameDomains` → inline form iframe is blocked
+## ChatGPT-native inline rendering is unimplemented
 
-**Status:** open (2026-07-14). Rendering is ADAPTIVE: the widget still embeds the
-inline iframe (desktop apps honor `frameDomains` and render inline), and falls back
-to an "Open in Graffiticode" CTA only when the host blocks the frame — detected via
-the `securitypolicyviolation` event (web hosts), with a load/timeout safety net.
-See `src/widget/browser/claude-app.ts` and `src/widget/form-widget.ts`.
+**Status:** open (2026-07-15).
 
-**Desktop vs web:** Claude/ChatGPT **desktop** apps DO honor declared `frameDomains`
-and render the form inline. The **web** apps apply the hardcoded `frame-src` below
-and get the CTA fallback.
+**Current production baseline (intentional and stable).** Rendering is per-host:
 
-**Symptom.** Rendering a Graffiticode form inline in claude.ai or chatgpt.com (web)
-shows the browser's "This content is blocked. Contact the site owner to fix the
-issue." placeholder where the form should be.
+- **Claude (web + desktop)** renders items **natively inline** — a real interactive
+  component (charts, spreadsheets, etc.) via the MCP Apps widget, with the per-language
+  bundle loaded from our own origin (`resourceDomains` CSP, no iframe).
+- **ChatGPT / Codex (web + desktop)** gets **no widget**. The tool result's text
+  summary is shown with an "Open in Graffiticode" link. `toolsForClient()` strips the
+  widget metadata for OpenAI hosts on purpose.
 
-**Root cause.** The widget embeds a cross-origin iframe pointing at the item
-renderer (`api.graffiticode.org/form?…` → 302 → `l<NNNN>.graffiticode.org/form`).
-Both hosts apply a **hardcoded sandbox CSP `frame-src`** that ignores the
-`frameDomains` we declare in the MCP-Apps widget CSP, so the iframe is blocked:
+**Why ChatGPT gets no widget.** ChatGPT's sandbox cannot load our component bundles
+from our origin: its `script-src` is a fixed CDN allowlist, so a same-origin
+`import()` of our per-language `.mjs` is blocked. The text-plus-link experience is a
+clean, defensible tools-only baseline that avoids OpenAI's "static frame with no
+meaningful interaction" review rule.
 
-| Host        | Applied `frame-src`      | Reads our declared frame hosts? |
-|-------------|--------------------------|---------------------------------|
-| Claude      | `'self' blob: data:`     | No (`_meta.ui.csp.frameDomains`) |
-| ChatGPT web | `'none'`                 | No (`openai/widgetCSP.frame_domains`) |
+**The only demonstrated path to ChatGPT-native rendering** is loading components from
+an allowlisted CDN (e.g. `esm.sh`) instead of our origin. That exists **only as a
+branch experiment**, not on `main`. Before it could ship it needs:
 
-Confirmed via the browser console on both hosts:
-`Framing 'https://api.graffiticode.org/' violates the following Content Security
-Policy directive: "frame-src …". The request has been blocked.`
+1. Verification across ChatGPT **web + desktop + mobile**.
+2. **Claude regression testing** — the same widget serves Claude, and the CDN import
+   path must not degrade the native Claude experience.
+3. Confidence in the CDN dependency (availability, versioning, CSP/CORS) as a
+   production render path.
 
-**Our side is correct and not the cause.** The renderers and `api.graffiticode.org`
-send `Cross-Origin-Resource-Policy: cross-origin` (no `X-Frame-Options` /
-`frame-ancestors`), and the MCP server declares the CSP per the ext-apps spec
-(`text/html;profile=mcp-app`, csp on the resource content item's `_meta.ui.csp`
-with the right `frameDomains`). The block is host-side.
-
-## ChatGPT web: "Failed to fetch template" — widget template-pointer collision
-
-**Status:** RESOLVED (2026-07-14) via per-host `ui.resourceUri` (see below).
-Was: ChatGPT web failed with "Error loading app — Failed to fetch template";
-console showed
-`GET …/backend-api/ecosystem/widget?…template_pointer=ui://graffiticode/claude-form-widget.html… 404`.
-
-**Cause.** Each tool's `_meta` declares BOTH `openai/outputTemplate` (→ the
-Skybridge widget `form-widget.html`, `text/html+skybridge`) AND `ui.resourceUri`
-(→ the MCP-Apps widget `claude-form-widget.html`, `text/html;profile=mcp-app`).
-ChatGPT now reads the MCP-Apps `ui.resourceUri` as the `template_pointer`, but
-fetches it through its **Skybridge** `/ecosystem/widget` endpoint, which can't serve
-the `text/html;profile=mcp-app` resource → 404. (Also a known ChatGPT-side
-regression — OpenAI community "ecosystem/widget 404 … ongoing since late May".)
-Independent of the widget-content edits; it's about the `_meta` template pointers.
-
-**Fix applied (per-host `ui.resourceUri`).** `tools/list` is host-aware
-(`toolsForClient()` in `src/tools.ts`, wired in `src/server.ts` via
-`server.getClientVersion()?.name`): OpenAI/ChatGPT hosts (`/openai|chatgpt|codex/i`)
-get the Skybridge widget (`ui://graffiticode/form-widget.html`, `text/html+skybridge`)
-which `/ecosystem/widget` can fetch; Claude/other/unknown hosts get the ext-apps
-widget (`ui://graffiticode/claude-form-widget.html`). Defaults to MCP-Apps so Claude
-never regresses. A `[widget] tools/list host=… → …` log line records the client name
-so the OpenAI matcher can be tuned if a new client name doesn't match. Confirmed
-working across ChatGPT web + desktop and Claude web + desktop (2026-07-14).
-
-**What still needs doing / to revisit**
-1. **Re-enable inline framing** once a host honors server-declared `frameDomains`.
-   Restore the iframe path in the two widget files (guarded by a working-frame
-   detection or per-host capability).
-2. **ChatGPT-specific:** verify whether the correct `openai/widgetCSP` shape/field
-   (e.g. `resource_domains` vs `frame_domains`, tool-result vs resource placement)
-   makes ChatGPT honor it — its `'none'` default suggests our declaration may not
-   be read. If fixable, ChatGPT could get true inline rendering while Claude keeps
-   the CTA.
-3. Track upstream: MCP Apps spec (SEP-1865) defines `frameDomains`; hosts do not
-   yet enforce it for third-party origins.
+Until then, the Claude-native / ChatGPT-text-link split above is the shipped behavior.

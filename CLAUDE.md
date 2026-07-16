@@ -52,7 +52,7 @@ This is a thin-router MCP server for Graffiticode. It provides a fixed set of la
 ```
 ┌─────────────────────────────────────────────────────────────────────┐
 │  MCP Server (thin router)                                           │
-│  Tools: create_item, update_item, get_item, get_spec,               │
+│  Tools: create_item, update_item, render_item, get_item, get_spec,  │
 │         list_languages, get_language_info                           │
 └─────────────────────────────────────────────────────────────────────┘
                               │
@@ -69,13 +69,12 @@ This is a thin-router MCP server for Graffiticode. It provides a fixed set of la
 ### Core Modules
 
 - **`src/api.ts`** - GraphQL client for Graffiticode API. All language discovery and code generation is backend-driven. Defines `AuthContext`, the value threaded through every handler: `{ type: "firebase", token, source: "oauth" | "raw" }` or `{ type: "freePlan", sessionId }`. `buildAuthHeaders` turns the former into `Authorization: Bearer` and the latter into `X-Free-Plan-Session`. There is **no** `src/auth.ts` and no Firebase custom-token/ID-token exchange in this repo — `resolveBearer()` in `server.ts` classifies the incoming bearer and the console does the rest.
-- **`src/render-token.ts`** - Exchanges a raw Graffiticode API key for a short-lived (5-min) ES256 access token via the auth service's `/authenticate/api-key`, cached per key and de-duped in flight. This is what goes in the widget's `form_url`. **Never embed the raw API key there** — `api.graffiticode.org` only accepts JWTs, so a raw key 401s → falls back to anonymous → 404s on private tasks, *and* leaks a permanent credential into URLs and request logs.
 - **`src/events.ts`** - Structured funnel events (`mcp_connect`, `mcp_tool`) emitted as one JSON line per event to stdout → Cloud Logging, aggregated by the console's `scripts/mcp-funnel-report.ts`. Instrumentation is best-effort and must never break a request. The privacy contract is load-bearing and asserted in the user-facing copy: never log raw prompts (only `desc_len`), never log raw session UUIDs or bearer tokens (only a one-way hash), never log the client IP (only coarse `CF-IPCountry` geo). The free-plan session hash reuses `deriveSessionNamespace` so the logged `session` joins to what the console stamps on items and claims.
 - **`src/tools.ts`** - MCP tool definitions and handlers. Routes requests to backend based on language parameter.
 - **`src/resources.ts`** - MCP resource handlers: per-language user guides, and **agent skills** discovered at request time from the public `graffiticode-skills` GitHub repo (each top-level dir = one skill `<id>/SKILL.md`, exposed as `graffiticode://skills/<id>`). Catalog is fetched via the GitHub contents API + raw content, cached ~60s (stale-while-revalidate). Adding a skill to that repo surfaces it with no rebuild/redeploy; nothing is vendored into this repo.
 - **`src/oauth/`** - OAuth 2.1 + PKCE for hosted mode: dynamic client registration, authorize/callback/token endpoints, Firestore-backed store. Hosted auth accepts either an OAuth access token or a raw Graffiticode API key as the Bearer credential.
-- **`src/widget/`** - A single **native** inline widget that renders items *in the host sandbox* — no iframe. One widget serves both hosts; the browser bundle picks the host adapter at runtime. Exposed as MCP resources and linked from tool `_meta` (`openai/outputTemplate` for ChatGPT Apps; nested `ui.resourceUri` + legacy `ui/resourceUri` for MCP Apps).
-  - **`browser/host.ts`** — the one seam: `HostAdapter` interface with `ExtAppsHost` (Claude, wraps the ext-apps `App` class: `ui/initialize` handshake, `ontoolresult`, theme, auto-resize) and `SkybridgeHost` (ChatGPT, wraps `window.openai`). `createHost()` feature-detects `window.openai`.
+- **`src/widget/`** - A **native** inline widget that renders items *in the host sandbox* — no iframe. It is a **Claude-only** experience: `toolsForClient()` (in `tools.ts`) wires the MCP Apps resource onto each content tool's `_meta` (nested `ui.resourceUri` + legacy `ui/resourceUri`, mimeType `text/html;profile=mcp-app`) for Claude/MCP-Apps hosts, and **strips all widget metadata for OpenAI/ChatGPT hosts** (matched by `isOpenAIClient`). ChatGPT therefore renders the tool result's text summary plus its "Open in Graffiticode" link — the deliberate production baseline (its sandbox can't load our bundles). There is **no** `form_url` / token-bearing render URL, and no iframe.
+  - **`browser/host.ts`** — the one seam: `HostAdapter` interface with `ExtAppsHost` (Claude, wraps the ext-apps `App` class: `ui/initialize` handshake, `ontoolresult`, theme, auto-resize). A `SkybridgeHost` (`window.openai`) adapter is retained in the bundle for feature-detection via `createHost()`, but on production ChatGPT is never served the widget, so that path is not exercised.
   - **`browser/renderer.ts`** — the shared body: unwrap the tool result; for a natively-renderable language (see `languages.ts`) **dynamic-`import()` the per-language bundle from our own origin and `mount()` the component**; otherwise render a substantive content card (question list with correct answers marked / spec prose / data preview) with "Refine this item" (→ `update_item`, in-host) primary and an "Open in Graffiticode" secondary footer link.
   - **`languages.ts`** — the registry: which languages have a native bundle vs the fallback set (`L0158/L0176/L0177/L0170`).
   - **`scripts/build-widget.mjs`** bundles `browser/entry.ts` → `dist/widget/widget.bundle.js` (inlined into the HTML) and one ESM module per native language → `dist/widget/lang/<id>.mjs` (served over HTTP, React bundled in, uniform `mount(el,data)`/`styles` export). `browser/` is excluded from `tsc`.
@@ -86,7 +85,8 @@ This is a thin-router MCP server for Graffiticode. It provides a fixed set of la
 - **Conversation history.** `update_item` reads the item's `help` field (JSON array of prior user messages), builds a contextual prompt from the last 6 entries plus current `src`, calls `generateCode`, then appends a new entry and writes the updated array back. Iterative edits depend on this round-trip — don't drop the `help` write.
 - **Language ID normalization.** Clients may pass `L0166` or `0166`; handlers strip the leading `L` before calling the API, and responses re-add it.
 - **`create_item` flow.** Creates an empty item from the language template, then delegates to `handleUpdateItem` with the user's description — so template seeding and first-turn generation share one code path.
-- **Item view links.** The native widget renders from the tool result's `data` and needs no render URL. `view_url` (`${APP_URL}/form/<itemId>`, via `buildViewUrl`) is always set as the "Open in Graffiticode" secondary link; free-plan items also carry `claim_url`/`claim_message`. `buildFormUrl(auth, …)` + `render-token.ts` (the 5-min ES256 token exchange) are retained and still set `_meta.form_url` for authenticated items, but the native widget no longer consumes it — it's kept as a live-render escape hatch, not the render path.
+- **Item view links.** The native widget renders from the tool result's `data` and needs no render URL — there is no `form_url` and no token exchange. `view_url` (`${APP_URL}/form/<itemId>`, via `buildViewUrl`) is always set as the "Open in Graffiticode" secondary link; free-plan items also carry `claim_url`/`claim_message`.
+- **`render_item` vs `get_item`.** `render_item` is the preferred user-facing retrieval: it waits for completion and returns a **compact** result (`item_id`, `status`, `language`, `name`, summary) while isolating the language-private `src`/`data` needed to hydrate the Claude widget in `_meta.graffiticode` — hidden from the model transcript. `get_item` returns the raw `src`/`data`/metadata inline and is for programmatic clients only.
 
 ### MCP Tools (fixed set, language-agnostic)
 
@@ -94,7 +94,8 @@ This is a thin-router MCP server for Graffiticode. It provides a fixed set of la
 |------|---------|
 | `create_item(language, description)` | Create item in any language (async; returns `status: "generating"`) |
 | `update_item(item_id, modification)` | Update item (language auto-detected; async) |
-| `get_item(item_id)` | Retrieve item by ID (long-polls to completion) |
+| `render_item(item_id)` | Preferred user-facing retrieval — waits for completion, returns a compact result, hydrates the Claude widget (keeps `src`/`data` out of the transcript) |
+| `get_item(item_id)` | Retrieve RAW `src`/`data`/metadata for programmatic clients (long-polls to completion; prefer `render_item` for normal use) |
 | `get_spec(item_id)` | Platform-neutral English spec — the only sanctioned cross-language bridge |
 | `list_languages(domain?, search?)` | Discover available languages |
 | `get_language_info(language)` | Get language docs, examples, React usage |
@@ -117,7 +118,7 @@ places: `ABOUT_HTML`, `MCP_DISCOVERY`, and `README.md`.
 
 - `GRAFFITICODE_CONSOLE_URL` - Console GraphQL API endpoint (default: `https://console.graffiticode.org/api`). Note this ends in `/api`.
 - `GRAFFITICODE_CONSOLE_BASE_URL` - Console bare host used to build user-facing claim URLs (default: `https://console.graffiticode.org`).
-- `GRAFFITICODE_API_URL` - Graffiticode API host. Serves language templates and the token-authenticated `/form` render endpoint the inline widget embeds for signed-in users (default: `https://api.graffiticode.org`).
+- `GRAFFITICODE_API_URL` - Graffiticode API host. Serves language templates and backend code generation (default: `https://api.graffiticode.org`).
 - `GRAFFITICODE_APP_URL` - App host used to build user-facing item view links (`/form/<id>`) (default: `https://app.graffiticode.org`).
 - `GRAFFITICODE_AUTH_URL` - Auth endpoint (default: `https://auth.graffiticode.org`).
 - `GRAFFITICODE_SKILLS_REPO` - Public GitHub repo (`owner/name`) discovered at request time to serve agent skills as MCP resources (default: `graffiticode/graffiticode-skills`).

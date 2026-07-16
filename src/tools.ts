@@ -9,10 +9,8 @@ import {
   type AuthContext,
   CONSOLE_URL,
   APP_URL,
-  API_URL,
 } from "./api.js";
 import { mintClaimToken } from "./claim-token.js";
-import { getRenderAccessToken } from "./render-token.js";
 import { widgetResourceUris } from "./widget/index.js";
 
 // --- Help Entry Structure (matches console HelpPanel) ---
@@ -25,10 +23,11 @@ interface HelpEntry {
   taskId?: string;
 }
 
-function parseHelp(helpJson: string | null): HelpEntry[] {
+export function parseHelp(helpJson: string | null): HelpEntry[] {
   if (!helpJson) return [];
   try {
-    return JSON.parse(helpJson);
+    const parsed: unknown = JSON.parse(helpJson);
+    return Array.isArray(parsed) ? parsed as HelpEntry[] : [];
   } catch {
     return [];
   }
@@ -74,11 +73,60 @@ get_language_info returns an inline authoring_guide summary, supported_item_type
 
 Division of labor: the generator is the router — it identifies which languages a request needs and composes any pipeline. Your job is to send it the highest-quality description. Item ids are opaque handles. To reuse an existing item's content in a new request (any language), do NOT pass its id or get_item output (src/data) — those are private to that item's own language. Converge the content in its own language first, then call get_spec(item_id) to get a platform-neutral English description, and pass THAT (plus your intent framing) as the create_item description. Never name upstream languages or wire pipelines yourself; describe what you want and let the generator compose.
 
-Workflow: list_languages(search, domain) → get_language_info(language) → create_item(language, description) → get_item(item_id) → update_item(item_id, modification) → get_item(item_id) to iterate. To reuse content in a new request: get_spec(item_id) → create_item(language, spec + intent framing).
+Workflow: list_languages(search, domain) → get_language_info(language) → create_item(language, description) → render_item(item_id) → update_item(item_id, modification) → render_item(item_id) to iterate. render_item is the preferred user-facing retrieval tool: it keeps language-private code and compiled data out of the model transcript while still hydrating supported host widgets. Use get_item only when a caller explicitly needs the raw language-private src/data for programmatic work. To reuse content in a new request: get_spec(item_id) → create_item(language, spec + intent framing).
 
-create_item and update_item start generation and return immediately with status "generating"; always follow them with get_item(item_id) to retrieve the result. get_item waits for completion and returns status "ready" (with data), "failed" (with an error), or "generating" (call get_item again).`;
+create_item and update_item start generation and return immediately with status "generating"; normally follow them with render_item(item_id) to retrieve and display the result. render_item and get_item both wait for completion and return status "ready", "failed", or "generating" (call the same retrieval tool again).`;
 
 // --- Tool Definitions ---
+
+const nullableString = { type: ["string", "null"] } as const;
+
+const generationOutputSchema = {
+  type: "object",
+  properties: {
+    item_id: { type: "string" },
+    status: { const: "generating" },
+    operation: { enum: ["create", "update"] },
+    language: { type: "string" },
+    name: nullableString,
+    message: { type: "string" },
+  },
+  required: ["item_id", "status", "operation", "language", "name", "message"],
+  additionalProperties: false,
+} as const;
+
+const itemStatusProperties = {
+  item_id: { type: "string" },
+  status: { enum: ["ready", "generating", "failed"] },
+  language: { type: "string" },
+  name: nullableString,
+  message: { type: "string" },
+  error: { type: "string" },
+} as const;
+
+const renderItemOutputSchema = {
+  type: "object",
+  properties: itemStatusProperties,
+  required: ["item_id", "status", "language", "name"],
+  additionalProperties: false,
+} as const;
+
+const rawItemOutputSchema = {
+  type: "object",
+  properties: {
+    ...itemStatusProperties,
+    task_id: { type: "string" },
+    src: { type: "string" },
+    data: {},
+    created: { type: "string" },
+    updated: { type: "string" },
+    view_url: { type: "string" },
+    claim_url: { type: "string" },
+    claim_message: { type: "string" },
+  },
+  required: ["item_id", "status", "language", "name"],
+  additionalProperties: false,
+} as const;
 
 export const createItemTool = {
   name: "create_item",
@@ -88,7 +136,7 @@ Call list_languages() first to discover available languages, then pass the langu
 
 To reuse content from an existing item (any language) — e.g. "make this spreadsheet into a Learnosity question" — call get_spec(item_id) and use its returned text as this description, adding only your intent/target framing. Never paste another item's src/data or its id, and do not name upstream languages or wire a pipeline: just describe what you want and let the generator identify the languages and compose.
 
-Generation runs asynchronously: this returns immediately with an item_id and status "generating". Call get_item(item_id) to retrieve the result — get_item waits for completion and returns status "ready" with the data (or "failed").`,
+Generation runs asynchronously: this returns immediately with an item_id and status "generating". Call render_item(item_id) to retrieve and display the result.`,
   inputSchema: {
     type: "object",
     properties: {
@@ -107,6 +155,7 @@ Generation runs asynchronously: this returns immediately with an item_id and sta
     },
     required: ["language", "description"],
   },
+  outputSchema: generationOutputSchema,
   annotations: {
     title: "Create Item",
     readOnlyHint: false,
@@ -125,7 +174,7 @@ export const updateItemTool = {
 
 The language is auto-detected from the item. Conversation history is preserved, so you can make incremental changes: "add another concept", "change the theme to dark", "make the header row blue".
 
-Like create_item, generation runs asynchronously: this returns immediately with status "generating". Call get_item(item_id) to retrieve the updated result (it waits for completion).`,
+Like create_item, generation runs asynchronously: this returns immediately with status "generating". Call render_item(item_id) to retrieve and display the updated result.`,
   inputSchema: {
     type: "object",
     properties: {
@@ -140,6 +189,7 @@ Like create_item, generation runs asynchronously: this returns immediately with 
     },
     required: ["item_id", "modification"],
   },
+  outputSchema: generationOutputSchema,
   annotations: {
     title: "Update Item",
     readOnlyHint: false,
@@ -156,7 +206,7 @@ export const getItemTool = {
   name: "get_item",
   description: `Get an existing Graffiticode item by ID.
 
-Returns the item's data, code, and metadata. If the item is still being generated (after create_item/update_item), this waits for completion and returns it once ready. Response includes a status field: "ready" (data present), "generating" (call get_item again to keep waiting), or "failed" (with an error).
+Returns the item's raw data, code, and metadata for programmatic clients. Prefer render_item for normal user-facing retrieval because it keeps the language-private src/data out of the model transcript while still rendering supported widgets. If generation is still running, this waits for completion and returns status "ready", "generating", or "failed".
 
 The returned src and data are PRIVATE to this item's language — do not pass them to another language's create_item; to move this content to a different language, call get_spec(item_id) instead.`,
   inputSchema: {
@@ -169,6 +219,7 @@ The returned src and data are PRIVATE to this item's language — do not pass th
     },
     required: ["item_id"],
   },
+  outputSchema: rawItemOutputSchema,
   annotations: {
     title: "Get Item",
     readOnlyHint: true,
@@ -178,6 +229,33 @@ The returned src and data are PRIVATE to this item's language — do not pass th
   // Marks this tool as widget-bearing. The resource URIs and CSP are filled in
   // per-request by toolsForClient() — they're content-hashed at runtime and differ
   // by host, so they can't be static here.
+  _meta: { "openai/resultCanProduceWidget": true },
+} as const;
+
+export const renderItemTool = {
+  name: "render_item",
+  description: `Retrieve and display an existing Graffiticode item by ID.
+
+This is the preferred retrieval tool after create_item or update_item. It waits for generation to complete and returns compact status and identity fields; supported hosts receive the full language-private rendering payload separately as widget metadata, keeping source code, compiled data, and answer keys out of the model transcript.
+
+Use get_item only when the caller explicitly needs raw src/data for programmatic work.`,
+  inputSchema: {
+    type: "object",
+    properties: {
+      item_id: {
+        type: "string",
+        description: "The item ID to retrieve and display",
+      },
+    },
+    required: ["item_id"],
+  },
+  outputSchema: renderItemOutputSchema,
+  annotations: {
+    title: "Render Item",
+    readOnlyHint: true,
+    destructiveHint: false,
+    openWorldHint: false,
+  },
   _meta: { "openai/resultCanProduceWidget": true },
 } as const;
 
@@ -197,6 +275,16 @@ Item ids are opaque handles. Never pass an item id or get_item output (src/data)
       },
     },
     required: ["item_id"],
+  },
+  outputSchema: {
+    type: "object",
+    properties: {
+      item_id: { type: "string" },
+      language: { type: "string" },
+      spec: { type: "string" },
+    },
+    required: ["item_id", "language", "spec"],
+    additionalProperties: false,
   },
   annotations: {
     title: "Get Item Spec",
@@ -226,6 +314,28 @@ Read \`when_to_use\` before choosing: it states the conditions a language requir
       },
     },
   },
+  outputSchema: {
+    type: "object",
+    properties: {
+      languages: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            id: { type: "string" },
+            name: { type: "string" },
+            description: { type: "string" },
+            when_to_use: { type: "string" },
+            domains: { type: "array", items: { type: "string" } },
+          },
+          required: ["id", "name", "description", "domains"],
+          additionalProperties: false,
+        },
+      },
+    },
+    required: ["languages"],
+    additionalProperties: false,
+  },
   annotations: {
     title: "List Languages",
     readOnlyHint: true,
@@ -251,6 +361,36 @@ Call this after list_languages() to learn about a specific language before using
     },
     required: ["language"],
   },
+  outputSchema: {
+    type: "object",
+    properties: {
+      id: { type: "string" },
+      name: { type: "string" },
+      description: { type: "string" },
+      when_to_use: { type: "string" },
+      domains: { type: "array", items: { type: "string" } },
+      authoring_guide: nullableString,
+      supported_item_types: { type: "array", items: { type: "string" } },
+      not_for: { type: "array", items: { type: "string" } },
+      example_prompts: {
+        type: "array",
+        items: {
+          type: "object",
+          properties: {
+            prompt: { type: "string" },
+            produces: nullableString,
+            notes: nullableString,
+          },
+          required: ["prompt"],
+          additionalProperties: false,
+        },
+      },
+      user_guide_resource: { type: "string" },
+      spec_url: { type: "string" },
+    },
+    required: ["id", "name", "description", "domains", "authoring_guide", "supported_item_types", "not_for", "example_prompts", "user_guide_resource", "spec_url"],
+    additionalProperties: false,
+  },
   annotations: {
     title: "Get Language Info",
     readOnlyHint: true,
@@ -263,6 +403,7 @@ Call this after list_languages() to learn about a specific language before using
 export const tools = [
   createItemTool,
   updateItemTool,
+  renderItemTool,
   getItemTool,
   getSpecTool,
   listLanguagesTool,
@@ -311,38 +452,6 @@ export function toolsForClient(clientName?: string): Tool[] {
 
 export interface ToolContext {
   auth: AuthContext;
-}
-
-// Build the URL the inline widget embeds in its iframe to render the item.
-// Returned in tool-result `_meta` (widget-only, hidden from the model). The
-// API's /form endpoint renders by taskId and derives the language from the task
-// itself, so no `lang` query param is needed.
-//
-// - firebase items: embed an access_token the token-authenticated /form
-//   endpoint accepts. The api only validates JWTs, so we must NOT embed a raw
-//   API key (it's rejected → 404, and a long-lived key in a URL leaks into
-//   logs). For a raw-key bearer we exchange it for a short-lived (5-min) access
-//   token; an OAuth bearer is already a Firebase ID token and is used directly.
-// - free-plan items: the compiled task is created anonymously, so it carries a
-//   public ACL and /form renders it by taskId with no token. (Item-level
-//   session namespacing doesn't apply here — /form keys on the task, not the
-//   item.)
-async function buildFormUrl(
-  auth: AuthContext,
-  taskId: string | null
-): Promise<string | undefined> {
-  if (!taskId) return undefined;
-  const base = `${API_URL}/form?id=${encodeURIComponent(taskId)}`;
-  if (auth.type !== "firebase") return base;
-
-  let token: string | null = auth.token;
-  if (auth.source === "raw") {
-    token = await getRenderAccessToken(auth.token);
-    // Exchange failed — omit form_url rather than embed a rejected/leaky key.
-    // The widget then falls back to its "Open in Graffiticode" view link.
-    if (!token) return undefined;
-  }
-  return `${base}&access_token=${encodeURIComponent(token)}`;
 }
 
 // The app's view page for an item, opened in a full browser tab (where a
@@ -551,9 +660,10 @@ function isErrorDataPayload(data: unknown): boolean {
 // under the client tool-call timeout; the server.ts heartbeat keeps the stream
 // warm) and returns the moment the item is ready/failed. A single create_item
 // followed by get_item therefore completes without ever holding a 60-110s call.
-export async function handleGetItem(
+async function handleItemResult(
   ctx: ToolContext,
-  args: { item_id: string }
+  args: { item_id: string },
+  mode: "raw" | "render"
 ): Promise<unknown> {
   const { item_id } = args;
   const deadline = Date.now() + GET_ITEM_POLL_DEADLINE_MS;
@@ -634,31 +744,54 @@ export async function handleGetItem(
       };
     }
 
-    const response: Record<string, unknown> = {
+    const compact: Record<string, unknown> = {
       item_id: item.id,
-      task_id: item.taskId,
       status: "ready",
       language: `L${item.lang}`,
       name: item.name,
+    };
+    const hydration: Record<string, unknown> = {
+      task_id: item.taskId,
       src: item.task.src,
       data,
       created: item.created,
       updated: item.updated,
     };
-    await applyViewAndClaim(response, ctx.auth, item.id);
-    const formUrl = await buildFormUrl(ctx.auth, item.taskId);
-    if (formUrl) response._meta = { form_url: formUrl };
+    await applyViewAndClaim(hydration, ctx.auth, item.id);
     // Chat-facing summary for clients that render text rather than the widget
-    // (e.g. Codex). Surfaces the form-view link instead of dumping the full
-    // JSON (src + data). Widget hosts ignore this and render the iframe.
-    response.summary = buildReadySummary(
+    // (e.g. Codex). Surfaces the form-view link instead of dumping language-
+    // private source/data. Widget hosts ignore this and render from hydration.
+    const summary = buildReadySummary(
       item.name,
       `L${item.lang}`,
-      response.view_url as string,
-      response.claim_message as string | undefined
+      hydration.view_url as string,
+      hydration.claim_message as string | undefined
     );
-    return response;
+    if (mode === "render") {
+      return {
+        ...compact,
+        summary,
+        _meta: { graffiticode: hydration },
+      };
+    }
+    return { ...compact, ...hydration, summary };
   }
+}
+
+/** Backward-compatible programmatic retrieval, including raw src/data. */
+export async function handleGetItem(
+  ctx: ToolContext,
+  args: { item_id: string }
+): Promise<unknown> {
+  return handleItemResult(ctx, args, "raw");
+}
+
+/** Preferred user-facing retrieval with widget hydration isolated in `_meta`. */
+export async function handleRenderItem(
+  ctx: ToolContext,
+  args: { item_id: string }
+): Promise<unknown> {
+  return handleItemResult(ctx, args, "render");
 }
 
 export async function handleGetSpec(
@@ -745,6 +878,8 @@ export async function handleToolCall(
       return handleCreateItem(ctx, args as { language: string; description: string; name?: string });
     case "update_item":
       return handleUpdateItem(ctx, args as { item_id: string; modification: string });
+    case "render_item":
+      return handleRenderItem(ctx, args as { item_id: string });
     case "get_item":
       return handleGetItem(ctx, args as { item_id: string });
     case "get_spec":

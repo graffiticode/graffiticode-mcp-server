@@ -7,6 +7,9 @@
   "scripts": {
     "build": "tsc && node scripts/build-widget.mjs",
     "build:widget": "node scripts/build-widget.mjs",
+    "typecheck": "tsc --noEmit",
+    "typecheck:widget": "tsc -p tsconfig.widget.json",
+    "test": "npm run build && npm run typecheck:widget && tsx --test tests/*.test.ts",
     "clean": "rimraf dist",
     "eval:routing": "npx tsx scripts/eval-routing.ts",
     "start": "node dist/server.js",

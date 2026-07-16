@@ -4,8 +4,7 @@
 
 const CONSOLE_API_URL = process.env.GRAFFITICODE_CONSOLE_URL || "https://console.graffiticode.org/api";
 
-// Graffiticode API host. Serves language templates and the `/form` render
-// endpoint embedded by the inline widgets (token-authenticated).
+// Graffiticode API host. Serves language templates.
 export const API_URL = process.env.GRAFFITICODE_API_URL || "https://api.graffiticode.org";
 
 // Bare-host URLs used to construct user-facing links (claim_url, view_url)
@@ -17,8 +16,7 @@ export const APP_URL = process.env.GRAFFITICODE_APP_URL || "https://app.graffiti
 export type AuthContext =
   // `source` records how the bearer was resolved (see server.ts resolveBearer):
   // "oauth" — already a Firebase ID token; "raw" — the caller's raw Graffiticode
-  // API key (forwarded verbatim to the console, which exchanges it). It governs
-  // how buildFormUrl mints the token embedded in the render URL.
+  // API key (forwarded verbatim to the console, which exchanges it).
   | { type: "firebase"; token: string; source?: "oauth" | "raw" }
   | { type: "freePlan"; sessionId: string };
 

@@ -1,10 +1,11 @@
 /**
- * The shared widget HTML — one document for both hosts.
+ * The Claude MCP Apps widget HTML.
  *
  * The interactive logic is `browser/entry.ts`, bundled to a single IIFE by
  * scripts/build-widget.mjs and inlined here. The bundle picks the host adapter at
- * runtime, so the same HTML serves Claude (MCP Apps) and ChatGPT (Skybridge); the
- * two resources differ only in mimeType and CSP, set in the resource envelope.
+ * runtime. The Skybridge adapter remains in the browser seam for the separate
+ * ChatGPT experiment, but production resource routing only serves this document
+ * to MCP Apps hosts.
  *
  * `__MCP_ORIGIN__` (bundle origin, must match the CSP resourceDomains) and
  * `__NATIVE__` (languages with a native bundle) are injected here.
@@ -12,20 +13,33 @@
 import { readFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 import { createHash } from "node:crypto";
+import { join } from "node:path";
 import { NATIVE_LANGUAGES } from "./languages.js";
 
-const BUNDLE_URL = new URL("./widget.bundle.js", import.meta.url);
+// esbuild always writes the bundle to dist/widget/. In production this module is
+// itself in dist/widget/, so the module-relative path resolves directly. Under the
+// test runner (tsx compiles from src/) the module lives in src/widget/, so we also
+// try the built copy under the project root's dist/.
+const BUNDLE_CANDIDATES = [
+  fileURLToPath(new URL("./widget.bundle.js", import.meta.url)),
+  join(process.cwd(), "dist/widget/widget.bundle.js"),
+];
 
 let cachedScript: string | null = null;
 
 function loadBundle(): string {
   if (cachedScript === null) {
-    try {
-      cachedScript = readFileSync(fileURLToPath(BUNDLE_URL), "utf8");
-    } catch (err) {
-      const message = err instanceof Error ? err.message : String(err);
+    for (const path of BUNDLE_CANDIDATES) {
+      try {
+        cachedScript = readFileSync(path, "utf8");
+        break;
+      } catch {
+        /* try the next candidate */
+      }
+    }
+    if (cachedScript === null) {
       throw new Error(
-        `Widget bundle not found at ${BUNDLE_URL.href}. Run "npm run build". (${message})`
+        `Widget bundle not found (looked in ${BUNDLE_CANDIDATES.join(", ")}). Run "npm run build".`
       );
     }
   }
@@ -45,7 +59,12 @@ const STYLES = `
   .card-text { margin-top: 6px; font-size: 14px; color: #6b7280; }
   body.dark .card-text { color: #9ca3af; }
   .card-body { margin-top: 12px; }
-  .card-actions { margin-top: 18px; }
+  .native-content { min-width: 0; }
+  .refine-form { display: flex; gap: 8px; margin-top: 18px; }
+  .refine-input { min-width: 0; flex: 1; font: inherit; padding: 9px 10px; border: 1px solid #d1d5db;
+    border-radius: 8px; color: inherit; background: #fff; }
+  .refine-input:focus { outline: 2px solid #93c5fd; outline-offset: 1px; }
+  body.dark .refine-input { background: #0b1220; border-color: #4b5563; }
   .card-pre { margin-top: 10px; padding: 10px; font-size: 12px; white-space: pre-wrap; overflow-x: auto;
     background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; max-height: 320px; overflow-y: auto; }
   body.dark .card-pre { background: #0b1220; border-color: #374151; }
@@ -90,74 +109,4 @@ export function generateWidgetHtml(origin: string): string {
  * the host is forced to re-read instead of replaying a stale build. */
 export function widgetContentHash(origin: string): string {
   return createHash("sha256").update(generateWidgetHtml(origin)).digest("hex").slice(0, 8);
-}
-
-/**
- * The ChatGPT (Skybridge) card — a tiny, SELF-CONTAINED template.
- *
- * ChatGPT's sandbox can't load the native widget: its Skybridge template-fetch
- * rejects our large template (the "Failed to fetch template" error on web), and its
- * script-src blocks loading our component bundles from our origin. So on ChatGPT we
- * don't attempt native rendering — we show a substantive card (item name + status)
- * with an "Open in Graffiticode" link to the full interactive item. No external
- * scripts, no bundle: small enough to always fetch, and CSP-proof. Claude keeps the
- * full native widget (separate resource).
- */
-export function generateChatgptCardHtml(): string {
-  return `<!DOCTYPE html>
-<html>
-<head>
-  <meta charset="utf-8">
-  <meta name="viewport" content="width=device-width, initial-scale=1">
-  <style>${STYLES}</style>
-</head>
-<body>
-  <div id="content" class="loading">Loading…</div>
-  <script>
-  (function () {
-    var root = document.getElementById("content");
-    function h(px) { try { if (window.openai && window.openai.notifyIntrinsicHeight) window.openai.notifyIntrinsicHeight(px); } catch (e) {} }
-    function esc(s) { var d = document.createElement("div"); d.textContent = s == null ? "" : String(s); return d.innerHTML; }
-    var tries = 0;
-    function render() {
-      var o = window.openai;
-      var out = o && (o.toolOutput || o.props);
-      if (!out || !Object.keys(out).length) {
-        if (++tries < 120) return setTimeout(render, 500);
-      }
-      var sc = (out && (out.structuredContent || out)) || {};
-      if (o && o.theme === "dark") document.body.classList.add("dark");
-      var status = sc.status;
-      var name = sc.name || "Your item";
-      var claim = sc.claim_url, view = sc.view_url;
-      var link = claim || view;
-      var html;
-      if (status === "generating") {
-        html = '<div class="card"><div class="card-title">Generating…</div>' +
-               '<div class="card-text">' + esc(sc.operation === "update" ? "Your item is being updated." : "Your item is being created.") + '</div></div>';
-      } else if (status === "failed") {
-        html = '<div class="card"><div class="card-title">Generation failed</div>' +
-               '<div class="card-text">' + esc(sc.error || "Something went wrong.") + '</div></div>';
-      } else {
-        html = '<div class="card"><div class="card-title">' + esc(name) + '</div>' +
-               '<div class="card-text">Your ' + esc((sc.language || "item")) + ' item is ready. Open it in Graffiticode to view and edit it interactively.</div>';
-        if (link) {
-          html += '<div class="card-actions"><button class="btn" id="gc-open">' + (claim ? "Sign in to view &amp; save" : "Open in Graffiticode") + '</button></div>';
-        }
-        html += '</div>';
-      }
-      root.className = "";
-      root.innerHTML = html;
-      var btn = document.getElementById("gc-open");
-      if (btn && link) btn.addEventListener("click", function () {
-        try { if (window.openai && window.openai.openExternal) return window.openai.openExternal({ href: link }); } catch (e) {}
-        window.open(link, "_blank", "noopener");
-      });
-      h(document.body.scrollHeight + 24);
-    }
-    render();
-  })();
-  </script>
-</body>
-</html>`;
 }

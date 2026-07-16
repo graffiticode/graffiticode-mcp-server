@@ -10,7 +10,7 @@ The server is operated by Artcompiler.
 
 ## How It Works
 
-The Graffiticode MCP server is a **thin router**. It exposes six language-agnostic tools that route your natural language requests to language-specific backends. Each backend has deep knowledge of its language's domain and translates your descriptions into working programs.
+The Graffiticode MCP server is a **thin router**. It exposes seven language-agnostic tools that route your natural language requests to language-specific backends. Each backend has deep knowledge of its language's domain and translates your descriptions into working programs.
 
 ```
 ┌──────────────────────────────────────────────────────────┐
@@ -21,8 +21,8 @@ The Graffiticode MCP server is a **thin router**. It exposes six language-agnost
                            ▼
 ┌──────────────────────────────────────────────────────────┐
 │  Graffiticode MCP Server (thin router)                   │
-│  Tools: create_item, update_item, get_item, get_spec,    │
-│         list_languages, get_language_info                │
+│  Tools: create_item, update_item, render_item, get_item, │
+│         get_spec, list_languages, get_language_info      │
 └──────────────────────────┬───────────────────────────────┘
                            │
                            ▼
@@ -37,12 +37,12 @@ The workflow is the same regardless of language:
 1. **Discover** — Call `list_languages` to see what's available.
 2. **Learn** — Call `get_language_info` for details about a specific language.
 3. **Create** — Call `create_item` with a language ID and a natural language description.
-4. **Retrieve** — Call `get_item` to fetch the finished item.
-5. **Iterate** — Call `update_item` with a natural language description of what to change.
+4. **Retrieve** — Call `render_item` to display the finished item. (`get_item` returns raw source and data for programmatic use.)
+5. **Iterate** — Call `update_item` with a natural language description of what to change, then `render_item` again.
 
 ### Generation is asynchronous
 
-`create_item` and `update_item` return **immediately** with an `item_id` and `status: "generating"`. Generation typically takes 60–110 seconds. Call `get_item` to wait for the result — it long-polls until the item is `ready` (or `failed`), so you don't need to write your own retry loop.
+`create_item` and `update_item` return **immediately** with an `item_id` and `status: "generating"`. Generation typically takes 60–110 seconds. Call `render_item` (or `get_item` for raw data) to wait for the result — it long-polls until the item is `ready` (or `failed`), so you don't need to write your own retry loop.
 
 ---
 
@@ -136,7 +136,7 @@ Create a new item in any Graffiticode language. Describe what you want in natura
 | `description` | string | Yes | Natural language description of what to create. |
 | `name` | string | No | A friendly name for the item. |
 
-**Returns** an `item_id` and `status: "generating"`. Call `get_item` to await the result.
+**Returns** an `item_id` and `status: "generating"`. Call `render_item` to await and display the result.
 
 **What makes a good description?** Be specific. Include domain-relevant details, and describe the *end result* you want rather than implementation details. The language-specific AI understands domain terminology.
 
@@ -155,9 +155,21 @@ The server maintains conversation history per item, so the language AI has conte
 
 ---
 
+### render_item
+
+Retrieve an item and display it, waiting for generation to finish. This is the **preferred user-facing retrieval tool** — call it after `create_item` or `update_item`.
+
+| Name | Type | Required | Description |
+|------|------|----------|-------------|
+| `item_id` | string | Yes | The item ID to render. |
+
+Long-polls until the item is `ready` or `failed`, then returns a **compact** result (`item_id`, `status`, `language`, `name`, and a short summary). The language-private `src` and `data` are kept out of the model transcript while still hydrating the interactive widget in Claude.
+
+---
+
 ### get_item
 
-Retrieve an item by its ID, waiting for generation to finish.
+Retrieve an item's raw `src`, `data`, and metadata by its ID. Intended for **programmatic clients**; for normal use prefer `render_item`.
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
@@ -189,7 +201,7 @@ Beyond tools, the server exposes MCP resources:
 |---|---|---|
 | Language user guide | `graffiticode://language/{id}/user-guide` | The full authoring reference for a language (markdown). |
 | Agent skills | `graffiticode://skills/<id>` | Task-oriented skills for agents, discovered at request time from the public [graffiticode-skills](https://github.com/graffiticode/graffiticode-skills) repo — new skills appear without a redeploy. |
-| Widgets | `ui://graffiticode/claude-form-widget.html`, `ui://graffiticode/form-widget.html` | Inline-render templates for MCP Apps (Claude) and the Apps SDK (ChatGPT). |
+| Widget | `ui://graffiticode/claude-form-widget.html` | The MCP Apps widget that renders items inline in Claude. ChatGPT gets no widget — it shows the tool result's text summary and an "Open in Graffiticode" link. |
 
 ---
 
@@ -209,7 +221,7 @@ list_languages(domain: "sheets")          # by domain
 
 ## Rendering Items in Your Application
 
-When using the MCP server with Claude or ChatGPT, items render automatically as interactive widgets directly in the chat interface — no setup needed.
+In **Claude** (web and desktop), items render inline as interactive widgets directly in the chat interface — no setup needed. In **ChatGPT** the result is shown as a text summary with an "Open in Graffiticode" link.
 
 To embed items in your own application, every Graffiticode language has a corresponding React component published on npm as `@graffiticode/<language-id>`. Tool responses include a `react_usage` field with installation instructions, a code example, and troubleshooting tips specific to that language.
 
@@ -249,7 +261,7 @@ npm start          # Streamable HTTP server on PORT (default 3001)
 | `MCP_SERVER_URL` | `https://mcp.graffiticode.org` | Public URL, used for OAuth metadata and discovery |
 | `GRAFFITICODE_CONSOLE_URL` | `https://console.graffiticode.org/api` | Console GraphQL endpoint (note the `/api` suffix) |
 | `GRAFFITICODE_CONSOLE_BASE_URL` | `https://console.graffiticode.org` | Console host, used to build claim URLs |
-| `GRAFFITICODE_API_URL` | `https://api.graffiticode.org` | API host: language templates and the `/form` render endpoint |
+| `GRAFFITICODE_API_URL` | `https://api.graffiticode.org` | API host: language templates and code generation |
 | `GRAFFITICODE_APP_URL` | `https://app.graffiticode.org` | App host, used to build item view links |
 | `GRAFFITICODE_AUTH_URL` | `https://auth.graffiticode.org` | Auth endpoint |
 | `GRAFFITICODE_SKILLS_REPO` | `graffiticode/graffiticode-skills` | Public GitHub repo serving agent skills |

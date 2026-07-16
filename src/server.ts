@@ -38,15 +38,15 @@ import { createHash } from "crypto";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { tools, handleToolCall, SERVER_INSTRUCTIONS, toolsForClient, isOpenAIClient } from "./tools.js";
+import { formatToolResult } from "./tool-result.js";
 import type { AuthContext } from "./api.js";
 import { identify, logConnect, logToolCall, type EventOutcome, type SessionMeta } from "./events.js";
 import { EXTENSION_ID, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import {
   generateWidgetHtml,
-  generateChatgptCardHtml,
   widgetResourceUris,
+  matchWidgetUri,
   widgetCsp,
-  WIDGET_MIME_TYPE,
   CLAUDE_WIDGET_MIME_TYPE,
 } from "./widget/index.js";
 import { normalizeLanguageId, isNativeLanguage } from "./widget/languages.js";
@@ -105,7 +105,7 @@ const PRIVACY_HTML = `<!DOCTYPE html>
 </ul>
 
 <h3>Content You Create</h3>
-<p>When you use the Service&rsquo;s content tools (<code>create_item</code>, <code>update_item</code>, <code>get_item</code>, <code>get_spec</code>), the natural language descriptions you provide and the items you create are sent to the Graffiticode platform and stored there. This includes:</p>
+<p>When you use the Service&rsquo;s content tools (<code>create_item</code>, <code>update_item</code>, <code>render_item</code>, <code>get_item</code>, <code>get_spec</code>), the natural language descriptions you provide and the items you create are sent to the Graffiticode platform and stored there. This includes:</p>
 <ul>
   <li>Natural language descriptions and modification requests</li>
   <li>Generated code and compiled output data</li>
@@ -310,11 +310,12 @@ const ABOUT_HTML = `<!DOCTYPE html>
   <li><code>get_language_info</code> &mdash; fetch a language&rsquo;s authoring guide, supported item types, and example prompts.</li>
   <li><code>create_item</code> &mdash; create a new item in a chosen language from a natural-language description.</li>
   <li><code>update_item</code> &mdash; iteratively edit an existing item. Conversation history is preserved per item.</li>
-  <li><code>get_item</code> &mdash; retrieve an item by id.</li>
+  <li><code>render_item</code> &mdash; preferred way to retrieve and display a finished item; returns a compact result and renders it inline in Claude.</li>
+  <li><code>get_item</code> &mdash; retrieve an item&rsquo;s raw code and data by id (for programmatic clients).</li>
   <li><code>get_spec</code> &mdash; get a platform-neutral English description of an item&rsquo;s content.</li>
 </ul>
 <p>All <code>create_item</code> and <code>update_item</code> requests are natural language &mdash; a language-specific backend handles code generation. Clients should not attempt to write Graffiticode DSL directly.</p>
-<p>Generation takes time, so <code>create_item</code> and <code>update_item</code> return immediately with a status of <code>generating</code>; call <code>get_item</code> to wait for the finished result.</p>
+<p>Generation takes time, so <code>create_item</code> and <code>update_item</code> return immediately with a status of <code>generating</code>; call <code>render_item</code> to wait for and display the finished result.</p>
 <p>An item&rsquo;s <code>src</code> and <code>data</code> are private to its own language. To reuse one item&rsquo;s content in another language, call <code>get_spec</code> and pass the spec to <code>create_item</code> &mdash; never pass a raw item id or its code across languages.</p>
 
 <h2>Resources</h2>
@@ -322,7 +323,7 @@ const ABOUT_HTML = `<!DOCTYPE html>
 <ul>
   <li><strong>Language user guides</strong> &mdash; <code>graffiticode://language/{id}/user-guide</code>, the full authoring reference for a language.</li>
   <li><strong>Agent skills</strong> &mdash; <code>graffiticode://skills/&lt;id&gt;</code>, discovered at request time from the public <a href="https://github.com/graffiticode/graffiticode-skills">graffiticode-skills</a> repo, so new skills appear without a redeploy.</li>
-  <li><strong>Inline widgets</strong> &mdash; items render as interactive widgets directly in the chat, both in Claude (MCP Apps) and in ChatGPT (Apps SDK).</li>
+  <li><strong>Inline widget</strong> &mdash; in Claude (MCP Apps), items render as interactive widgets directly in the chat. In ChatGPT the result is shown as a text summary with an &ldquo;Open in Graffiticode&rdquo; link.</li>
 </ul>
 
 <h2>When to reach for it</h2>
@@ -381,7 +382,7 @@ const MCP_DISCOVERY = {
   site: MCP_SERVER_URL,
   description:
     "Graffiticode is a universal MCP server of smart tools for AI agents and the people who use them. Each tool is one domain language wrapped by a specialized AI; call list_languages to discover what is available.",
-  tools: ["create_item", "update_item", "get_item", "get_spec", "list_languages", "get_language_info"],
+  tools: ["create_item", "update_item", "get_item", "render_item", "get_spec", "list_languages", "get_language_info"],
   product_url: "https://graffiticode.org",
   console_url: "https://console.graffiticode.org",
   forum_url: "https://forum.graffiticode.org",
@@ -546,34 +547,7 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
         meta: sessionMeta,
       });
 
-      // Extract _meta (widget-only data) and the chat-facing `summary` from the
-      // result. `summary`, when present, is a concise link-forward string used
-      // as the text content for clients that render text instead of the widget
-      // iframe (e.g. Codex). It's kept out of structuredContent so the
-      // programmatic shape stays clean.
-      const { _meta, summary, ...structuredContent } = result;
-
-      // Build response with structuredContent for ChatGPT Apps SDK and content
-      // as a summary (when provided) or the full JSON for Claude and other MCP
-      // clients. Widget hosts render the iframe and ignore this text.
-      const response: Record<string, unknown> = {
-        structuredContent,
-        content: [
-          {
-            type: "text",
-            text: typeof summary === "string"
-              ? summary
-              : JSON.stringify(structuredContent, null, 2),
-          },
-        ],
-      };
-
-      // Add _meta at response level for widget access
-      if (_meta) {
-        response._meta = _meta;
-      }
-
-      return response;
+      return formatToolResult(result);
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (identity) {
@@ -603,24 +577,17 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
     }
   });
 
-  // List available resources (widgets for ChatGPT and Claude, plus skills
+  // List available resources (the Claude MCP App widget, plus skills
   // discovered at request time from the public graffiticode-skills repo).
   server.setRequestHandler(ListResourcesRequestSchema, async () => {
     const uris = widgetResourceUris();
     const csp = widgetCsp();
     const resources: Array<Record<string, unknown>> = [
       {
-        uri: uris.openai,
-        name: "Graffiticode Form Widget",
-        mimeType: WIDGET_MIME_TYPE,
-        description: "Interactive item widget for ChatGPT",
-        _meta: { ui: { csp: csp.camel }, "openai/widgetCSP": csp.snake },
-      },
-      {
         uri: uris.mcp,
-        name: "Graffiticode Form Widget (Claude)",
+        name: "Graffiticode Form Widget",
         mimeType: CLAUDE_WIDGET_MIME_TYPE,
-        description: "Interactive item widget for Claude",
+        description: "Interactive item widget for MCP Apps hosts such as Claude",
         _meta: { ui: { csp: csp.camel } },
       },
     ];
@@ -646,25 +613,26 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
   server.setRequestHandler(ReadResourceRequestSchema, async (request) => {
     const { uri } = request.params;
 
-    const widgetUris = widgetResourceUris();
-    if (uri === widgetUris.openai || uri === widgetUris.mcp) {
+    const widgetKind = matchWidgetUri(uri);
+    if (widgetKind === "mcp") {
       const csp = widgetCsp();
-      const isOpenAI = uri === widgetUris.openai;
-      // ChatGPT gets the small self-contained link card (its sandbox can't fetch the
-      // large native template or load our bundles); Claude gets the full native widget.
       return {
         contents: [
           {
             uri,
-            mimeType: isOpenAI ? WIDGET_MIME_TYPE : CLAUDE_WIDGET_MIME_TYPE,
-            text: isOpenAI ? generateChatgptCardHtml() : generateWidgetHtml(MCP_SERVER_URL),
-            // The card is self-contained (no external loads), so it needs no CSP domains.
-            _meta: isOpenAI
-              ? { ui: { csp: {} }, "openai/widgetCSP": {} }
-              : { ui: { csp: csp.camel } },
+            mimeType: CLAUDE_WIDGET_MIME_TYPE,
+            text: generateWidgetHtml(MCP_SERVER_URL),
+            _meta: { ui: { csp: csp.camel } },
           },
         ],
       };
+    }
+
+    // Retired ChatGPT card pointers are intentionally not served. ChatGPT's
+    // production contract has no widget; a reconnect/metadata refresh clears
+    // stale pointers without reintroducing the broken template path.
+    if (widgetKind === "openai") {
+      throw new Error(`Resource retired: ${uri}`);
     }
 
     const skillId = matchSkillUri(uri);
