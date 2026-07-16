@@ -156,6 +156,12 @@ Generation runs asynchronously: this returns immediately with an item_id and sta
     required: ["language", "description"],
   },
   outputSchema: generationOutputSchema,
+  // Annotations locked for the OpenAI submission (a change forces resubmission):
+  //  - readOnlyHint: false — it creates an item.
+  //  - destructiveHint: false — creation destroys nothing.
+  //  - openWorldHint: true — the created item's view_url is publicly viewable
+  //    (a logged-out visitor can open the "Open in Graffiticode" link), so this
+  //    changes publicly-visible internet state.
   annotations: {
     title: "Create Item",
     readOnlyHint: false,
@@ -171,6 +177,8 @@ Generation runs asynchronously: this returns immediately with an item_id and sta
 export const updateItemTool = {
   name: "update_item",
   description: `Modify an existing Graffiticode item by describing what to change in natural language.
+
+This replaces the item's current content in place — the previous version cannot be restored through the assistant, so treat each update as an overwrite.
 
 The language is auto-detected from the item. Conversation history is preserved, so you can make incremental changes: "add another concept", "change the theme to dark", "make the header row blue".
 
@@ -190,10 +198,20 @@ Like create_item, generation runs asynchronously: this returns immediately with 
     required: ["item_id", "modification"],
   },
   outputSchema: generationOutputSchema,
+  // Annotations locked for the OpenAI submission (a change forces resubmission):
+  //  - readOnlyHint: false — it modifies an item.
+  //  - destructiveHint: TRUE — update_item overwrites the current item's src/data in
+  //    place. Platform revert exists but is NOT exposed through MCP, and the common
+  //    ChatGPT flow is anonymous, so a user cannot PRACTICALLY restore the prior
+  //    content through this surface. Marking destructive is the accurate, low-risk
+  //    choice (annotation mismatch is a documented rejection reason; a destructive
+  //    tool is acceptable, at most adding confirmation friction). Flip to false in a
+  //    reviewed update once revert is surfaced via MCP (see post-submission follow-up).
+  //  - openWorldHint: true — same public-view_url reasoning as create_item.
   annotations: {
     title: "Update Item",
     readOnlyHint: false,
-    destructiveHint: false,
+    destructiveHint: true,
     openWorldHint: true,
   },
   // NO widget (same reason as create_item): the "generating" result can't update
@@ -397,7 +415,27 @@ Call this after list_languages() to learn about a specific language before using
   },
 } as const;
 
-// Export all tools as array (cast to allow _meta extension for ChatGPT Apps SDK)
+// Every tool works both anonymously (free-plan session) and authenticated (OAuth
+// account), so each advertises optional auth. OpenAI's Scan Tools reads this to know
+// no tool strictly requires linking; the `_meta.securitySchemes` mirror is the
+// compatibility form (Apps SDK reference) alongside the top-level field.
+export const OPTIONAL_AUTH_SECURITY_SCHEMES = [
+  { type: "noauth" },
+  { type: "oauth2", scopes: ["graffiticode"] },
+] as const;
+
+// Attach the security schemes to every tool descriptor (top-level + _meta mirror),
+// preserving any existing _meta (e.g. the widget marker on get_item/render_item).
+function withSecuritySchemes(tool: Record<string, unknown>): Record<string, unknown> {
+  const meta = (tool._meta as Record<string, unknown>) ?? {};
+  return {
+    ...tool,
+    securitySchemes: OPTIONAL_AUTH_SECURITY_SCHEMES,
+    _meta: { ...meta, securitySchemes: OPTIONAL_AUTH_SECURITY_SCHEMES },
+  };
+}
+
+// Export all tools as array (cast to allow _meta + securitySchemes extensions).
 export const tools = [
   createItemTool,
   updateItemTool,
@@ -406,7 +444,7 @@ export const tools = [
   getSpecTool,
   listLanguagesTool,
   getLanguageInfoTool,
-] as unknown as Tool[];
+].map((t) => withSecuritySchemes(t as Record<string, unknown>)) as unknown as Tool[];
 
 /**
  * Whether to serve the native MCP Apps widget to this client.
@@ -429,29 +467,45 @@ export function isOpenAIClient(clientName?: string): boolean {
   return !!clientName && /openai|chatgpt|codex/i.test(clientName);
 }
 
+// _meta keys that carry widget/UI descriptor data. Only these are host-gated; every
+// other _meta key (notably `securitySchemes`) is kept for all clients.
+function isWidgetMetaKey(key: string): boolean {
+  return key === "ui" || key.startsWith("ui/") || key.startsWith("openai/");
+}
+
+function stripWidgetMeta(meta: Record<string, unknown>): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(meta)) {
+    if (!isWidgetMetaKey(k)) out[k] = v;
+  }
+  return out;
+}
+
 // Per-host widget wiring. Only verified MCP Apps hosts (Claude) get the native
-// widget; everyone else (incl. all ChatGPT/OpenAI surfaces) gets no widget metadata
-// at all and renders the tool result's text summary + "Open in Graffiticode" link.
-// The widget resource URI is content-hashed (the host caches by URI) and computed at
-// runtime, so it's injected here rather than baked into the static _meta.
+// widget; everyone else (incl. all ChatGPT/OpenAI surfaces) gets no widget/UI
+// descriptor metadata and renders the tool result's text summary + "Open in
+// Graffiticode" link. Non-widget `_meta` — `securitySchemes` — is preserved for ALL
+// clients. The widget resource URI is content-hashed (the host caches by URI) and
+// computed at runtime, so it's injected here rather than baked into the static _meta.
 export function toolsForClient(clientName?: string): Tool[] {
   const widgetHost = isWidgetHost(clientName);
   const uiUri = widgetResourceUris().mcp;
   return tools.map((t) => {
-    const meta = (t as { _meta?: Record<string, unknown> })._meta;
-    if (!meta || !("openai/resultCanProduceWidget" in meta)) return t;
-    // Non-widget hosts (ChatGPT/OpenAI/unknown): strip ALL widget metadata — no
-    // ui.resourceUri, no outputTemplate, no resultCanProduceWidget hint.
+    const rec = t as Record<string, unknown>;
+    const meta = (rec._meta as Record<string, unknown>) ?? {};
+    // Not widget-bearing (no openai marker): leave untouched — keeps securitySchemes.
+    if (!("openai/resultCanProduceWidget" in meta)) return t;
+    // stripWidgetMeta drops the openai marker + any ui.* keys, keeping securitySchemes.
+    const base = stripWidgetMeta(meta);
     if (!widgetHost) {
-      const rest = { ...(t as Record<string, unknown>) };
-      delete rest._meta;
-      return rest as Tool;
+      // ChatGPT/OpenAI/unknown: no widget/UI descriptor metadata, securitySchemes kept.
+      return { ...rec, _meta: base } as unknown as Tool;
     }
-    // Claude: point at the native MCP-Apps widget (drop the openai-only marker).
+    // Claude: preserve securitySchemes and point at the native MCP-Apps widget.
     return {
-      ...t,
-      _meta: { ui: { resourceUri: uiUri }, "ui/resourceUri": uiUri },
-    } as Tool;
+      ...rec,
+      _meta: { ...base, ui: { resourceUri: uiUri }, "ui/resourceUri": uiUri },
+    } as unknown as Tool;
   });
 }
 

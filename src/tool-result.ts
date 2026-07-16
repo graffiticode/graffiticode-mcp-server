@@ -5,15 +5,23 @@
  * copied into structuredContent. Keeping this seam pure makes the privacy and
  * response-shape contract easy to test without starting the HTTP server.
  *
- * `omitMeta` drops `_meta` entirely: `_meta.graffiticode` carries widget hydration
- * (src, compiled data, claim fields), which is useless to a host that renders no
- * widget. Pass it for OpenAI/ChatGPT clients so that hydration payload never leaves
- * the server for a surface that can't use it (data minimization — the model
- * transcript is already compact either way, since `_meta` is host-facing).
+ * `stripHydration` drops ONLY the widget-hydration payload from `_meta` — the
+ * `graffiticode` key (src, compiled data, claim fields), which is useless to a host
+ * that renders no widget. It is passed for OpenAI/ChatGPT clients so that payload
+ * never leaves the server for a surface that can't use it (data minimization — the
+ * model transcript is already compact either way, since `_meta` is host-facing).
+ *
+ * Crucially it does NOT strip authorization-control metadata: an
+ * `_meta["mcp/www_authenticate"]` challenge must reach every client (it is what
+ * prompts ChatGPT to re-link the account), so only the hydration key is removed.
  */
+
+// _meta keys that carry widget hydration and must be withheld from non-widget hosts.
+const HYDRATION_META_KEYS = new Set(["graffiticode"]);
+
 export function formatToolResult(
   result: Record<string, unknown>,
-  opts: { omitMeta?: boolean } = {},
+  opts: { stripHydration?: boolean } = {},
 ): Record<string, unknown> {
   const { _meta, summary, ...structuredContent } = result;
   const response: Record<string, unknown> = {
@@ -28,6 +36,19 @@ export function formatToolResult(
       },
     ],
   };
-  if (_meta !== undefined && !opts.omitMeta) response._meta = _meta;
+
+  if (_meta !== undefined) {
+    const meta = opts.stripHydration
+      ? Object.fromEntries(
+          Object.entries(_meta as Record<string, unknown>).filter(
+            ([k]) => !HYDRATION_META_KEYS.has(k),
+          ),
+        )
+      : (_meta as Record<string, unknown>);
+    // Only attach _meta if something survived (an all-hydration _meta becomes empty
+    // for non-widget hosts — omit it rather than ship `{}`).
+    if (Object.keys(meta).length > 0) response._meta = meta;
+  }
+
   return response;
 }

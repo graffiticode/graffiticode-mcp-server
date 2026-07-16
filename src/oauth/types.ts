@@ -90,6 +90,11 @@ export interface TokenEntry {
   firebase_id_token: string;
   firebase_refresh_token: string;
   firebase_token_expires_at: number;
+  // Advertised OAuth access-token expiry (created_at + expires_in). Enforced on
+  // every use, independent of the refreshable Firebase token behind it, so an
+  // access token stops working past its own lifetime. Optional for back-compat
+  // with entries written before this field existed (treated as already-expired).
+  access_token_expires_at?: number;
   resource: string;
   created_at: number;
 }

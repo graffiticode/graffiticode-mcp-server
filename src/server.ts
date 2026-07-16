@@ -39,6 +39,7 @@ import { join, dirname } from "path";
 import { fileURLToPath } from "url";
 import { tools, handleToolCall, SERVER_INSTRUCTIONS, toolsForClient, isWidgetHost } from "./tools.js";
 import { formatToolResult } from "./tool-result.js";
+import { buildChallengeResponse } from "./challenge.js";
 import type { AuthContext } from "./api.js";
 import { identify, logConnect, logToolCall, type EventOutcome, type SessionMeta } from "./events.js";
 import { EXTENSION_ID, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
@@ -57,7 +58,10 @@ import {
   handleAuthorize,
   handleCallback,
   handleToken,
-  getFirebaseTokenFromAccessToken,
+  isOAuthAccessToken,
+  resolveOAuthAccessToken,
+  buildWwwAuthenticate,
+  type OAuthInvalidReason,
 } from "./oauth/handlers.js";
 import {
   userGuideResourceTemplate,
@@ -418,14 +422,38 @@ function extractBearerToken(req: IncomingMessage): string | null {
  * — the console will exchange it to a Firebase ID token before calling
  * api.graffiticode.org. This keeps the api-key exchange logic in one place.
  */
-async function resolveBearer(
-  bearerToken: string
-): Promise<{ token: string; source: "oauth" | "raw" }> {
-  const oauthToken = await getFirebaseTokenFromAccessToken(bearerToken);
-  if (oauthToken) {
-    return { token: oauthToken, source: "oauth" };
+type BearerResolution =
+  | { kind: "oauth"; token: string }
+  | { kind: "oauth-invalid"; reason: OAuthInvalidReason }
+  | { kind: "apikey"; token: string };
+
+async function resolveBearer(bearerToken: string): Promise<BearerResolution> {
+  // A bearer minted by us as an OAuth access token (recognizable prefix) is
+  // validated as one: expiry/resource/scope/revocation are checked, and an invalid
+  // one yields a challenge — it must NEVER silently downgrade to the API-key path.
+  if (isOAuthAccessToken(bearerToken)) {
+    const resolved = await resolveOAuthAccessToken(bearerToken);
+    if (resolved.status === "valid") {
+      return { kind: "oauth", token: resolved.firebaseToken };
+    }
+    return { kind: "oauth-invalid", reason: resolved.reason };
   }
-  return { token: bearerToken, source: "raw" };
+  // Anything without our prefix is treated as a raw Graffiticode api key and
+  // forwarded verbatim — the console exchanges it before calling api.graffiticode.
+  return { kind: "apikey", token: bearerToken };
+}
+
+/**
+ * Thrown by the OAuth auth provider's getAuth() when the access token that
+ * established the session has since expired or been revoked. Caught in the tool
+ * handler to return a structured MCP error carrying `_meta["mcp/www_authenticate"]`,
+ * which prompts ChatGPT to re-link the account.
+ */
+class AuthChallengeError extends Error {
+  constructor(public reason: OAuthInvalidReason) {
+    super(`OAuth token invalid: ${reason}`);
+    this.name = "AuthChallengeError";
+  }
 }
 
 interface AuthProvider {
@@ -549,9 +577,10 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
 
       // Non-widget hosts (everything but Claude) render no widget, so drop the
       // _meta hydration payload (src/data/claim) rather than ship it to a surface
-      // that can't use it.
-      const omitMeta = !isWidgetHost(server.getClientVersion()?.name);
-      return formatToolResult(result, { omitMeta });
+      // that can't use it. Only the hydration key is stripped — any auth-control
+      // _meta (mcp/www_authenticate) still reaches every client.
+      const stripHydration = !isWidgetHost(server.getClientVersion()?.name);
+      return formatToolResult(result, { stripHydration });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (identity) {
@@ -566,6 +595,22 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
           err: message,
           meta: sessionMeta,
         });
+      }
+      // Auth failure discovered mid-invocation: return the runtime MCP challenge so
+      // the host (ChatGPT) prompts the user to re-link. `_meta["mcp/www_authenticate"]`
+      // must survive to every client, so it is set here directly (never passed through
+      // the widget-stripping formatToolResult path).
+      if (error instanceof AuthChallengeError) {
+        return {
+          content: [
+            {
+              type: "text",
+              text: "Your Graffiticode session has expired. Please reconnect your account to continue.",
+            },
+          ],
+          isError: true,
+          _meta: { "mcp/www_authenticate": [buildWwwAuthenticate(error.reason)] },
+        };
       }
       return {
         content: [
@@ -771,6 +816,18 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     return;
   }
 
+  // OpenAI app-directory domain-verification challenge. OpenAI fetches this from
+  // the root of the registered MCP host (mcp.graffiticode.org; the /mcp path is
+  // ignored). Inert (404) until OPENAI_APPS_CHALLENGE_TOKEN is set mid-submission.
+  if (url.pathname === "/.well-known/openai-apps-challenge") {
+    const { status, headers, body } = buildChallengeResponse(
+      process.env.OPENAI_APPS_CHALLENGE_TOKEN,
+    );
+    res.writeHead(status, headers);
+    res.end(body);
+    return;
+  }
+
   // OAuth 2.1 Endpoints
 
   // Protected Resource Metadata (RFC 9728). Serve both the bare well-known path
@@ -827,6 +884,29 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
   if (url.pathname === "/mcp") {
     const bearerToken = extractBearerToken(req);
 
+    // Transport-level per-request auth check. Validate an OAuth bearer BEFORE reusing
+    // or creating a session so an expired/revoked token yields a 401 + WWW-Authenticate
+    // challenge on every request — not a silently reused dead session. (API keys and
+    // the no-bearer free-plan path skip this and are handled downstream.) A store
+    // outage must not crash the request: on an unexpected error we skip the fast
+    // 401 and let the per-invocation getAuth() surface a clean error instead.
+    if (bearerToken && isOAuthAccessToken(bearerToken)) {
+      let resolved: Awaited<ReturnType<typeof resolveOAuthAccessToken>> | null = null;
+      try {
+        resolved = await resolveOAuthAccessToken(bearerToken);
+      } catch (err) {
+        console.error(`[oauth] entry-level token check failed: ${(err as Error)?.message ?? err}`);
+      }
+      if (resolved && resolved.status === "invalid") {
+        res.writeHead(401, {
+          "Content-Type": "application/json",
+          "WWW-Authenticate": buildWwwAuthenticate(resolved.reason),
+        });
+        res.end(JSON.stringify({ error: "invalid_token", error_description: resolved.reason }));
+        return;
+      }
+    }
+
     // Check for existing session
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
 
@@ -860,10 +940,20 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     // GraphQL error path surfaces a clean message.
     let authProvider: AuthProvider;
     if (bearerToken) {
-      const resolved = await resolveBearer(bearerToken);
+      // Re-resolve on EVERY getAuth() (called per tool invocation) rather than
+      // caching the resolved token at session start — so a mid-session OAuth expiry
+      // or revocation is caught, not masked by a stale cached identity.
       authProvider = {
         async getAuth() {
-          return { type: "firebase", token: resolved.token, source: resolved.source };
+          const resolved = await resolveBearer(bearerToken);
+          if (resolved.kind === "oauth-invalid") {
+            throw new AuthChallengeError(resolved.reason);
+          }
+          return {
+            type: "firebase",
+            token: resolved.token,
+            source: resolved.kind === "oauth" ? "oauth" : "raw",
+          };
         },
       };
     } else {

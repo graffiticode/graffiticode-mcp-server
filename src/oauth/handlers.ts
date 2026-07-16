@@ -26,6 +26,77 @@ const FIREBASE_API_KEY = "AIzaSyAoVuUNi8ElnS7cn6wc3D8XExML-URLw0I";
 // Token expiration (55 minutes to match Firebase token lifetime with buffer)
 const TOKEN_EXPIRES_IN = 55 * 60;
 
+// The single audience this authorization server issues tokens for.
+const RESOURCE = `${MCP_SERVER_URL}/mcp`;
+// The single scope we grant. Requests may only ask for this (or nothing).
+const SUPPORTED_SCOPE = "graffiticode";
+
+// Distinguishable prefixes for the credentials we mint. The prefix lets the MCP
+// endpoint tell an OAuth access token apart from a raw Graffiticode API key, so an
+// expired/revoked OAuth token produces a reauth challenge instead of silently
+// falling through to the API-key path. (Tokens minted before this prefix existed
+// no longer match and require one relink — an accepted one-time migration cost.)
+export const OAUTH_ACCESS_TOKEN_PREFIX = "gcmcp_at_";
+export const OAUTH_REFRESH_TOKEN_PREFIX = "gcmcp_rt_";
+
+// Cap request bodies. DCR/token payloads are tiny; anything larger is abuse.
+const MAX_BODY_BYTES = 16 * 1024;
+
+/** Whether a bearer was minted by us as an OAuth access token (vs a raw API key). */
+export function isOAuthAccessToken(bearer: string): boolean {
+  return bearer.startsWith(OAUTH_ACCESS_TOKEN_PREFIX);
+}
+
+/** Reasons an OAuth access token can be rejected, mapped to a challenge description. */
+export type OAuthInvalidReason = "expired" | "revoked" | "resource" | "scope";
+
+function reasonDescription(reason: OAuthInvalidReason): string {
+  switch (reason) {
+    case "expired":
+      return "The access token expired";
+    case "revoked":
+      return "The access token was revoked or is unknown";
+    case "resource":
+      return "The access token was not issued for this resource";
+    case "scope":
+      return "The access token lacks the required scope";
+  }
+}
+
+/**
+ * Build the `WWW-Authenticate` / `mcp/www_authenticate` challenge value. The same
+ * string is used for the HTTP 401 header (transport-level rejection) and the
+ * `_meta["mcp/www_authenticate"]` array on an in-tool auth error — together they
+ * point ChatGPT at protected-resource metadata to trigger reauthorization.
+ */
+export function buildWwwAuthenticate(reason: OAuthInvalidReason): string {
+  const metadataUrl = `${MCP_SERVER_URL}/.well-known/oauth-protected-resource`;
+  return `Bearer resource_metadata="${metadataUrl}", error="invalid_token", error_description="${reasonDescription(reason)}"`;
+}
+
+/**
+ * Validate a DCR `redirect_uris` value. Returns an error description, or null when
+ * valid: a non-empty array of absolute https URIs (localhost tolerated for dev).
+ * Pure, so the open-redirect guard is unit-testable.
+ */
+export function redirectUrisError(uris: unknown): string | null {
+  if (!Array.isArray(uris) || uris.length === 0) {
+    return "redirect_uris must be a non-empty array";
+  }
+  for (const uri of uris) {
+    let parsed: URL;
+    try {
+      parsed = new URL(uri as string);
+    } catch {
+      return `Invalid redirect_uri: ${uri}`;
+    }
+    if (parsed.protocol !== "https:" && parsed.hostname !== "localhost" && parsed.hostname !== "127.0.0.1") {
+      return `redirect_uri must be https: ${uri}`;
+    }
+  }
+  return null;
+}
+
 /**
  * Send JSON response
  */
@@ -52,35 +123,38 @@ function redirect(res: ServerResponse, url: string): void {
 /**
  * Parse URL-encoded form body
  */
-async function parseFormBody(req: IncomingMessage): Promise<URLSearchParams> {
+function readBody(req: IncomingMessage): Promise<string> {
   return new Promise((resolve, reject) => {
     const chunks: Buffer[] = [];
-    req.on("data", (chunk) => chunks.push(chunk));
-    req.on("end", () => {
-      const body = Buffer.concat(chunks).toString();
-      resolve(new URLSearchParams(body));
+    let size = 0;
+    req.on("data", (chunk: Buffer) => {
+      size += chunk.length;
+      if (size > MAX_BODY_BYTES) {
+        reject(new Error("Request body too large"));
+        req.destroy();
+        return;
+      }
+      chunks.push(chunk);
     });
+    req.on("end", () => resolve(Buffer.concat(chunks).toString()));
     req.on("error", reject);
   });
+}
+
+async function parseFormBody(req: IncomingMessage): Promise<URLSearchParams> {
+  return new URLSearchParams(await readBody(req));
 }
 
 /**
  * Parse JSON body
  */
 async function parseJsonBody(req: IncomingMessage): Promise<unknown> {
-  return new Promise((resolve, reject) => {
-    const chunks: Buffer[] = [];
-    req.on("data", (chunk) => chunks.push(chunk));
-    req.on("end", () => {
-      const body = Buffer.concat(chunks).toString();
-      try {
-        resolve(JSON.parse(body));
-      } catch {
-        resolve({});
-      }
-    });
-    req.on("error", reject);
-  });
+  const body = await readBody(req);
+  try {
+    return JSON.parse(body);
+  } catch {
+    return {};
+  }
 }
 
 /**
@@ -114,8 +188,10 @@ export function handleAuthServerMetadata(
     response_types_supported: ["code"],
     grant_types_supported: ["authorization_code", "refresh_token"],
     code_challenge_methods_supported: ["S256"],
-    token_endpoint_auth_methods_supported: ["none", "client_secret_post"],
-    scopes_supported: ["graffiticode"],
+    // Public clients only. We never issue or validate a client secret, so we must
+    // not advertise client_secret_post (a lie that invites secret-bearing clients).
+    token_endpoint_auth_methods_supported: ["none"],
+    scopes_supported: [SUPPORTED_SCOPE],
   };
   sendJson(res, 200, metadata);
 }
@@ -128,7 +204,40 @@ export async function handleClientRegistration(
   req: IncomingMessage,
   res: ServerResponse
 ): Promise<void> {
-  const body = (await parseJsonBody(req)) as ClientRegistrationRequest;
+  let body: ClientRegistrationRequest;
+  try {
+    body = (await parseJsonBody(req)) as ClientRegistrationRequest;
+  } catch {
+    sendError(res, 413, { error: "invalid_client_metadata", error_description: "Request body too large" });
+    return;
+  }
+
+  // Require a non-empty set of absolute https redirect URIs. Without this an empty
+  // list was accepted and later let authorize accept ANY redirect (open redirect).
+  const redirectUris = body.redirect_uris;
+  const redirectError = redirectUrisError(redirectUris);
+  if (redirectError) {
+    sendError(res, 400, { error: "invalid_redirect_uri", error_description: redirectError });
+    return;
+  }
+
+  // We are a public authorization server: only the "none" auth method, the "code"
+  // response type, and authorization_code/refresh_token grants are supported.
+  const authMethod = body.token_endpoint_auth_method ?? "none";
+  if (authMethod !== "none") {
+    sendError(res, 400, { error: "invalid_client_metadata", error_description: "Only token_endpoint_auth_method 'none' is supported" });
+    return;
+  }
+  const responseTypes = body.response_types ?? ["code"];
+  if (!responseTypes.every((t) => t === "code")) {
+    sendError(res, 400, { error: "invalid_client_metadata", error_description: "Only the 'code' response_type is supported" });
+    return;
+  }
+  const grantTypes = body.grant_types ?? ["authorization_code"];
+  if (!grantTypes.every((g) => g === "authorization_code" || g === "refresh_token")) {
+    sendError(res, 400, { error: "invalid_client_metadata", error_description: "Only authorization_code and refresh_token grants are supported" });
+    return;
+  }
 
   // Generate client credentials
   const clientId = crypto.randomUUID();
@@ -137,10 +246,10 @@ export async function handleClientRegistration(
   const client: OAuthClient = {
     client_id: clientId,
     client_name: body.client_name || "Unknown Client",
-    redirect_uris: body.redirect_uris || [],
-    grant_types: body.grant_types || ["authorization_code"],
-    response_types: body.response_types || ["code"],
-    token_endpoint_auth_method: body.token_endpoint_auth_method || "none",
+    redirect_uris: redirectUris as string[], // guaranteed non-empty by redirectUrisError
+    grant_types: grantTypes,
+    response_types: responseTypes,
+    token_endpoint_auth_method: "none",
     client_id_issued_at: now,
   };
 
@@ -173,11 +282,11 @@ export async function handleAuthorize(
   const clientId = params.get("client_id");
   const redirectUri = params.get("redirect_uri");
   const responseType = params.get("response_type");
-  const scope = params.get("scope") || "graffiticode";
+  const scope = params.get("scope") || SUPPORTED_SCOPE;
   const state = params.get("state");
   const codeChallenge = params.get("code_challenge");
   const codeChallengeMethod = params.get("code_challenge_method");
-  const resource = params.get("resource") || `${MCP_SERVER_URL}/mcp`;
+  const resource = params.get("resource") || RESOURCE;
 
   // Validate required parameters
   if (!clientId) {
@@ -210,6 +319,19 @@ export async function handleAuthorize(
     return;
   }
 
+  // Reject any scope beyond the single one we grant.
+  if (!scope.split(/\s+/).filter(Boolean).every((s) => s === SUPPORTED_SCOPE)) {
+    sendError(res, 400, { error: "invalid_scope", error_description: `Only the '${SUPPORTED_SCOPE}' scope is supported` });
+    return;
+  }
+
+  // The resource (audience) must be exactly this MCP server. OpenAI flows the
+  // resource through authorization; anything else is a misconfigured/hostile client.
+  if (resource !== RESOURCE) {
+    sendError(res, 400, { error: "invalid_target", error_description: `resource must be ${RESOURCE}` });
+    return;
+  }
+
   // Validate client exists
   const client = await oauthStore.getClient(clientId);
   if (!client) {
@@ -217,8 +339,9 @@ export async function handleAuthorize(
     return;
   }
 
-  // Validate redirect_uri (if client has registered URIs)
-  if (client.redirect_uris.length > 0 && !client.redirect_uris.includes(redirectUri)) {
+  // Exact redirect_uri match against the client's registered set. DCR now
+  // guarantees that set is non-empty, so there is no "no URIs registered" bypass.
+  if (!client.redirect_uris.includes(redirectUri)) {
     sendError(res, 400, { error: "invalid_request", error_description: "Invalid redirect_uri" });
     return;
   }
@@ -254,7 +377,17 @@ export async function handleAuthorize(
 
 /**
  * GET /oauth/callback
- * Callback from consent page with Google ID token
+ * Callback from consent page with Google ID token.
+ *
+ * SECURITY BLOCKER (OpenAI-submission item 2c-vi — NOT yet resolved): the consent
+ * page redirects the browser here with `google_id_token` in the QUERY STRING, so a
+ * live Google ID token can land in browser history, CDN/proxy access logs, and
+ * Referer headers. Fixing this requires a COORDINATED change in the console/auth
+ * consent service (it builds this redirect): replace the query-string token with a
+ * short-lived, single-use result code redeemed server-to-server (preferred) or a
+ * form POST — bound to the pending OAuth state/client, expiring fast, consumed once.
+ * Until that lands, OAuth is NOT review-ready; ship v1 noauth-only (see the
+ * go/no-go gate) rather than advertise a partially-hardened OAuth surface.
  */
 export async function handleCallback(
   req: IncomingMessage,
@@ -503,9 +636,22 @@ async function handleAuthorizationCodeGrant(
   const redirectUri = body.get("redirect_uri");
   const clientId = body.get("client_id");
   const codeVerifier = body.get("code_verifier");
+  const resource = body.get("resource");
 
   if (!code) {
     sendError(res, 400, { error: "invalid_request", error_description: "Missing code" });
+    return;
+  }
+
+  // A public client MUST identify itself and echo the redirect_uri it authorized
+  // with (OAuth 2.1 §4.1.3). Both were optional before, weakening code binding.
+  if (!clientId) {
+    sendError(res, 400, { error: "invalid_request", error_description: "Missing client_id" });
+    return;
+  }
+
+  if (!redirectUri) {
+    sendError(res, 400, { error: "invalid_request", error_description: "Missing redirect_uri" });
     return;
   }
 
@@ -535,15 +681,20 @@ async function handleAuthorizationCodeGrant(
     return;
   }
 
-  // Validate client_id
-  if (clientId && clientId !== authCode.client_id) {
+  // Exact client_id + redirect_uri match to the values bound at authorization.
+  if (clientId !== authCode.client_id) {
     sendError(res, 400, { error: "invalid_grant", error_description: "client_id mismatch" });
     return;
   }
 
-  // Validate redirect_uri
-  if (redirectUri && redirectUri !== authCode.redirect_uri) {
+  if (redirectUri !== authCode.redirect_uri) {
     sendError(res, 400, { error: "invalid_grant", error_description: "redirect_uri mismatch" });
+    return;
+  }
+
+  // If the client re-sends resource at exchange, it must match what it authorized.
+  if (resource && resource !== authCode.resource) {
+    sendError(res, 400, { error: "invalid_target", error_description: "resource mismatch" });
     return;
   }
 
@@ -566,9 +717,10 @@ async function handleAuthorizationCodeGrant(
     const client = await oauthStore.getClient(authCode.client_id);
     const clientName = client?.client_name || "Unknown";
 
-    // Generate tokens
-    const accessToken = generateRandomString(64);
-    const refreshToken = generateRandomString(64);
+    // Generate tokens (prefixed so the MCP endpoint can tell them from API keys).
+    const accessToken = OAUTH_ACCESS_TOKEN_PREFIX + generateRandomString(64);
+    const refreshToken = OAUTH_REFRESH_TOKEN_PREFIX + generateRandomString(64);
+    const issuedAt = Date.now();
 
     // Store token entry (now includes Firebase refresh token for indefinite persistence)
     const tokenEntry: TokenEntry = {
@@ -580,8 +732,9 @@ async function handleAuthorizationCodeGrant(
       firebase_id_token: firebaseIdToken,
       firebase_refresh_token: firebaseRefreshToken,
       firebase_token_expires_at: expiresAt,
+      access_token_expires_at: issuedAt + TOKEN_EXPIRES_IN * 1000,
       resource: authCode.resource,
-      created_at: Date.now(),
+      created_at: issuedAt,
     };
 
     await oauthStore.saveToken(providerId, email, tokenEntry);
@@ -615,9 +768,17 @@ async function handleRefreshTokenGrant(
 ): Promise<void> {
   const refreshToken = body.get("refresh_token");
   const clientId = body.get("client_id");
+  const resource = body.get("resource");
 
   if (!refreshToken) {
     sendError(res, 400, { error: "invalid_request", error_description: "Missing refresh_token" });
+    return;
+  }
+
+  // A public client must identify itself on refresh (redirect_uri is NOT required
+  // here — it belongs to the authorization-code exchange, not refresh).
+  if (!clientId) {
+    sendError(res, 400, { error: "invalid_request", error_description: "Missing client_id" });
     return;
   }
 
@@ -629,9 +790,16 @@ async function handleRefreshTokenGrant(
       return;
     }
 
-    // Validate client_id if provided
-    if (clientId && clientId !== tokenEntry.client_id) {
+    // Exact client_id match to the token's owner.
+    if (clientId !== tokenEntry.client_id) {
       sendError(res, 400, { error: "invalid_grant", error_description: "client_id mismatch" });
+      return;
+    }
+
+    // Resource is inherited from the original grant; if the client re-sends it, it
+    // must match. It is never widened on refresh.
+    if (resource && resource !== tokenEntry.resource) {
+      sendError(res, 400, { error: "invalid_target", error_description: "resource mismatch" });
       return;
     }
 
@@ -649,8 +817,9 @@ async function handleRefreshTokenGrant(
     }
 
     // Rotate OAuth tokens (OAuth 2.1 requirement)
-    const newAccessToken = generateRandomString(64);
-    const newRefreshToken = generateRandomString(64);
+    const newAccessToken = OAUTH_ACCESS_TOKEN_PREFIX + generateRandomString(64);
+    const newRefreshToken = OAUTH_REFRESH_TOKEN_PREFIX + generateRandomString(64);
+    const issuedAt = Date.now();
 
     // Create new token entry with potentially refreshed Firebase token
     const newTokenEntry: TokenEntry = {
@@ -662,8 +831,9 @@ async function handleRefreshTokenGrant(
       firebase_id_token: firebaseIdToken,
       firebase_refresh_token: firebaseRefreshToken,
       firebase_token_expires_at: firebaseExpiresAt,
+      access_token_expires_at: issuedAt + TOKEN_EXPIRES_IN * 1000,
       resource: tokenEntry.resource,
-      created_at: Date.now(),
+      created_at: issuedAt,
     };
 
     // Rotate tokens in Firestore (delete old, create new)
@@ -687,38 +857,79 @@ async function handleRefreshTokenGrant(
 }
 
 /**
- * Get Firebase ID token from OAuth access token
- * Used by /mcp endpoint to authenticate requests
+ * Resolve an OAuth access token for the /mcp endpoint.
  *
- * Auto-refreshes expired Firebase tokens using stored refresh token.
+ * Validates the token's expiry, audience (resource), and scope on EVERY call — a
+ * stateful MCP session may cache identity but never authorization validity — then
+ * returns the backing Firebase ID token (auto-refreshing it if the short-lived
+ * Firebase token lapsed while the OAuth access token is still within its own
+ * lifetime). A discriminated result lets the caller distinguish "valid" from an
+ * expired/revoked token that must trigger a reauthorization challenge, instead of
+ * silently downgrading to the raw-API-key path.
  */
-export async function getFirebaseTokenFromAccessToken(accessToken: string): Promise<string | null> {
+export type OAuthResolution =
+  | { status: "valid"; firebaseToken: string }
+  | { status: "invalid"; reason: OAuthInvalidReason };
+
+/**
+ * Pure validity check for a stored token entry — expiry, audience, scope. Kept
+ * store- and network-free so the authorization rules are unit-testable. Returns
+ * null when the entry is valid, or the rejection reason otherwise.
+ */
+export function evaluateTokenValidity(
+  entry: Pick<TokenEntry, "access_token_expires_at" | "resource" | "scope">,
+  expectedResource: string,
+  now: number,
+): OAuthInvalidReason | null {
+  // Enforce the advertised OAuth access-token expiry. Entries written before this
+  // field existed have no expiry recorded and are treated as expired (forcing one
+  // relink — the accepted migration cost).
+  if (typeof entry.access_token_expires_at !== "number" || now > entry.access_token_expires_at) {
+    return "expired";
+  }
+  // Audience binding: the token must have been issued for this resource.
+  if (entry.resource && entry.resource !== expectedResource) {
+    return "resource";
+  }
+  // Scope: must include the one scope we grant.
+  const scopes = String(entry.scope || "").split(/\s+/).filter(Boolean);
+  if (!scopes.includes(SUPPORTED_SCOPE)) {
+    return "scope";
+  }
+  return null;
+}
+
+export async function resolveOAuthAccessToken(
+  accessToken: string,
+  expectedResource: string = RESOURCE,
+): Promise<OAuthResolution> {
   const tokenEntry = await oauthStore.getTokenByAccessToken(accessToken);
   if (!tokenEntry) {
-    return null;
+    return { status: "invalid", reason: "revoked" };
   }
 
-  // Check if Firebase token needs refresh
+  const reason = evaluateTokenValidity(tokenEntry, expectedResource, Date.now());
+  if (reason) {
+    return { status: "invalid", reason };
+  }
+
+  // Refresh the backing Firebase token if it lapsed (the OAuth access token itself
+  // is still valid per the checks above).
   if (Date.now() > tokenEntry.firebase_token_expires_at) {
     try {
-      // Refresh Firebase token using stored refresh token
       const refreshed = await refreshFirebaseToken(tokenEntry.firebase_refresh_token);
-
-      // Update stored token with new Firebase credentials
       await oauthStore.updateToken(accessToken, {
         firebase_id_token: refreshed.firebaseIdToken,
         firebase_refresh_token: refreshed.firebaseRefreshToken,
         firebase_token_expires_at: refreshed.expiresAt,
       });
-
-      return refreshed.firebaseIdToken;
+      return { status: "valid", firebaseToken: refreshed.firebaseIdToken };
     } catch (error) {
       console.error("Failed to refresh Firebase token:", error);
-      // If refresh fails, delete the token and return null
       await oauthStore.deleteToken(accessToken);
-      return null;
+      return { status: "invalid", reason: "revoked" };
     }
   }
 
-  return tokenEntry.firebase_id_token;
+  return { status: "valid", firebaseToken: tokenEntry.firebase_id_token };
 }

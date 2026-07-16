@@ -125,6 +125,7 @@ places: `ABOUT_HTML`, `MCP_DISCOVERY`, and `README.md`.
 - `GRAFFITICODE_SKILLS_REF` - Git ref/branch for skill discovery (default: `main`).
 - `GRAFFITICODE_SKILLS_TTL_MS` - Skill catalog cache TTL in ms (default: `60000`).
 - `FREE_PLAN_NAMESPACE_SALT` - Shared HS256 secret used to mint trial-claim JWTs. **Must be the identical value the console deploys with** — both come from the same Secret Manager entry populated by the console's `scripts/set-free-plan-secrets.sh`. Mount on Cloud Run with `gcloud run services update mcp-service --update-secrets=FREE_PLAN_NAMESPACE_SALT=FREE_PLAN_NAMESPACE_SALT:latest`. If unset, trial responses still succeed but omit `claim_url`/`claim_message` (single warning logged at startup).
+- `OPENAI_APPS_CHALLENGE_TOKEN` - Token served **verbatim** (exact bytes, no JSON/prefix) as `text/plain` with `Cache-Control: no-store` at `/.well-known/openai-apps-challenge`, for OpenAI app-directory domain verification. OpenAI fetches it from the **root of the registered host** (`mcp.graffiticode.org`; the `/mcp` path is ignored). Set it on the **already-tested image** at submission time — `gcloud run services update mcp-service --update-env-vars=OPENAI_APPS_CHALLENGE_TOKEN=<token>` — then verify in the portal. The route **404s while unset**, so it's inert until submission. Pure seam in `src/challenge.ts`.
 - `PORT` - HTTP server port (default: 3001).
 
 ### Trial-claim JWT (free-plan only)

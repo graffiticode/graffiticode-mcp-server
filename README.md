@@ -268,6 +268,7 @@ npm start          # Streamable HTTP server on PORT (default 3001)
 | `GRAFFITICODE_SKILLS_REF` | `main` | Git ref for skill discovery |
 | `GRAFFITICODE_SKILLS_TTL_MS` | `60000` | Skill catalog cache TTL |
 | `FREE_PLAN_NAMESPACE_SALT` | — | HS256 secret for trial-claim JWTs. Must match the console's value. If unset, trial responses still work but omit claim links. |
+| `OPENAI_APPS_CHALLENGE_TOKEN` | — | Token served verbatim at `/.well-known/openai-apps-challenge` for OpenAI app-directory domain verification. Set only during submission; the route 404s while unset. |
 | `INTERNAL_API_KEY` | — | Sent as `X-Internal-API-Key` to the auth service |
 
 ### Deployment
