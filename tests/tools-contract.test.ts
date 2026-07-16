@@ -26,7 +26,9 @@ test("OpenAI clients receive no widget metadata", () => {
 
 test("Claude receives the MCP App resource on widget-bearing tools", () => {
   const listed = toolsForClient("claude-ai") as ToolRecord[];
-  const widgetTools = new Set(["create_item", "update_item", "render_item", "get_item"]);
+  // Only retrieval tools are widget-bearing: create_item/update_item return
+  // "generating" and can't update to the result, so they'd leave a stuck card.
+  const widgetTools = new Set(["render_item", "get_item"]);
   for (const tool of listed) {
     const meta = tool._meta as Record<string, unknown> | undefined;
     if (!widgetTools.has(tool.name)) {

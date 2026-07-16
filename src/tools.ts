@@ -162,10 +162,10 @@ Generation runs asynchronously: this returns immediately with an item_id and sta
     destructiveHint: false,
     openWorldHint: true,
   },
-  // Marks this tool as widget-bearing. The resource URIs and CSP are filled in
-  // per-request by toolsForClient() — they're content-hashed at runtime and differ
-  // by host, so they can't be static here.
-  _meta: { "openai/resultCanProduceWidget": true },
+  // NO widget: create_item returns "generating" and its result can never update to
+  // the finished item (that comes from a separate render_item call), so a widget
+  // here would leave a stuck "Generating…" card. It shows a text summary instead;
+  // render_item is what renders the result.
 } as const;
 
 export const updateItemTool = {
@@ -196,10 +196,8 @@ Like create_item, generation runs asynchronously: this returns immediately with 
     destructiveHint: false,
     openWorldHint: true,
   },
-  // Marks this tool as widget-bearing. The resource URIs and CSP are filled in
-  // per-request by toolsForClient() — they're content-hashed at runtime and differ
-  // by host, so they can't be static here.
-  _meta: { "openai/resultCanProduceWidget": true },
+  // NO widget (same reason as create_item): the "generating" result can't update
+  // to the finished item, so render_item renders the result instead.
 } as const;
 
 export const getItemTool = {
@@ -513,14 +511,17 @@ function buildGeneratingResponse(
   name: string | null,
   operation: "create" | "update"
 ): Record<string, unknown> {
+  const label = name ? `"${name}"` : `your L${lang} item`;
   return {
     item_id: itemId,
     status: "generating",
-    // Lets the widget card say "being created" vs "being updated" while the
-    // generation runs (create_item and update_item share this shape).
     operation,
     language: `L${lang}`,
     name: name ?? null,
+    // create_item/update_item render NO widget (they'd leave a "Generating…" card
+    // that can never update — the ready result comes from render_item). So this is
+    // the chat-facing line; the model calls render_item next to display the result.
+    summary: `${operation === "update" ? "Updating" : "Creating"} ${label}… call render_item(item_id) to display it when ready.`,
     // Steer to render_item (compact result, renders the widget) — NOT raw get_item,
     // which would pull language-private src/data into the model transcript.
     message:
