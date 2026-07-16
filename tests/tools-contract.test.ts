@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import {
-  OPTIONAL_AUTH_SECURITY_SCHEMES,
+  TOOL_SECURITY_SCHEMES,
   getItemTool,
   parseHelp,
   renderItemTool,
@@ -13,7 +13,7 @@ type ToolRecord = Record<string, unknown> & { name: string };
 
 const NON_CLAUDE_CLIENTS = ["ChatGPT", "openai-apps", "codex-mcp-client", "web-sandbox", "gpt", "some-unknown-host", undefined as unknown as string];
 const WIDGET_TOOLS = new Set(["render_item", "get_item"]);
-const expectedSchemes = JSON.parse(JSON.stringify(OPTIONAL_AUTH_SECURITY_SCHEMES));
+const expectedSchemes = JSON.parse(JSON.stringify(TOOL_SECURITY_SCHEMES));
 
 function metaOf(tool: ToolRecord): Record<string, unknown> {
   return tool._meta as Record<string, unknown>;
@@ -25,13 +25,16 @@ test("every structured tool declares an output schema", () => {
   }
 });
 
-test("every tool advertises optional-auth securitySchemes to every client (incl. unknowns)", () => {
+test("every tool advertises noauth-only securitySchemes to every client (incl. unknowns)", () => {
+  // v1 is noauth-only for the OpenAI submission: no oauth2 scheme is advertised (we
+  // are not standing up the OAuth connection until the callback fix lands). Guards
+  // against accidentally re-advertising oauth2 before OAuth is review-ready.
   for (const client of ["claude-ai", ...NON_CLAUDE_CLIENTS]) {
     for (const tool of toolsForClient(client) as ToolRecord[]) {
-      // top-level descriptor field
       assert.deepEqual(tool.securitySchemes, expectedSchemes, `${client}/${tool.name} top-level securitySchemes`);
-      // _meta mirror (compatibility)
       assert.deepEqual(metaOf(tool).securitySchemes, expectedSchemes, `${client}/${tool.name} _meta.securitySchemes`);
+      const types = (tool.securitySchemes as Array<{ type: string }>).map((s) => s.type);
+      assert.deepEqual(types, ["noauth"], `${client}/${tool.name} should advertise noauth only`);
     }
   }
 });

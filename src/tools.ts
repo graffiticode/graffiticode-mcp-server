@@ -415,13 +415,16 @@ Call this after list_languages() to learn about a specific language before using
   },
 } as const;
 
-// Every tool works both anonymously (free-plan session) and authenticated (OAuth
-// account), so each advertises optional auth. OpenAI's Scan Tools reads this to know
-// no tool strictly requires linking; the `_meta.securitySchemes` mirror is the
-// compatibility form (Apps SDK reference) alongside the top-level field.
-export const OPTIONAL_AUTH_SECURITY_SCHEMES = [
+// v1 ships noauth-only for the OpenAI submission: every tool works anonymously via
+// the free-plan path, and we are NOT standing up the OAuth connection in the portal
+// (the OAuth callback still needs the console-side token-off-URL fix before it is
+// review-ready — see docs/openai-submission.md go/no-go gate). Advertising only
+// `noauth` keeps the Scan Tools snapshot consistent with what we submit; the `oauth2`
+// scheme is added back in the reviewed OAuth update. This is metadata only — the
+// OAuth endpoints and API-key path remain functional for the existing Claude
+// connector; authenticated requests still work, they're just not advertised here.
+export const TOOL_SECURITY_SCHEMES = [
   { type: "noauth" },
-  { type: "oauth2", scopes: ["graffiticode"] },
 ] as const;
 
 // Attach the security schemes to every tool descriptor (top-level + _meta mirror),
@@ -430,8 +433,8 @@ function withSecuritySchemes(tool: Record<string, unknown>): Record<string, unkn
   const meta = (tool._meta as Record<string, unknown>) ?? {};
   return {
     ...tool,
-    securitySchemes: OPTIONAL_AUTH_SECURITY_SCHEMES,
-    _meta: { ...meta, securitySchemes: OPTIONAL_AUTH_SECURITY_SCHEMES },
+    securitySchemes: TOOL_SECURITY_SCHEMES,
+    _meta: { ...meta, securitySchemes: TOOL_SECURITY_SCHEMES },
   };
 }
 

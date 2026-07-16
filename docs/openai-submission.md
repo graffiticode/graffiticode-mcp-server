@@ -16,6 +16,10 @@ server to OpenAI's app directory (Apps SDK, `platform.openai.com/plugins`) as a
 
 ## 0. OAuth go/no-go gate (decide BEFORE creating the draft)
 
+> **DECIDED (2026-07-16): v1 is `noauth`-only.** Tools advertise `{ type: "noauth" }`
+> only (`TOOL_SECURITY_SCHEMES` in `src/tools.ts`); do **not** configure an OAuth
+> connection in the portal. OAuth ships in a later reviewed update once item 2c-vi lands.
+
 The optional OAuth surface is hardened server-side **except** one cross-service item:
 the consent page still returns the Google ID token in the `/oauth/callback` **query
 string** (see `src/oauth/handlers.ts` `handleCallback`), which can leak into history/logs.
