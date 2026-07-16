@@ -4,7 +4,7 @@ These examples demonstrate the core workflows for the Graffiticode MCP server. E
 
 Language IDs below (L0159, L0166, L0169) are illustrative — the catalog is dynamic, so always discover it with `list_languages` rather than hard-coding IDs.
 
-> **Generation is asynchronous.** `create_item` and `update_item` return right away with `status: "generating"`. Call `get_item` to wait for the finished result — it long-polls, so you don't need your own retry loop.
+> **Generation is asynchronous.** `create_item` and `update_item` return right away with `status: "generating"`. Call `render_item` to wait for and display the finished result — it long-polls, so you don't need your own retry loop, and it keeps language-private `src`/`data` out of the model transcript. Use `get_item` only when you need that raw data for programmatic work.
 
 ---
 
@@ -55,11 +55,11 @@ Response — note it is not finished yet:
 **Step 3: Await the result**
 
 ```
-Tool: get_item
+Tool: render_item
 Args: { "item_id": "0x1a2b3c…" }
 ```
 
-Blocks until the item is ready, then returns `status: "ready"` with the compiled `data`, the generated code, metadata, and `react_usage` instructions.
+Blocks until the item is ready, then returns a compact `status: "ready"` result and renders it inline in supported hosts (Claude). Use `get_item` instead if you need the raw compiled `data` and generated code for programmatic work.
 
 **Step 4: Iterate**
 
@@ -71,7 +71,7 @@ Args: {
 }
 ```
 
-The server maintains conversation history, so the language AI knows the full context of what's been built. Call `get_item` again to await the updated result.
+The server maintains conversation history, so the language AI knows the full context of what's been built. Call `render_item` again to await and display the updated result.
 
 ---
 

@@ -499,14 +499,14 @@ async function applyViewAndClaim(
   }
 }
 
-// Shape returned by create_item / update_item and by get_item while a
-// generation is still running. The model is expected to poll get_item until
-// status flips to "ready".
+// Shape returned by create_item / update_item and by the retrieval tools while a
+// generation is still running. The model is expected to poll a retrieval tool
+// until status flips to "ready".
 //
 // No view_url/claim_url here: those links are only meaningful once the item has
 // content, and the MCP client renders the response JSON as chat text — emitting
 // them now would surface (and repeat, on every poll) an "Open in Graffiticode"
-// link before anything exists. They're added on the get_item "ready" response.
+// link before anything exists. They're added on the "ready" response.
 function buildGeneratingResponse(
   itemId: string,
   lang: string,
@@ -521,8 +521,10 @@ function buildGeneratingResponse(
     operation,
     language: `L${lang}`,
     name: name ?? null,
+    // Steer to render_item (compact result, renders the widget) — NOT raw get_item,
+    // which would pull language-private src/data into the model transcript.
     message:
-      "Generation started. Call get_item(item_id) to retrieve the result — it waits for completion and returns status 'ready' with the data (or 'failed').",
+      "Generation started. Call render_item(item_id) to retrieve and display the result — it waits for completion and returns status 'ready' (or 'failed').",
   };
 }
 
@@ -666,6 +668,9 @@ async function handleItemResult(
   mode: "raw" | "render"
 ): Promise<unknown> {
   const { item_id } = args;
+  // Poll messages name the SAME retrieval tool the caller used, so the model
+  // keeps calling the right one (render_item stays compact; get_item stays raw).
+  const retrievalTool = mode === "render" ? "render_item" : "get_item";
   const deadline = Date.now() + GET_ITEM_POLL_DEADLINE_MS;
 
   for (;;) {
@@ -710,7 +715,7 @@ async function handleItemResult(
         status: "generating",
         language: `L${item.lang}`,
         name: item.name,
-        message: "Still generating. Call get_item(item_id) again to keep waiting.",
+        message: `Still generating. Call ${retrievalTool}(item_id) again to keep waiting.`,
       };
     }
 
@@ -740,7 +745,7 @@ async function handleItemResult(
         status: "generating",
         language: `L${item.lang}`,
         name: item.name,
-        message: "Still generating. Call get_item(item_id) again to keep waiting.",
+        message: `Still generating. Call ${retrievalTool}(item_id) again to keep waiting.`,
       };
     }
 

@@ -29,6 +29,26 @@ test("widget hydration stays out of structuredContent and chat text", () => {
   assert.equal((response._meta as Record<string, unknown>).graffiticode !== undefined, true);
 });
 
+test("omitMeta drops the hydration payload for widget-less (OpenAI) clients", () => {
+  const result = {
+    item_id: "item-1",
+    status: "ready",
+    language: "L0166",
+    name: "Example",
+    summary: "Ready: https://app.graffiticode.org/form/item-1",
+    _meta: { graffiticode: { src: "secret language source", data: { answer: 42 } } },
+  };
+
+  const withWidget = formatToolResult(result);
+  assert.equal((withWidget._meta as Record<string, unknown>).graffiticode !== undefined, true);
+
+  const noWidget = formatToolResult(result, { omitMeta: true });
+  assert.equal(noWidget._meta, undefined);
+  // structuredContent + chat text stay identical and compact either way.
+  assert.deepEqual(noWidget.structuredContent, withWidget.structuredContent);
+  assert.doesNotMatch(JSON.stringify(noWidget), /secret language source|"answer"/);
+});
+
 test("render results cannot regress the removed access-token URL", () => {
   const response = formatToolResult({
     item_id: "item-1",

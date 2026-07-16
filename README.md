@@ -223,7 +223,7 @@ list_languages(domain: "sheets")          # by domain
 
 In **Claude** (web and desktop), items render inline as interactive widgets directly in the chat interface — no setup needed. In **ChatGPT** the result is shown as a text summary with an "Open in Graffiticode" link.
 
-To embed items in your own application, every Graffiticode language has a corresponding React component published on npm as `@graffiticode/<language-id>`. Tool responses include a `react_usage` field with installation instructions, a code example, and troubleshooting tips specific to that language.
+To embed items in your own application, every Graffiticode language has a corresponding React component published on npm as `@graffiticode/<language-id>`. Install that package and render its component with the item's `data` (which `get_item` returns).
 
 ---
 

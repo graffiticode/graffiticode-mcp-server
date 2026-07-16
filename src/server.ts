@@ -547,7 +547,10 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
         meta: sessionMeta,
       });
 
-      return formatToolResult(result);
+      // OpenAI/ChatGPT clients render no widget, so drop the _meta hydration
+      // payload (src/data/claim) rather than ship it to a surface that can't use it.
+      const omitMeta = isOpenAIClient(server.getClientVersion()?.name);
+      return formatToolResult(result, { omitMeta });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
       if (identity) {
