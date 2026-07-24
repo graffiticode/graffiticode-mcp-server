@@ -40,6 +40,7 @@ import { fileURLToPath } from "url";
 import { tools, handleToolCall, SERVER_INSTRUCTIONS, toolsForClient, isWidgetHost } from "./tools.js";
 import { formatToolResult } from "./tool-result.js";
 import { buildChallengeResponse } from "./challenge.js";
+import { startSseKeepalive } from "./sse-keepalive.js";
 import type { AuthContext } from "./api.js";
 import { identify, logConnect, logToolCall, type EventOutcome, type SessionMeta } from "./events.js";
 import { EXTENSION_ID, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
@@ -376,6 +377,22 @@ function geoFromHeaders(headers: IncomingMessage["headers"]): SessionMeta {
 }
 
 const MCP_SERVER_URL = process.env.MCP_SERVER_URL || "https://mcp.graffiticode.org";
+
+// How often to write a comment into an open SSE stream, keeping it under the CDN's
+// 100s idle timeout (see src/sse-keepalive.ts). 30s leaves a wide margin; 0 disables.
+const SSE_KEEPALIVE_MS = parseInt(process.env.SSE_KEEPALIVE_MS || "30000", 10);
+
+/**
+ * Keep an /mcp response alive if it turns out to be an event stream.
+ *
+ * Distinct from the per-tool-call heartbeat in the CallTool handler, which sends
+ * protocol notifications only while a tool is running: this covers every open
+ * stream, including the idle standalone `GET /mcp` one that has no tool call
+ * behind it and was therefore being cut at ~100s by Cloudflare (524).
+ */
+function keepSseAlive(res: ServerResponse): void {
+  startSseKeepalive(res, SSE_KEEPALIVE_MS);
+}
 
 // Machine-readable MCP discovery document. Served at both /mcp.json and
 // /.well-known/mcp.json so agents and registries can locate the canonical
@@ -911,7 +928,10 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     const sessionId = req.headers["mcp-session-id"] as string | undefined;
 
     if (sessionId && transports.has(sessionId)) {
-      // Reuse existing transport for this session
+      // Reuse existing transport for this session. Started before handleRequest
+      // because a GET opens a long-lived stream the call doesn't return from until
+      // the client disconnects; the helper no-ops until the stream actually exists.
+      keepSseAlive(res);
       const transport = transports.get(sessionId)!;
       await transport.handleRequest(req, res);
       return;
@@ -1022,6 +1042,9 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
 
     const server = createMcpServer(authProvider, sessionMeta);
     await server.connect(transport);
+    // Covers the initialize POST's stream too — cheap, and one rule for every
+    // /mcp response rather than a GET-only special case.
+    keepSseAlive(res);
     await transport.handleRequest(req, res);
     return;
   }
