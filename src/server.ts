@@ -37,7 +37,13 @@ import { readFileSync } from "fs";
 import { createHash } from "crypto";
 import { join, dirname } from "path";
 import { fileURLToPath } from "url";
-import { tools, handleToolCall, SERVER_INSTRUCTIONS, toolsForClient, isWidgetHost } from "./tools.js";
+import {
+  tools,
+  handleToolCall,
+  SERVER_INSTRUCTIONS,
+  toolsForClient,
+  shouldAdvertiseWidget,
+} from "./tools.js";
 import { formatToolResult } from "./tool-result.js";
 import { buildChallengeResponse } from "./challenge.js";
 import { startSseKeepalive } from "./sse-keepalive.js";
@@ -477,6 +483,18 @@ interface AuthProvider {
   getAuth(): Promise<AuthContext>;
 }
 
+/**
+ * Did this client declare MCP Apps support during `initialize`?
+ *
+ * The widget is advertised only to a client that says it can render one — a name
+ * whitelist alone is not enough (Claude Code matches the name and declares nothing;
+ * see shouldAdvertiseWidget).
+ */
+function declaresUiExtension(server: Server): boolean {
+  const caps = server.getClientCapabilities() as { extensions?: Record<string, unknown> } | undefined;
+  return !!caps?.extensions && EXTENSION_ID in caps.extensions;
+}
+
 function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = {}) {
   const server = new Server(
     {
@@ -509,13 +527,24 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
     // OpenAI/ChatGPT clients (incl. Codex) get no widget — its sandbox can't reliably
     // render ours, and web vs desktop are indistinguishable at the MCP layer, so we
     // give them all the text-link experience. Claude gets the native widget.
+    //
+    // We gate on the client NAME, but a client also tells us during initialize whether
+    // it supports MCP Apps at all, via capabilities.extensions[EXTENSION_ID]. Log both:
+    // when a host that is handed widget metadata never declared the extension, the
+    // widget cannot mount and the mismatch is the explanation — the name whitelist
+    // promised UI to a client that never claimed to render it.
+    const clientCaps = server.getClientCapabilities() as
+      | { extensions?: Record<string, unknown> }
+      | undefined;
+    const declaredExtensions = Object.keys(clientCaps?.extensions ?? {});
+    const declaresUi = declaresUiExtension(server);
     console.log(
-      `[widget] tools/list host=${clientName ?? "?"} → ${
-        isWidgetHost(clientName) ? "native widget" : "text-link (no widget)"
-      }`
+      `[widget] tools/list host=${clientName ?? "?"} v=${server.getClientVersion()?.version ?? "?"} → ${
+        shouldAdvertiseWidget(clientName, declaresUi) ? "native widget" : "text-link (no widget)"
+      } | declares_ui_extension=${declaresUi} extensions=[${declaredExtensions.join(",")}]`
     );
     return {
-      tools: toolsForClient(clientName),
+      tools: toolsForClient(clientName, declaresUi),
     };
   });
 
@@ -596,7 +625,10 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
       // _meta hydration payload (src/data/claim) rather than ship it to a surface
       // that can't use it. Only the hydration key is stripped — any auth-control
       // _meta (mcp/www_authenticate) still reaches every client.
-      const stripHydration = !isWidgetHost(server.getClientVersion()?.name);
+      const stripHydration = !shouldAdvertiseWidget(
+        server.getClientVersion()?.name,
+        declaresUiExtension(server)
+      );
       return formatToolResult(result, { stripHydration });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
@@ -650,7 +682,7 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
     // Advertise the widget resource ONLY to widget hosts (Claude). Non-widget hosts
     // (ChatGPT/OpenAI) get a UI-free surface — nothing for the submission "Scan Tools"
     // step to discover as linked UI.
-    if (isWidgetHost(server.getClientVersion()?.name)) {
+    if (shouldAdvertiseWidget(server.getClientVersion()?.name, declaresUiExtension(server))) {
       const uris = widgetResourceUris();
       const csp = widgetCsp();
       resources.push({
@@ -685,6 +717,13 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
 
     const widgetKind = matchWidgetUri(uri);
     if (widgetKind === "mcp") {
+      // Marks how far the host got: reading the app HTML is the step before the
+      // sandbox mounts and imports the per-language bundle. If a failed render
+      // logs this, the app was delivered and died in the sandbox; if it doesn't,
+      // the host never asked for the app at all.
+      console.log(
+        `[widget] resources/read host=${server.getClientVersion()?.name ?? "?"} uri=${uri}`
+      );
       const csp = widgetCsp();
       return {
         contents: [

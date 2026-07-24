@@ -465,6 +465,35 @@ export function isWidgetHost(clientName?: string): boolean {
   return !!clientName && /claude/i.test(clientName);
 }
 
+/**
+ * Whether to advertise the widget to this client.
+ *
+ * Two conditions, and BOTH matter:
+ *
+ *  - the name whitelist (`isWidgetHost`) keeps the widget away from ChatGPT/OpenAI
+ *    surfaces, which is a product decision (see the widget notes in CLAUDE.md);
+ *  - `declaresUiExtension` is what the client itself said during `initialize`
+ *    (`capabilities.extensions["io.modelcontextprotocol/ui"]`).
+ *
+ * The name alone is not enough. Claude Code (`claude-code`) matches `/claude/i` but
+ * declares NO extensions — verified in production: `host=claude-code v=2.1.219 …
+ * declares_ui_extension=false extensions=[]`. Advertising a widget to it made every
+ * render_item show "Unable to reach Graffiticode": the host was told the result
+ * renders as an app, could not mount one, and never even fetched the app HTML (no
+ * `resources/read` was ever logged for those sessions).
+ *
+ * Requiring the declaration means a client that cannot render the widget gets the
+ * text + "Open in Graffiticode" link instead of a broken card — the same clean
+ * fallback ChatGPT gets. Clients that do declare it (Claude Desktop chat, which sends
+ * `extensions: { "io.modelcontextprotocol/ui": … }`) are unaffected.
+ */
+export function shouldAdvertiseWidget(
+  clientName?: string,
+  declaresUiExtension?: boolean
+): boolean {
+  return isWidgetHost(clientName) && declaresUiExtension === true;
+}
+
 // Kept for the funnel/logging classification; NOT used for widget routing anymore.
 export function isOpenAIClient(clientName?: string): boolean {
   return !!clientName && /openai|chatgpt|codex/i.test(clientName);
@@ -490,8 +519,8 @@ function stripWidgetMeta(meta: Record<string, unknown>): Record<string, unknown>
 // Graffiticode" link. Non-widget `_meta` — `securitySchemes` — is preserved for ALL
 // clients. The widget resource URI is content-hashed (the host caches by URI) and
 // computed at runtime, so it's injected here rather than baked into the static _meta.
-export function toolsForClient(clientName?: string): Tool[] {
-  const widgetHost = isWidgetHost(clientName);
+export function toolsForClient(clientName?: string, declaresUiExtension?: boolean): Tool[] {
+  const widgetHost = shouldAdvertiseWidget(clientName, declaresUiExtension);
   const uiUri = widgetResourceUris().mcp;
   return tools.map((t) => {
     const rec = t as Record<string, unknown>;

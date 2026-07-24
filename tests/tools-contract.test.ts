@@ -45,7 +45,7 @@ test("non-Claude clients (incl. unknowns) get securitySchemes but NO widget/UI m
   // and any unknown client — which is why the widget leaked before. But securitySchemes
   // must survive so OpenAI's Scan Tools sees the optional-auth contract.
   for (const client of NON_CLAUDE_CLIENTS) {
-    for (const tool of toolsForClient(client) as ToolRecord[]) {
+    for (const tool of toolsForClient(client, true) as ToolRecord[]) {
       const meta = metaOf(tool);
       assert.equal(meta.ui, undefined, `${client}/${tool.name} leaked ui`);
       assert.equal(meta["ui/resourceUri"], undefined, `${client}/${tool.name} leaked ui/resourceUri`);
@@ -56,7 +56,7 @@ test("non-Claude clients (incl. unknowns) get securitySchemes but NO widget/UI m
 });
 
 test("Claude receives the MCP App resource on widget-bearing tools, plus securitySchemes on all", () => {
-  const listed = toolsForClient("claude-ai") as ToolRecord[];
+  const listed = toolsForClient("claude-ai", true) as ToolRecord[];
   for (const tool of listed) {
     const meta = metaOf(tool);
     assert.deepEqual(meta.securitySchemes, expectedSchemes);
@@ -85,4 +85,28 @@ test("parseHelp rejects valid JSON that is not an array", () => {
   assert.deepEqual(parseHelp('{"user":"not history"}'), []);
   assert.deepEqual(parseHelp("null"), []);
   assert.equal(parseHelp('[{"user":"hello"}]').length, 1);
+});
+
+test("a Claude-named client that declares no MCP Apps support gets NO widget", () => {
+  // Regression: Claude Code matches the /claude/i name whitelist but declares no
+  // extensions (verified in production: host=claude-code v=2.1.219, extensions=[]).
+  // Advertising a widget to it made every render_item render "Unable to reach
+  // Graffiticode" — the host was promised an app it cannot mount, and never even
+  // fetched the app HTML. Without the declaration it must get the text + link
+  // fallback instead of a broken card.
+  for (const declares of [false, undefined]) {
+    for (const tool of toolsForClient("claude-code", declares) as ToolRecord[]) {
+      const meta = metaOf(tool);
+      assert.equal(meta.ui, undefined, `claude-code/${tool.name} must not advertise a widget`);
+      assert.equal(meta["ui/resourceUri"], undefined, `claude-code/${tool.name} leaked ui/resourceUri`);
+      // securitySchemes still reaches every client.
+      assert.deepEqual(meta.securitySchemes, expectedSchemes);
+    }
+  }
+  // And the same client WITH the declaration keeps the widget.
+  const withUi = (toolsForClient("claude-code", true) as ToolRecord[]).filter((t) => WIDGET_TOOLS.has(t.name));
+  assert.ok(withUi.length > 0);
+  for (const tool of withUi) {
+    assert.match((metaOf(tool).ui as { resourceUri?: string }).resourceUri ?? "", /^ui:\/\/graffiticode\/widget-mcp\./);
+  }
 });
