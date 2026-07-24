@@ -468,30 +468,36 @@ export function isWidgetHost(clientName?: string): boolean {
 /**
  * Whether to advertise the widget to this client.
  *
- * Two conditions, and BOTH matter:
+ * Two conditions, and BOTH must hold: the client declared
+ * `capabilities.extensions["io.modelcontextprotocol/ui"]` during `initialize`, AND
+ * its name passes the Claude whitelist.
  *
- *  - the name whitelist (`isWidgetHost`) keeps the widget away from ChatGPT/OpenAI
- *    surfaces, which is a product decision (see the widget notes in CLAUDE.md);
- *  - `declaresUiExtension` is what the client itself said during `initialize`
- *    (`capabilities.extensions["io.modelcontextprotocol/ui"]`).
+ * The declaration is the part that was missing. A name whitelist alone (`/claude/i`)
+ * misfired in both directions, both observed in one production log window:
  *
- * The name alone is not enough. Claude Code (`claude-code`) matches `/claude/i` but
- * declares NO extensions — verified in production: `host=claude-code v=2.1.219 …
- * declares_ui_extension=false extensions=[]`. Advertising a widget to it made every
- * render_item show "Unable to reach Graffiticode": the host was told the result
- * renders as an app, could not mount one, and never even fetched the app HTML (no
- * `resources/read` was ever logged for those sessions).
+ *   host=claude-code v=2.1.219                → matched the name, declares NOTHING
+ *   host=local-agent-mode-graffiticode …      → declares the extension, name misses
  *
- * Requiring the declaration means a client that cannot render the widget gets the
- * text + "Open in Graffiticode" link instead of a broken card — the same clean
- * fallback ChatGPT gets. Clients that do declare it (Claude Desktop chat, which sends
- * `extensions: { "io.modelcontextprotocol/ui": … }`) are unaffected.
+ * The first was handed a widget it cannot mount, which is what rendered "Unable to
+ * reach Graffiticode" on every render_item (it never even fetched the app HTML). The
+ * second was refused a widget it can actually render, purely because its client name
+ * doesn't contain "claude".
+ *
+ * Only the FIRST misfire is fixed here, by requiring the declaration on top of the
+ * name whitelist. Dropping the name check (capability + "not OpenAI") would fix the
+ * second too, but it would let ANY unknown client that declares the extension render
+ * the widget — including `web-sandbox`-style names, which is precisely the family the
+ * whitelist was added to catch after ChatGPT's consumer app slipped past a blacklist.
+ * With the OpenAI app-directory submission live, a false negative (a dev connector
+ * getting a text link) is cheap; a false positive (the widget appearing in ChatGPT)
+ * is not. A client that wants the widget must both declare the extension and be a
+ * recognized Claude host.
  */
 export function shouldAdvertiseWidget(
   clientName?: string,
   declaresUiExtension?: boolean
 ): boolean {
-  return isWidgetHost(clientName) && declaresUiExtension === true;
+  return declaresUiExtension === true && isWidgetHost(clientName);
 }
 
 // Kept for the funnel/logging classification; NOT used for widget routing anymore.

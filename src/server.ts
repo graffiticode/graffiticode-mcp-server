@@ -43,6 +43,7 @@ import {
   SERVER_INSTRUCTIONS,
   toolsForClient,
   shouldAdvertiseWidget,
+  isWidgetHost,
 } from "./tools.js";
 import { formatToolResult } from "./tool-result.js";
 import { buildChallengeResponse } from "./challenge.js";
@@ -621,14 +622,20 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
         meta: sessionMeta,
       });
 
-      // Non-widget hosts (everything but Claude) render no widget, so drop the
-      // _meta hydration payload (src/data/claim) rather than ship it to a surface
-      // that can't use it. Only the hydration key is stripped — any auth-control
-      // _meta (mcp/www_authenticate) still reaches every client.
-      const stripHydration = !shouldAdvertiseWidget(
-        server.getClientVersion()?.name,
-        declaresUiExtension(server)
-      );
+      // Drop the _meta hydration payload (src/data/claim) for surfaces that render
+      // no widget. Only the hydration key is stripped — auth-control _meta
+      // (mcp/www_authenticate) still reaches every client.
+      //
+      // This gate is the CLIENT FAMILY, deliberately NOT shouldAdvertiseWidget().
+      // In Claude Desktop the tool call and the app can run on DIFFERENT connections:
+      // production logs show create_item/render_item arriving on the `claude-code`
+      // connection while `claude-ai` fetches the app HTML seconds later. Keying this
+      // on the executing connection's declared capability stripped the hydration the
+      // sibling connection's app needed, and the app mounted with nothing to render —
+      // it never even imported a language bundle. Hydration is small, hidden from the
+      // model transcript, and harmless to a client that ignores it, so any
+      // Claude-family client keeps it.
+      const stripHydration = !isWidgetHost(server.getClientVersion()?.name);
       return formatToolResult(result, { stripHydration });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);
