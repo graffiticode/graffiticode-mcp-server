@@ -872,19 +872,49 @@ export type OAuthResolution =
   | { status: "invalid"; reason: OAuthInvalidReason };
 
 /**
+ * When a stored token entry expires, in epoch ms — or null if that can't be known.
+ *
+ * We set `access_token_expires_at` when issuing, but it never survives a round trip:
+ * the auth service persists an explicit allowlist of fields (`packages/auth`,
+ * `src/routes/oauth-tokens.js` + `src/storage/oauth-tokens.js`) that does not include
+ * it, and `mapTokenResponse` doesn't read it back either. So every entry loaded from
+ * the store has it `undefined`.
+ *
+ * That is why this falls back to `created_at` — which the auth service DOES stamp
+ * (`Date.now()`) and return — plus the same lifetime we advertise as `expires_in`.
+ * Without the fallback, a strict `typeof !== "number"` check rejects every freshly
+ * minted OAuth token as expired, which is precisely the bug this repairs: the client
+ * gets a 401 on its first call, refreshes, is rejected again, and silently falls back
+ * to an anonymous free-plan session.
+ *
+ * The original intent — force one relink for pre-hardening entries — is preserved:
+ * those were created long ago, so a `created_at`-derived expiry has already passed.
+ *
+ * Follow-up (cross-service, not required for correctness): add
+ * `access_token_expires_at` to the auth service's allowlist and to
+ * `mapTokenResponse`, so the issued value is authoritative rather than re-derived.
+ */
+export function accessTokenExpiry(
+  entry: Pick<TokenEntry, "access_token_expires_at" | "created_at">,
+): number | null {
+  if (typeof entry.access_token_expires_at === "number") return entry.access_token_expires_at;
+  if (typeof entry.created_at === "number") return entry.created_at + TOKEN_EXPIRES_IN * 1000;
+  return null;
+}
+
+/**
  * Pure validity check for a stored token entry — expiry, audience, scope. Kept
  * store- and network-free so the authorization rules are unit-testable. Returns
  * null when the entry is valid, or the rejection reason otherwise.
  */
 export function evaluateTokenValidity(
-  entry: Pick<TokenEntry, "access_token_expires_at" | "resource" | "scope">,
+  entry: Pick<TokenEntry, "access_token_expires_at" | "resource" | "scope" | "created_at">,
   expectedResource: string,
   now: number,
 ): OAuthInvalidReason | null {
-  // Enforce the advertised OAuth access-token expiry. Entries written before this
-  // field existed have no expiry recorded and are treated as expired (forcing one
-  // relink — the accepted migration cost).
-  if (typeof entry.access_token_expires_at !== "number" || now > entry.access_token_expires_at) {
+  // Enforce the advertised OAuth access-token expiry.
+  const expiresAt = accessTokenExpiry(entry);
+  if (expiresAt === null || now > expiresAt) {
     return "expired";
   }
   // Audience binding: the token must have been issued for this resource.

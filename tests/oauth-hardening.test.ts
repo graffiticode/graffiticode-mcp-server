@@ -7,6 +7,7 @@ import {
   buildWwwAuthenticate,
   redirectUrisError,
   evaluateTokenValidity,
+  accessTokenExpiry,
 } from "../src/oauth/handlers.js";
 
 const RESOURCE = "https://mcp.graffiticode.org/mcp";
@@ -40,11 +41,30 @@ test("redirectUrisError rejects empty/missing and non-https, accepts valid https
   assert.equal(redirectUrisError(["http://localhost:8080/cb"]), null);
 });
 
+test("a freshly issued token is valid even though the store drops access_token_expires_at", () => {
+  // Regression: the auth service persists an allowlist of fields that excludes
+  // access_token_expires_at, and mapTokenResponse doesn't read it back — so every
+  // entry loaded from the store has it undefined. A strict numeric check rejected
+  // EVERY OAuth token as expired on first use: the client 401'd, refreshed, 401'd
+  // again, and silently fell back to an anonymous free-plan session.
+  const justIssued = { resource: RESOURCE, scope: "graffiticode", created_at: NOW - 1_000 };
+  assert.equal(evaluateTokenValidity(justIssued, RESOURCE, NOW), null);
+
+  // The derived lifetime is the same 55 minutes advertised as expires_in.
+  assert.equal(accessTokenExpiry(justIssued), justIssued.created_at + 55 * 60 * 1000);
+  assert.equal(evaluateTokenValidity(justIssued, RESOURCE, NOW + 54 * 60_000), null);
+  assert.equal(evaluateTokenValidity(justIssued, RESOURCE, NOW + 56 * 60_000), "expired");
+
+  // An explicit expiry still wins when present (e.g. once the auth service stores it).
+  assert.equal(accessTokenExpiry({ access_token_expires_at: 42, created_at: NOW }), 42);
+});
+
 test("evaluateTokenValidity enforces expiry, audience, and scope", () => {
   const valid = {
     access_token_expires_at: NOW + 60_000,
     resource: RESOURCE,
     scope: "graffiticode",
+    created_at: NOW,
   };
   assert.equal(evaluateTokenValidity(valid, RESOURCE, NOW), null);
 
@@ -53,9 +73,23 @@ test("evaluateTokenValidity enforces expiry, audience, and scope", () => {
     evaluateTokenValidity({ ...valid, access_token_expires_at: NOW - 1 }, RESOURCE, NOW),
     "expired",
   );
-  // Legacy entry with no recorded expiry is treated as expired (forces one relink).
+  // Pre-hardening entry: no explicit expiry AND created long ago — still forced to
+  // relink, which was the original intent of the strict check.
   assert.equal(
-    evaluateTokenValidity({ ...valid, access_token_expires_at: undefined }, RESOURCE, NOW),
+    evaluateTokenValidity(
+      { ...valid, access_token_expires_at: undefined, created_at: NOW - 24 * 60 * 60_000 },
+      RESOURCE,
+      NOW,
+    ),
+    "expired",
+  );
+  // Neither field usable: nothing to trust, treat as expired.
+  assert.equal(
+    evaluateTokenValidity(
+      { ...valid, access_token_expires_at: undefined, created_at: undefined as unknown as number },
+      RESOURCE,
+      NOW,
+    ),
     "expired",
   );
   // Wrong audience.
