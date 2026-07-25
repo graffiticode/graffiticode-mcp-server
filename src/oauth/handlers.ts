@@ -115,8 +115,10 @@ function sendError(res: ServerResponse, status: number, error: OAuthError): void
 /**
  * Redirect response
  */
-function redirect(res: ServerResponse, url: string): void {
-  res.writeHead(302, { Location: url });
+function redirect(res: ServerResponse, url: string, status: 302 | 303 = 302): void {
+  // 303 after a POST: tells the browser to follow with GET rather than re-POSTing
+  // the body to the client's redirect_uri (RFC 9110 §15.4.4).
+  res.writeHead(status, { Location: url, "Cache-Control": "no-store" });
   res.end();
 }
 
@@ -394,9 +396,25 @@ export async function handleCallback(
   res: ServerResponse
 ): Promise<void> {
   const url = new URL(req.url || "/", `http://${req.headers.host}`);
-  const params = url.searchParams;
+
+  // The consent page POSTs the Google ID token in a form body. It must never travel
+  // in a query string: URLs are recorded by the CDN and by Cloud Run request logs
+  // (verified — a real user's id_token sat in plaintext in Cloud Logging), kept in
+  // browser history, and forwarded in Referer headers. The body is in none of those.
+  //
+  // GET is still accepted so a consent page deployed before this change keeps
+  // working, but it logs a warning and should stop being reachable once the console
+  // rollout is complete. The cancel path stays GET: it carries only error + state.
+  const isPost = req.method === "POST";
+  const params = isPost ? await parseFormBody(req) : url.searchParams;
 
   const googleIdToken = params.get("google_id_token");
+  if (!isPost && googleIdToken) {
+    console.warn(
+      "[oauth] google_id_token arrived in the callback QUERY STRING (pre-POST consent page). " +
+        "It is now in this request's access log. Deploy the console consent page that POSTs it."
+    );
+  }
   const state = params.get("state");
   const error = params.get("error");
   const errorDescription = params.get("error_description");
@@ -414,7 +432,7 @@ export async function handleCallback(
         redirectUrl.searchParams.set("error_description", errorDescription);
       }
       redirectUrl.searchParams.set("state", clientState);
-      redirect(res, redirectUrl.toString());
+      redirect(res, redirectUrl.toString(), isPost ? 303 : 302);
       return;
     }
     sendError(res, 400, { error, error_description: errorDescription || undefined });
@@ -463,7 +481,7 @@ export async function handleCallback(
   redirectUrl.searchParams.set("code", code);
   redirectUrl.searchParams.set("state", clientState);
 
-  redirect(res, redirectUrl.toString());
+  redirect(res, redirectUrl.toString(), isPost ? 303 : 302);
 }
 
 /**

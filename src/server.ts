@@ -931,8 +931,12 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     return;
   }
 
-  // OAuth Callback (from consent page)
-  if (url.pathname === "/oauth/callback" && req.method === "GET") {
+  // OAuth Callback (from consent page). POST is the real path — the consent page
+  // submits the Google ID token in a form body so it never appears in a URL (query
+  // strings land in CDN/Cloud Run access logs, browser history, and Referer headers).
+  // GET is kept so a consent page deployed before that change still works; it logs a
+  // warning and can be removed once the console rollout has landed.
+  if (url.pathname === "/oauth/callback" && (req.method === "POST" || req.method === "GET")) {
     await handleCallback(req, res);
     return;
   }
@@ -1100,7 +1104,23 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
   res.end(JSON.stringify({ error: "Not found" }));
 }
 
-const httpServer = createServer(handleRequest);
+// handleRequest is async, so a rejection it doesn't catch becomes an unhandled
+// rejection — which terminates the process under Node's default policy. Several
+// routes await network calls (the OAuth store talks to the auth service), and a 403
+// or an outage there was enough to take the instance down for every user: the
+// service runs pinned at a single instance, so one bad callback is a full outage.
+// Answer 500 and keep serving instead.
+const httpServer = createServer((req, res) => {
+  handleRequest(req, res).catch((err) => {
+    console.error(`[http] unhandled error for ${req.method} ${req.url}: ${(err as Error)?.stack ?? err}`);
+    if (res.headersSent) {
+      res.end();
+      return;
+    }
+    res.writeHead(500, { "Content-Type": "application/json" });
+    res.end(JSON.stringify({ error: "internal_error" }));
+  });
+});
 
 httpServer.listen(PORT, () => {
   console.log(`Graffiticode MCP Server (hosted) running on http://localhost:${PORT}`);
