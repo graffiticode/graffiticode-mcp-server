@@ -106,7 +106,18 @@ const itemStatusProperties = {
 
 const renderItemOutputSchema = {
   type: "object",
-  properties: itemStatusProperties,
+  properties: {
+    ...itemStatusProperties,
+    // The item's links are part of the COMPACT contract, not widget hydration.
+    // Widget hosts render the item inline and read these from _meta; every other
+    // client (ChatGPT, Codex, programmatic callers) has no widget and no _meta —
+    // hydration is stripped for them — so if the link only lived in the prose
+    // summary it would be the one thing they need and cannot address as a field.
+    // src/data stay out; a URL is not language-private.
+    view_url: { type: "string" },
+    claim_url: { type: "string" },
+    claim_message: { type: "string" },
+  },
   required: ["item_id", "status", "language", "name"],
   additionalProperties: false,
 } as const;
@@ -877,6 +888,12 @@ async function handleItemResult(
     if (mode === "render") {
       return {
         ...compact,
+        // Links are echoed as real fields, not only inside `summary`. Non-widget
+        // clients get `_meta.graffiticode` stripped, so this is their only
+        // addressable copy of the item's URL.
+        view_url: hydration.view_url,
+        ...(hydration.claim_url ? { claim_url: hydration.claim_url } : {}),
+        ...(hydration.claim_message ? { claim_message: hydration.claim_message } : {}),
         summary,
         _meta: { graffiticode: hydration },
       };

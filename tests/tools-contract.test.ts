@@ -77,6 +77,11 @@ test("render_item is compact while get_item preserves the legacy raw contract", 
   const rawProperties = (getItemTool.outputSchema.properties ?? {}) as Record<string, unknown>;
   assert.equal(renderProperties.src, undefined);
   assert.equal(renderProperties.data, undefined);
+  // ...but the item's links ARE part of the compact contract: clients without a
+  // widget (ChatGPT, Codex) get _meta.graffiticode stripped, so a link that lived
+  // only in the prose summary would be unaddressable for them.
+  assert.ok(renderProperties.view_url, "render_item must expose view_url as a field");
+  assert.ok(renderProperties.claim_url, "render_item must expose claim_url as a field");
   assert.ok(rawProperties.src);
   assert.ok(rawProperties.data);
 });

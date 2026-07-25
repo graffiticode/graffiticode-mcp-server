@@ -163,7 +163,7 @@ Retrieve an item and display it, waiting for generation to finish. This is the *
 |------|------|----------|-------------|
 | `item_id` | string | Yes | The item ID to render. |
 
-Long-polls until the item is `ready` or `failed`, then returns a **compact** result (`item_id`, `status`, `language`, `name`, and a short summary). The language-private `src` and `data` are kept out of the model transcript while still hydrating the interactive widget in Claude.
+Long-polls until the item is `ready` or `failed`, then returns a **compact** result (`item_id`, `status`, `language`, `name`, `view_url`, and a short summary; free-plan items also carry `claim_url`/`claim_message`). The language-private `src` and `data` are kept out of the model transcript while still hydrating the interactive widget in Claude.
 
 ---
 
