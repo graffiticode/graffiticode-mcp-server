@@ -25,7 +25,7 @@ import type { AuthContext } from "./api.js";
 export type EventOutcome = "ok" | "generation_failed" | "error";
 
 interface BaseEvent {
-  ev: "mcp_connect" | "mcp_tool";
+  ev: "mcp_connect" | "mcp_session_started" | "mcp_tool";
   t: string; // ISO8601
   auth: "freePlan" | "firebase";
   session: string; // sessionNamespace (free-plan) or hashed token id (firebase)
@@ -55,7 +55,21 @@ interface ConnectEvent extends BaseEvent {
   ev: "mcp_connect";
 }
 
-function emit(event: ConnectEvent | ToolEvent): void {
+/**
+ * A session's FIRST tool call — someone actually asked for something.
+ *
+ * Distinct from mcp_connect on purpose. A connect is the agent host opening a
+ * transport; it happens on probes, health checks, and clients that enumerate
+ * tools and stop. This is the event that means a person made a request, so it
+ * is what the hourly digest headlines as a new session.
+ */
+interface SessionStartedEvent extends BaseEvent {
+  ev: "mcp_session_started";
+  tool: string;
+  lang?: string;
+}
+
+function emit(event: ConnectEvent | SessionStartedEvent | ToolEvent): void {
   // Best-effort: instrumentation must never break a request.
   try {
     console.log(JSON.stringify(event));
@@ -87,7 +101,10 @@ export interface SessionMeta {
   geoRegion?: string;
 }
 
-function applyMeta(event: ConnectEvent | ToolEvent, meta?: SessionMeta): void {
+function applyMeta(
+  event: ConnectEvent | SessionStartedEvent | ToolEvent,
+  meta?: SessionMeta,
+): void {
   if (!meta) return;
   if (meta.clientKind) event.client_kind = meta.clientKind.slice(0, 64);
   if (meta.geoCountry) event.geo_country = meta.geoCountry;
@@ -104,6 +121,22 @@ export function logConnect(
     auth: params.auth,
     session: params.session,
   };
+  applyMeta(event, meta);
+  emit(event);
+}
+
+export function logSessionStarted(
+  params: { auth: "freePlan" | "firebase"; session: string; tool: string; lang?: string },
+  meta?: SessionMeta,
+): void {
+  const event: SessionStartedEvent = {
+    ev: "mcp_session_started",
+    t: new Date().toISOString(),
+    auth: params.auth,
+    session: params.session,
+    tool: params.tool,
+  };
+  if (params.lang !== undefined) event.lang = params.lang;
   applyMeta(event, meta);
   emit(event);
 }

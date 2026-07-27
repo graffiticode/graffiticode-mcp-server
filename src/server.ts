@@ -49,7 +49,7 @@ import { formatToolResult } from "./tool-result.js";
 import { buildChallengeResponse } from "./challenge.js";
 import { startSseKeepalive } from "./sse-keepalive.js";
 import type { AuthContext } from "./api.js";
-import { identify, logConnect, logToolCall, type EventOutcome, type SessionMeta } from "./events.js";
+import { identify, logConnect, logSessionStarted, logToolCall, type EventOutcome, type SessionMeta } from "./events.js";
 import { mintSessionToken } from "./session-token.js";
 import { EXTENSION_ID, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import {
@@ -498,6 +498,9 @@ function declaresUiExtension(server: Server): boolean {
 }
 
 function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = {}) {
+  // One server instance per transport session, so this is per-session state:
+  // the first tool call is what turns a bare connect into a real session.
+  let sessionStartLogged = false;
   const server = new Server(
     {
       name: "graffiticode",
@@ -603,6 +606,14 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
     try {
       const auth = await authProvider.getAuth();
       identity = identify(auth);
+
+      // Emitted before the call runs, not after: the decision to ask is the
+      // event, and a session whose first request errors still started.
+      if (!sessionStartLogged) {
+        sessionStartLogged = true;
+        logSessionStarted({ ...identity, tool: name, lang }, sessionMeta);
+      }
+
       const result = await handleToolCall(
         { auth },
         name,
