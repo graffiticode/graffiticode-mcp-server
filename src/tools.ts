@@ -10,7 +10,6 @@ import {
   CONSOLE_URL,
   APP_URL,
 } from "./api.js";
-import { mintClaimToken } from "./claim-token.js";
 import { widgetResourceUris } from "./widget/index.js";
 
 // --- Help Entry Structure (matches console HelpPanel) ---
@@ -575,18 +574,29 @@ function buildViewUrl(itemId: string, claimToken?: string | null): string {
   return claimToken ? `${base}?claim=${claimToken}` : base;
 }
 
-// For trial-mode responses, mint a 24h JWT and return the claim token plus the
-// fields the console's /claim page consumes. Returns null when not a free-plan
-// call or when FREE_PLAN_NAMESPACE_SALT isn't configured (graceful degrade).
-async function buildClaimFields(
-  auth: AuthContext
-): Promise<{ token: string; claim_url: string; claim_message: string } | null> {
-  if (auth.type !== "freePlan") return null;
-  const token = await mintClaimToken(auth.sessionId);
-  if (!token) return null;
-  const claim_url = `${CONSOLE_URL}/claim?token=${token}`;
+// For trial-mode responses, wrap the console-issued claim token in the fields
+// the console's /claim page consumes. Returns null when not a free-plan call or
+// when the console issued no token (unconfigured salt — graceful degrade).
+//
+// The token comes from the console rather than being minted here. We used to
+// derive it from our own transport session uuid, which addressed the wrong
+// namespace for any client whose transport session isn't where its items live —
+// a stateless client revising an item created in an earlier session produced a
+// claim link over an empty namespace, so claiming transferred nothing at all.
+// Only the console knows the effective workspace, so only the console can mint
+// this. That also retires the copy of the HS256 signing parameters this repo was
+// keeping in sync with the console's by hand.
+function buildClaimFields(
+  auth: AuthContext,
+  claimToken?: string | null
+): { token: string; claim_url: string; claim_message: string } | null {
+  if (auth.type !== "freePlan" || !claimToken) return null;
+  // `src=chat` attributes the click to the link an agent prints, as distinct
+  // from the render-host footer's Claim button (which carries src=footer). The
+  // two convert very differently, so a blended rate wouldn't be actionable.
+  const claim_url = `${CONSOLE_URL}/claim?token=${claimToken}&src=chat`;
   return {
-    token,
+    token: claimToken,
     claim_url,
     claim_message: `Your item is ready. To save it permanently, sign in at: ${claim_url}`,
   };
@@ -596,12 +606,13 @@ async function buildClaimFields(
 // render-host footer can offer a "Claim it" link for this exact item) plus the
 // claim_url/claim_message fields. The raw token is intentionally not surfaced as
 // its own response field.
-async function applyViewAndClaim(
+function applyViewAndClaim(
   obj: Record<string, unknown>,
   auth: AuthContext,
-  itemId: string
-): Promise<void> {
-  const claimFields = await buildClaimFields(auth);
+  itemId: string,
+  claimToken?: string | null
+): void {
+  const claimFields = buildClaimFields(auth, claimToken);
   obj.view_url = buildViewUrl(itemId, claimFields?.token);
   if (claimFields) {
     obj.claim_url = claimFields.claim_url;
@@ -875,7 +886,7 @@ async function handleItemResult(
       created: item.created,
       updated: item.updated,
     };
-    await applyViewAndClaim(hydration, ctx.auth, item.id);
+    applyViewAndClaim(hydration, ctx.auth, item.id, item.claimToken);
     // Chat-facing summary for clients that render text rather than the widget
     // (e.g. Codex). Surfaces the form-view link instead of dumping language-
     // private source/data. Widget hosts ignore this and render from hydration.

@@ -18,7 +18,7 @@ The Service provides a Model Context Protocol (MCP) server that enables AI assis
 
 Authentication is optional. You may connect without credentials on the free plan, or authenticate with a Graffiticode API key or through the OAuth 2.1 authorization flow to associate your work with an account. If you do authenticate, you are responsible for keeping your credentials secure and for all activity under your account.
 
-Items created on the free plan are scoped to an anonymous session and can be transferred into an account using a claim link, which is valid for 24 hours. Until claimed, they are not associated with any account and may be removed.
+Items created on the free plan are scoped to an anonymous workspace and can be transferred into an account using a claim link, which is valid for 24 hours and transfers the whole workspace. Free-plan use is subject to limits, including a cap on revisions per item and a shared daily item allowance. Until claimed, items are not associated with any account and are removed after 48 hours.
 
 ## Acceptable Use
 

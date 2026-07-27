@@ -91,7 +91,7 @@ Any MCP-compatible client can connect using Streamable HTTP transport at the `/m
 
 Authentication is **optional**. The server supports three modes:
 
-- **No auth (free plan)** — connect without credentials to try the server. Items you create are scoped to an anonymous session. Once an item is ready, the response carries a `view_url` and a `claim_url`; opening the claim link and signing in transfers your items into a real Graffiticode account. Claim links are valid for **24 hours**.
+- **No auth (free plan)** — connect without credentials to try the server. Items you create are scoped to an anonymous workspace, which follows your items across reconnects rather than being tied to a single transport session. You can create items and revise each one up to **5 times**; a shared daily allowance applies across all free-plan users. Once an item is ready, the response carries a `view_url` and a `claim_url`; opening the claim link and signing in transfers **the whole workspace** into a real Graffiticode account. Claim links are valid for **24 hours**, and unclaimed items are removed after **48 hours**.
 - **OAuth 2.1** (recommended for interactive clients) — the server implements OAuth 2.1 with PKCE. Clients that support MCP OAuth discovery are guided through the flow automatically.
 - **API key** (for programmatic access) — pass your Graffiticode API key as a Bearer token: `Authorization: Bearer gc_xxxxx`
 

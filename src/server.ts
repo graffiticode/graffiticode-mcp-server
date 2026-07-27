@@ -50,6 +50,7 @@ import { buildChallengeResponse } from "./challenge.js";
 import { startSseKeepalive } from "./sse-keepalive.js";
 import type { AuthContext } from "./api.js";
 import { identify, logConnect, logToolCall, type EventOutcome, type SessionMeta } from "./events.js";
+import { mintSessionToken } from "./session-token.js";
 import { EXTENSION_ID, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import {
   generateWidgetHtml,
@@ -1030,6 +1031,21 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       // No bearer → free-plan. The auth provider reads the MCP session id
       // lazily from the transport, which sets it during the initialize POST.
       const transportRef: { current: StreamableHTTPServerTransport | null } = { current: null };
+      // Signed workspace handle the console hands back once it knows which
+      // workspace this caller is actually operating in. It supersedes the
+      // transport session id from then on, so subsequent calls — including
+      // create_item, which names no existing item — land in that workspace
+      // instead of starting a fresh one. Lives as long as the transport does;
+      // clients whose transport dies every call (ChatGPT) still get the
+      // per-request adoption the console does on its own.
+      let workspace: string | null = null;
+      // Signed token for this transport session, minted once and reused. It is
+      // what we present until (and unless) the console hands back a workspace
+      // handle, so even the very first call of a session is attested rather than
+      // a self-asserted uuid the console has to take on faith.
+      let sessionToken: string | null = null;
+      let sessionTokenFor: string | null = null;
+
       authProvider = {
         async getAuth() {
           const sid = transportRef.current?.sessionId;
@@ -1038,7 +1054,18 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
               "Free-plan session not yet initialized. Send an MCP `initialize` request first."
             );
           }
-          return { type: "freePlan", sessionId: sid };
+          if (!workspace && sessionTokenFor !== sid) {
+            sessionToken = await mintSessionToken(sid);
+            sessionTokenFor = sid;
+          }
+          return {
+            type: "freePlan",
+            // Precedence: the console's workspace handle wins over our own
+            // session token, which wins over the bare uuid (the last only when
+            // the salt is unconfigured — see mintSessionToken).
+            sessionId: workspace ?? sessionToken ?? sid,
+            onWorkspace: (token: string) => { workspace = token; },
+          };
         },
       };
       // Stash the holder so we can populate it once the transport exists.

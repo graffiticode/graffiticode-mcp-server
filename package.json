@@ -9,7 +9,7 @@
     "build:widget": "node scripts/build-widget.mjs",
     "typecheck": "tsc --noEmit",
     "typecheck:widget": "tsc -p tsconfig.widget.json",
-    "test": "npm run build && npm run typecheck:widget && tsx --test tests/*.test.ts",
+    "test": "npm run build && npm run typecheck:widget && FREE_PLAN_NAMESPACE_SALT=test-salt-not-a-real-secret tsx --test tests/*.test.ts",
     "clean": "rimraf dist",
     "eval:routing": "npx tsx scripts/eval-routing.ts",
     "start": "node dist/server.js",

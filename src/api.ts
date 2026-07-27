@@ -18,7 +18,12 @@ export type AuthContext =
   // "oauth" — already a Firebase ID token; "raw" — the caller's raw Graffiticode
   // API key (forwarded verbatim to the console, which exchanges it).
   | { type: "firebase"; token: string; source?: "oauth" | "raw" }
-  | { type: "freePlan"; sessionId: string };
+  // sessionId is whatever we currently present as X-Free-Plan-Session: initially
+  // the transport session uuid, and after the console hands one back, a signed
+  // workspace token. onWorkspace lets a response rebind it, which is how a
+  // client keeps working in one workspace across the transport sessions it keeps
+  // losing (restart, scale-out, ChatGPT's per-tool-call sessions).
+  | { type: "freePlan"; sessionId: string; onWorkspace?: (token: string) => void };
 
 interface GraphQLResponse<T> {
   data?: T;
@@ -224,6 +229,21 @@ export interface Item {
   generationStatus?: "generating" | "ready" | "failed" | null;
   generationError?: string | null;
   generationStartedAt?: string | null;
+  // Free-plan only, minted by the console from the item's EFFECTIVE workspace.
+  // `workspace` is presented on later requests; `claimToken` builds claim links.
+  // Never populated for authenticated callers.
+  workspace?: string | null;
+  claimToken?: string | null;
+}
+
+/**
+ * Adopt a workspace handle the console returned. The console decides the
+ * workspace (it may rebind ours to the one an item already belongs to), so its
+ * answer is authoritative and we just carry it forward.
+ */
+export function captureWorkspace(auth: AuthContext, item: { workspace?: string | null } | null): void {
+  if (!item?.workspace || auth.type !== "freePlan") return;
+  auth.onWorkspace?.(item.workspace);
 }
 
 export async function createItem(options: {
@@ -248,6 +268,8 @@ export async function createItem(options: {
         created
         updated
         client
+        workspace
+        claimToken
       }
     }
   `;
@@ -258,6 +280,7 @@ export async function createItem(options: {
     { lang, name, taskId, help, client }
   );
 
+  captureWorkspace(auth, result.createItem);
   return result.createItem;
 }
 
@@ -279,6 +302,7 @@ export async function getItem(options: {
         created
         updated
         client
+        claimToken
       }
     }
   `;
@@ -319,6 +343,7 @@ export async function getItemWithTask(options: {
         created
         updated
         client
+        claimToken
         generationStatus
         generationError
         generationStartedAt
@@ -390,6 +415,8 @@ export async function updateItem(options: {
         created
         updated
         client
+        workspace
+        claimToken
       }
     }
   `;
@@ -400,6 +427,7 @@ export async function updateItem(options: {
     { id, name, taskId, help }
   );
 
+  captureWorkspace(auth, result.updateItem);
   return result.updateItem;
 }
 

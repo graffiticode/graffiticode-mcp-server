@@ -1,5 +1,5 @@
 import crypto from "crypto";
-import { deriveSessionNamespace } from "./claim-token.js";
+import { namespaceForSession } from "./claim-token.js";
 import type { AuthContext } from "./api.js";
 
 /**
@@ -17,7 +17,7 @@ import type { AuthContext } from "./api.js";
  *     region) derived at the Cloudflare edge (`CF-IPCountry`), so the raw IP
  *     (`cf-connecting-ip`) is read by nobody here and never persisted.
  *
- * The free-plan session hash reuses `deriveSessionNamespace` so the logged
+ * The free-plan session hash reuses `namespaceForSession` so the logged
  * `session` equals the `sessionNamespace` the console stamps on items/claims,
  * giving the report a join key without exposing the raw UUID.
  */
@@ -76,7 +76,7 @@ function hashToken(token: string): string {
  */
 export function identify(auth: AuthContext): { auth: "freePlan" | "firebase"; session: string } {
   if (auth.type === "freePlan") {
-    return { auth: "freePlan", session: deriveSessionNamespace(auth.sessionId) };
+    return { auth: "freePlan", session: namespaceForSession(auth.sessionId) };
   }
   return { auth: "firebase", session: hashToken(auth.token) };
 }
