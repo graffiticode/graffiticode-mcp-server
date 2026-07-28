@@ -143,7 +143,7 @@ export const createItemTool = {
   name: "create_item",
   description: `Create interactive content in any Graffiticode language. Describe what you want in natural language — a language-specific AI generates the result.
 
-Call list_languages() first to discover available languages, then pass the language ID here. The description should be a natural language request, not code. Be specific about the content, structure, layout, theme, and any assessment or interaction requirements.
+Call list_languages() first to discover available languages, then pass the language ID here. Your closest match is good enough — the platform validates it against the language's scope and re-routes the request if another language fits better. The description should be a natural language request, not code. Be specific about the content, structure, layout, theme, and any assessment or interaction requirements.
 
 To reuse content from an existing item (any language) — e.g. "make this spreadsheet into a Learnosity question" — call get_spec(item_id) and use its returned text as this description, adding only your intent/target framing. Never paste another item's src/data or its id, and do not name upstream languages or wire a pipeline: just describe what you want and let the generator identify the languages and compose.
 
@@ -153,7 +153,7 @@ Generation runs asynchronously: this returns immediately with an item_id and sta
     properties: {
       language: {
         type: "string",
-        description: "Language ID (e.g., 'L0166'). Call list_languages() to discover options.",
+        description: "Language ID (e.g., 'L0166'). Call list_languages() to discover options. A best guess is fine — the platform re-routes the request if another language is a better fit.",
       },
       description: {
         type: "string",
