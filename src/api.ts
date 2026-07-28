@@ -13,6 +13,11 @@ export const API_URL = process.env.GRAFFITICODE_API_URL || "https://api.graffiti
 export const CONSOLE_URL = process.env.GRAFFITICODE_CONSOLE_BASE_URL || "https://console.graffiticode.org";
 export const APP_URL = process.env.GRAFFITICODE_APP_URL || "https://app.graffiticode.org";
 
+// This server's own public MCP endpoint, quoted verbatim in the connect instructions
+// we hand users. server.ts and oauth/handlers.ts each hold their own MCP_SERVER_URL
+// copy; this reads the same env var so all three agree on the address we publish.
+export const MCP_ENDPOINT = `${process.env.MCP_SERVER_URL || "https://mcp.graffiticode.org"}/mcp`;
+
 export type AuthContext =
   // `source` records how the bearer was resolved (see server.ts resolveBearer):
   // "oauth" — already a Firebase ID token; "raw" — the caller's raw Graffiticode

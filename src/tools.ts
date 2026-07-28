@@ -9,6 +9,7 @@ import {
   type AuthContext,
   CONSOLE_URL,
   APP_URL,
+  MCP_ENDPOINT,
 } from "./api.js";
 import { widgetResourceUris } from "./widget/index.js";
 
@@ -515,6 +516,72 @@ export function isOpenAIClient(clientName?: string): boolean {
   return !!clientName && /openai|chatgpt|codex/i.test(clientName);
 }
 
+/**
+ * How a client binds a connection to a Graffiticode account — the only thing the
+ * reconnect copy actually turns on. Built on the matchers above rather than a
+ * second name-matching scheme.
+ *
+ *   claude-code — a config-file client that takes an Authorization header, and the
+ *                 one Claude host that is separable by name (production logs show
+ *                 `host=claude-code v=2.1.219` distinct from `claude-ai`).
+ *   claude-app  — claude.ai / Claude Desktop: connector UI, NO header field, so
+ *                 OAuth is its only account-binding path.
+ *   openai      — ChatGPT / Codex: same constraint as claude-app.
+ *   editor      — Cursor / VS Code / Windsurf / Zed: MCP config file, takes a header.
+ *   unknown     — unnamed or unrecognized. Send them to the page and let them pick.
+ *
+ * This bucket, not the raw client name, is what travels to the console on the claim
+ * URL: one taxonomy, defined here, rendered there.
+ */
+export type ClientHost = "claude-code" | "claude-app" | "openai" | "editor" | "unknown";
+
+export function classifyClientHost(clientName?: string): ClientHost {
+  if (!clientName) return "unknown";
+  if (/claude-?code/i.test(clientName)) return "claude-code";
+  if (isWidgetHost(clientName)) return "claude-app";
+  if (isOpenAIClient(clientName)) return "openai";
+  if (/cursor|vs-?code|visual[-\s]?studio|windsurf|zed/i.test(clientName)) return "editor";
+  return "unknown";
+}
+
+// Whether the connector UIs that have no header field (claude.ai, ChatGPT) can yet
+// bind a connection to an account. Until `/oauth/consent` accepts the email and
+// wallet sign-ins those users actually have — it is Google-only today — telling them
+// to "reconnect and sign in" would send them at a button they cannot use, so they get
+// the neutral line instead. Flip this with the consent-page work; nothing else changes.
+const OAUTH_RECONNECT_ENABLED = process.env.OAUTH_RECONNECT_ENABLED === "true";
+
+/**
+ * The one sentence appended to `claim_message`, telling the user how to stop being
+ * anonymous in the agent they are actually holding. Deliberately short: chat is not
+ * the place for a config blob, and a config-file host needs an API key that only the
+ * claim page can mint. The page does the rest.
+ */
+export function reconnectHint(host: ClientHost): string {
+  switch (host) {
+    case "claude-code":
+      return (
+        "After signing in, connect this account: " +
+        `claude mcp add --transport http graffiticode ${MCP_ENDPOINT} ` +
+        '--header "Authorization: Bearer <api-key>" — the sign-in page issues the key.'
+      );
+    case "editor":
+      return (
+        "After signing in, add an Authorization: Bearer <api-key> header to the " +
+        "graffiticode entry in your MCP config — the sign-in page issues the key."
+      );
+    case "claude-app":
+    case "openai":
+      return OAUTH_RECONNECT_ENABLED
+        ? "After signing in, reconnect the Graffiticode connector and sign in there too, " +
+            "so new items save to your account automatically."
+        : "New items will keep starting out anonymous, so save each one with the link above; " +
+            "the sign-in page explains how to connect this connector to your account.";
+    case "unknown":
+      return "The sign-in page also shows how to connect your agent so new items save automatically.";
+  }
+}
+
 // _meta keys that carry widget/UI descriptor data. Only these are host-gated; every
 // other _meta key (notably `securitySchemes`) is kept for all clients.
 function isWidgetMetaKey(key: string): boolean {
@@ -561,6 +628,9 @@ export function toolsForClient(clientName?: string, declaresUiExtension?: boolea
 
 export interface ToolContext {
   auth: AuthContext;
+  // MCP `clientInfo.name` for this call, when the client sent one. Only used to
+  // pick the reconnect wording and the `client=` bucket on the claim URL.
+  clientKind?: string;
 }
 
 // The app's view page for an item, opened in a full browser tab (where a
@@ -586,19 +656,35 @@ function buildViewUrl(itemId: string, claimToken?: string | null): string {
 // Only the console knows the effective workspace, so only the console can mint
 // this. That also retires the copy of the HS256 signing parameters this repo was
 // keeping in sync with the console's by hand.
-function buildClaimFields(
+export function buildClaimFields(
   auth: AuthContext,
-  claimToken?: string | null
+  claimToken?: string | null,
+  clientKind?: string
 ): { token: string; claim_url: string; claim_message: string } | null {
   if (auth.type !== "freePlan" || !claimToken) return null;
   // `src=chat` attributes the click to the link an agent prints, as distinct
   // from the render-host footer's Claim button (which carries src=footer). The
   // two convert very differently, so a blended rate wouldn't be actionable.
-  const claim_url = `${CONSOLE_URL}/claim?token=${claimToken}&src=chat`;
+  //
+  // `agent` is the coarse host bucket (never the raw client name): the claim page
+  // opens on the right connect instructions instead of asking someone who just
+  // signed in to identify their own agent. A host family is not an identifier —
+  // `client_kind` is already carried on our funnel events.
+  //
+  // Named `agent`, NOT `client`: the console already reads `?client=` app-wide as
+  // the item source surface (console|mcp|front, see its _app.tsx), and reusing that
+  // name for a different taxonomy is a collision waiting to be discovered.
+  const host = classifyClientHost(clientKind);
+  const claim_url = `${CONSOLE_URL}/claim?token=${claimToken}&src=chat&agent=${host}`;
   return {
     token: claimToken,
     claim_url,
-    claim_message: `Your item is ready. To save it permanently, sign in at: ${claim_url}`,
+    // The hint goes on its own line so the URL ends one: a sentence butted up
+    // against a link is where renderers start swallowing trailing words into the
+    // href, and this link is the whole point of the message.
+    claim_message:
+      `Your item is ready. To save it permanently, sign in at: ${claim_url}\n` +
+      reconnectHint(host),
   };
 }
 
@@ -610,9 +696,10 @@ function applyViewAndClaim(
   obj: Record<string, unknown>,
   auth: AuthContext,
   itemId: string,
-  claimToken?: string | null
+  claimToken?: string | null,
+  clientKind?: string
 ): void {
-  const claimFields = buildClaimFields(auth, claimToken);
+  const claimFields = buildClaimFields(auth, claimToken, clientKind);
   obj.view_url = buildViewUrl(itemId, claimFields?.token);
   if (claimFields) {
     obj.claim_url = claimFields.claim_url;
@@ -886,7 +973,7 @@ async function handleItemResult(
       created: item.created,
       updated: item.updated,
     };
-    applyViewAndClaim(hydration, ctx.auth, item.id, item.claimToken);
+    applyViewAndClaim(hydration, ctx.auth, item.id, item.claimToken, ctx.clientKind);
     // Chat-facing summary for clients that render text rather than the widget
     // (e.g. Codex). Surfaces the form-view link instead of dumping language-
     // private source/data. Widget hosts ignore this and render from hydration.
