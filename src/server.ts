@@ -30,6 +30,7 @@ import {
   ListResourcesRequestSchema,
   ListResourceTemplatesRequestSchema,
   ReadResourceRequestSchema,
+  isInitializeRequest,
 } from "@modelcontextprotocol/sdk/types.js";
 import type { ServerNotification } from "@modelcontextprotocol/sdk/types.js";
 import { createServer, IncomingMessage, ServerResponse } from "http";
@@ -1089,24 +1090,18 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     // backfill clientKind onto the same object after the initialize handshake.
     const sessionMeta: SessionMeta = geoFromHeaders(req.headers);
 
+    // Set when the transport mints a session id, cleared when the matching
+    // mcp_connect goes out. See the onmessage wrapper below for why the event
+    // can't be emitted at the point the id is minted.
+    let pendingConnectSession: string | null = null;
+
     // Create new transport and server for new session
     const transport = new StreamableHTTPServerTransport({
       sessionIdGenerator: () => crypto.randomUUID(),
       onsessioninitialized: (newSessionId: string) => {
         transports.set(newSessionId, transport);
         servers.set(newSessionId, server);
-        // Earliest interest signal: an agent connected. Identify the session
-        // the same way tool events do so the funnel report can join them.
-        // clientKind isn't known yet (clientInfo arrives with the initialize
-        // message, after this fires) — it lands on the session's tool events.
-        logConnect(
-          identify(
-            bearerToken
-              ? { type: "firebase", token: bearerToken }
-              : { type: "freePlan", sessionId: newSessionId }
-          ),
-          sessionMeta
-        );
+        pendingConnectSession = newSessionId;
       }
     });
 
@@ -1130,6 +1125,44 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
 
     const server = createMcpServer(authProvider, sessionMeta);
     await server.connect(transport);
+
+    // Emit mcp_connect from the initialize MESSAGE, not from the transport's
+    // onsessioninitialized hook.
+    //
+    // The transport awaits that hook BEFORE dispatching the initialize message
+    // to the server, so at that point the handshake hasn't happened and
+    // server.getClientVersion() is necessarily empty — which is why every
+    // mcp_connect ever emitted carried no client_kind and probes (connects that
+    // never became a tool call) were unattributable. The message itself is the
+    // only place clientInfo exists this early: it arrives in the initialize
+    // request params. Wrapping onmessage — set by server.connect() just above —
+    // reads it there and keeps the event's population identical (one connect per
+    // completed initialize POST, with the session id already minted).
+    //
+    // Stamping sessionMeta also means the rest of the session inherits the kind,
+    // making the tool handler's backfill a no-op rather than the sole source.
+    const forwardMessage = transport.onmessage;
+    transport.onmessage = (message, extra) => {
+      if (pendingConnectSession && isInitializeRequest(message)) {
+        const sid = pendingConnectSession;
+        pendingConnectSession = null;
+        const kind = (message.params as { clientInfo?: { name?: unknown } } | undefined)
+          ?.clientInfo?.name;
+        if (typeof kind === "string" && kind && !sessionMeta.clientKind) {
+          sessionMeta.clientKind = kind;
+        }
+        logConnect(
+          identify(
+            bearerToken
+              ? { type: "firebase", token: bearerToken }
+              : { type: "freePlan", sessionId: sid }
+          ),
+          sessionMeta
+        );
+      }
+      forwardMessage?.(message, extra);
+    };
+
     // Covers the initialize POST's stream too — cheap, and one rule for every
     // /mcp response rather than a GET-only special case.
     keepSseAlive(res);

@@ -30,7 +30,10 @@ interface BaseEvent {
   auth: "freePlan" | "firebase";
   session: string; // sessionNamespace (free-plan) or hashed token id (firebase)
   // Agent KIND: MCP clientInfo.name (e.g. "claude-ai", "cursor", "codex").
-  // Unset on mcp_connect (clientInfo arrives after the session id is minted).
+  // Present on every event including mcp_connect, which reads it out of the
+  // initialize request's params — the transport mints the session id before
+  // that message reaches the server, so the handshake state isn't available
+  // yet and the message itself is the only source this early.
   client_kind?: string;
   // Agent GEO: coarse, non-PII. Country is ISO-3166 alpha-2; region only when
   // the edge provides it. Derived from request headers, never from a logged IP.
