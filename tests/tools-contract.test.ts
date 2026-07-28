@@ -4,6 +4,7 @@ import {
   TOOL_SECURITY_SCHEMES,
   buildClaimFields,
   buildGeneratingResponse,
+  buildReadySummary,
   classifyClientHost,
   getItemTool,
   parseHelp,
@@ -119,6 +120,30 @@ test("a Claude-named client that declares no MCP Apps support gets NO widget", (
   for (const tool of withUi) {
     assert.match((metaOf(tool).ui as { resourceUri?: string }).resourceUri ?? "", /^ui:\/\/graffiticode\/widget-mcp\./);
   }
+});
+
+test("the ready summary hides our placeholder name and links instead of dumping URLs", () => {
+  const url = "https://app.graffiticode.org/form/ITEM?claim=JWT";
+
+  // The console defaults an omitted name to the literal "unnamed", which made the
+  // no-name branch unreachable and printed our placeholder in bold as the title.
+  for (const placeholder of [null, "", "  ", "unnamed", "Unnamed", " UNNAMED "]) {
+    const s = buildReadySummary(placeholder, "L0173", url);
+    assert.ok(s.startsWith("Your item (L0173) is ready"), `"${placeholder}" should read as unnamed, got: ${s}`);
+    assert.doesNotMatch(s, /unnamed/i, `"${placeholder}" leaked the placeholder`);
+  }
+
+  // A real name is still the title.
+  assert.ok(buildReadySummary("Sales chart", "L0173", url).startsWith("**Sales chart** (L0173)"));
+
+  // Markdown link, not a bare URL: these carry a ~250-char claim JWT.
+  const s = buildReadySummary("Sales chart", "L0173", url);
+  assert.ok(s.includes(`[open the form view](${url})`), s);
+  assert.doesNotMatch(s, /view: https/, "URL should not be printed bare");
+
+  // The claim message is appended verbatim and must not repeat "is ready".
+  const withClaim = buildReadySummary(null, "L0173", url, "To keep it permanently, [sign in to save it](x).");
+  assert.equal(withClaim.match(/is ready/g)?.length, 1, "'is ready' should appear once");
 });
 
 test("the generating response puts the real item id in the prose, not a placeholder", () => {

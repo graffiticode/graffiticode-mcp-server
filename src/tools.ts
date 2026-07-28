@@ -679,11 +679,19 @@ export function buildClaimFields(
   return {
     token: claimToken,
     claim_url,
-    // The hint goes on its own line so the URL ends one: a sentence butted up
+    // Markdown link rather than a bare URL — the token is a ~250-char JWT, and the
+    // ready summary prints a second one right above this. The raw URL stays
+    // available as the `claim_url` field.
+    //
+    // It does NOT re-open with "Your item is ready": the summary line this is
+    // appended to has already said so. Standalone (as its own field) it still reads
+    // as a complete instruction.
+    //
+    // The hint goes on its own line so the link ends one: a sentence butted up
     // against a link is where renderers start swallowing trailing words into the
     // href, and this link is the whole point of the message.
     claim_message:
-      `Your item is ready. To save it permanently, sign in at: ${claim_url}\n` +
+      `To keep it permanently, [sign in to save it](${claim_url}).\n` +
       reconnectHint(host),
   };
 }
@@ -752,15 +760,31 @@ export function buildGeneratingResponse(
 // as the tool result's text content for clients that render text instead of
 // the widget iframe (e.g. Codex Desktop, whose inline MCP-Apps UI is still
 // flag-gated). Widget hosts ignore it.
-function buildReadySummary(
+// The console defaults an omitted name to the literal string "unnamed"
+// (its resolvers.ts, at item create). That made the `name ? … : …` fallback below
+// unreachable and put our own placeholder in front of the user, in bold, as if it
+// were the item's title. Treat it as the absence it represents.
+const PLACEHOLDER_NAME = "unnamed";
+
+function displayName(name: string | null): string | null {
+  const trimmed = name?.trim();
+  if (!trimmed || trimmed.toLowerCase() === PLACEHOLDER_NAME) return null;
+  return trimmed;
+}
+
+export function buildReadySummary(
   name: string | null,
   language: string,
   viewUrl: string,
   claimMessage?: string
 ): string {
-  const title = name ? `**${name}**` : "Your item";
+  const shown = displayName(name);
+  const title = shown ? `**${shown}**` : "Your item";
+  // Markdown link, not a bare URL: these carry a ~250-char claim JWT, and two of
+  // them printed raw made the message almost entirely base64. The URL is still
+  // addressable as the `view_url` field for clients that need it literally.
   const lines = [
-    `${title} (${language}) is ready — open the form view: ${viewUrl}`,
+    `${title} (${language}) is ready — [open the form view](${viewUrl})`,
   ];
   if (claimMessage) lines.push(claimMessage);
   return lines.join("\n\n");
