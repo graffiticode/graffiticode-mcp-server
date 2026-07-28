@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   TOOL_SECURITY_SCHEMES,
   buildClaimFields,
+  buildGeneratingResponse,
   classifyClientHost,
   getItemTool,
   parseHelp,
@@ -118,6 +119,26 @@ test("a Claude-named client that declares no MCP Apps support gets NO widget", (
   for (const tool of withUi) {
     assert.match((metaOf(tool).ui as { resourceUri?: string }).resourceUri ?? "", /^ui:\/\/graffiticode\/widget-mcp\./);
   }
+});
+
+test("the generating response puts the real item id in the prose, not a placeholder", () => {
+  // Generation is async and there is no list_items tool, so this response is the
+  // only record of the handle. A client that renders text and drops
+  // structuredContent — the MCP Inspector does exactly this — would otherwise be
+  // told to "call render_item(item_id)" with no way to learn the id, leaving an
+  // item that can never be reached again.
+  for (const op of ["create", "update"] as const) {
+    const r = buildGeneratingResponse("ITEM123", "0173", null, op);
+    assert.equal(r.item_id, "ITEM123");
+    for (const field of ["summary", "message"] as const) {
+      assert.ok(String(r[field]).includes('render_item("ITEM123")'), `${op}/${field} must name the id`);
+      assert.doesNotMatch(String(r[field]), /render_item\(item_id\)/, `${op}/${field} still has the placeholder`);
+    }
+  }
+  // A named item keeps its name in the summary and still carries the id.
+  const named = buildGeneratingResponse("ITEM456", "0166", "Sales table", "create");
+  assert.ok(String(named.summary).includes('"Sales table"'));
+  assert.ok(String(named.summary).includes('render_item("ITEM456")'));
 });
 
 test("client host classification separates the four ways a connection binds to an account", () => {

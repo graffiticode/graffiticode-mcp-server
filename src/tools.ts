@@ -715,13 +715,22 @@ function applyViewAndClaim(
 // content, and the MCP client renders the response JSON as chat text — emitting
 // them now would surface (and repeat, on every poll) an "Open in Graffiticode"
 // link before anything exists. They're added on the "ready" response.
-function buildGeneratingResponse(
+export function buildGeneratingResponse(
   itemId: string,
   lang: string,
   name: string | null,
   operation: "create" | "update"
 ): Record<string, unknown> {
   const label = name ? `"${name}"` : `your L${lang} item`;
+  // The id is INTERPOLATED into the prose, not left as a literal `item_id`
+  // placeholder. Generation is async, so this response is the only record of the
+  // handle — and there is no list_items tool, so a caller who cannot read the
+  // structured `item_id` field can never reach the item again; it just expires.
+  // Plenty of surfaces render only the text: the MCP Inspector shows the text
+  // block and nothing else (verified — its copy button copies only that), and any
+  // client that drops structuredContent behaves the same. Agents are unaffected,
+  // they read the field.
+  const call = `render_item("${itemId}")`;
   return {
     item_id: itemId,
     status: "generating",
@@ -731,11 +740,11 @@ function buildGeneratingResponse(
     // create_item/update_item render NO widget (they'd leave a "Generating…" card
     // that can never update — the ready result comes from render_item). So this is
     // the chat-facing line; the model calls render_item next to display the result.
-    summary: `${operation === "update" ? "Updating" : "Creating"} ${label}… call render_item(item_id) to display it when ready.`,
+    summary: `${operation === "update" ? "Updating" : "Creating"} ${label}… call ${call} to display it when ready.`,
     // Steer to render_item (compact result, renders the widget) — NOT raw get_item,
     // which would pull language-private src/data into the model transcript.
     message:
-      "Generation started. Call render_item(item_id) to retrieve and display the result — it waits for completion and returns status 'ready' (or 'failed').",
+      `Generation started. Call ${call} to retrieve and display the result — it waits for completion and returns status 'ready' (or 'failed').`,
   };
 }
 
