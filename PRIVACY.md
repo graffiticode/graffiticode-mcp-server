@@ -35,12 +35,13 @@ If you connect without credentials, items you create are namespaced to the sessi
 
 ### Usage Analytics
 
-The Service emits coarse, privacy-preserving analytics events to measure engagement (connections, tool usage, success rates). These events deliberately exclude personal data:
+The Service emits coarse, privacy-preserving analytics events to measure engagement (connections, catalog and documentation reads, tool usage, success rates). These events deliberately exclude personal data:
 
 - Sessions and tokens appear only as **one-way hashes**, never in raw form.
 - Your prompt text appears only as a **character count** — never the prompt itself.
 - Location is recorded only as a **coarse country** (and, where available, region) derived at our CDN edge. **We do not record your IP address.**
 - We record the **client kind** (the name your MCP client reports, e.g. "claude-ai"), which identifies software, not you.
+- When your client lists our tools or opens one of our built-in documentation resources, we record that it did so. The only address recorded is one of our own `graffiticode://` resources; anything else your client requests is not written to our analytics.
 
 One caveat, stated plainly: when a request fails we record a truncated backend error message so we can debug it. Error text is not intended to carry your content, but we cannot categorically rule out that a backend message quotes part of an input.
 

@@ -50,8 +50,18 @@ import { formatToolResult } from "./tool-result.js";
 import { buildChallengeResponse } from "./challenge.js";
 import { startSseKeepalive } from "./sse-keepalive.js";
 import type { AuthContext } from "./api.js";
-import { identify, logConnect, logSessionStarted, logToolCall, type EventOutcome, type SessionMeta } from "./events.js";
+import {
+  identify,
+  logConnect,
+  logListed,
+  logResource,
+  logSessionStarted,
+  logToolCall,
+  type EventOutcome,
+  type SessionMeta,
+} from "./events.js";
 import { mintSessionToken } from "./session-token.js";
+import { deriveSessionNamespace } from "./claim-token.js";
 import { EXTENSION_ID, RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import {
   generateWidgetHtml,
@@ -83,6 +93,19 @@ import {
 } from "./resources.js";
 
 const PORT = parseInt(process.env.PORT || "3001", 10);
+
+/**
+ * Enumeration requests, mapped to the `what` reported by `mcp_listed`.
+ *
+ * Resource templates count as resources: a client that asks for templates is
+ * asking what user guides exist, which is the same act as listing them.
+ */
+const LIST_METHODS: Record<string, "tools" | "resources" | "prompts"> = {
+  "tools/list": "tools",
+  "resources/list": "resources",
+  "resources/templates/list": "resources",
+  "prompts/list": "prompts",
+};
 
 const PRIVACY_HTML = `<!DOCTYPE html>
 <html lang="en">
@@ -131,12 +154,13 @@ const PRIVACY_HTML = `<!DOCTYPE html>
 <p>If you connect without credentials, items you create are namespaced to the session identifier your MCP client established. The Service can mint a one-time <em>claim link</em>, valid for 24 hours, that lets you transfer those items into a real Graffiticode account the first time you sign in. The claim link contains a signed token derived from the session identifier &mdash; it carries no personal data. If you never claim them, free-plan items remain associated only with that anonymous session.</p>
 
 <h3>Usage Analytics</h3>
-<p>The Service emits coarse, privacy-preserving analytics events to measure engagement (connections, tool usage, success rates). These events deliberately exclude personal data:</p>
+<p>The Service emits coarse, privacy-preserving analytics events to measure engagement (connections, catalog and documentation reads, tool usage, success rates). These events deliberately exclude personal data:</p>
 <ul>
   <li>Sessions and tokens appear only as <strong>one-way hashes</strong>, never in raw form.</li>
   <li>Your prompt text appears only as a <strong>character count</strong> &mdash; never the prompt itself.</li>
   <li>Location is recorded only as a <strong>coarse country</strong> (and, where available, region) derived at our CDN edge. <strong>We do not record your IP address.</strong></li>
   <li>We record the <strong>client kind</strong> (the name your MCP client reports, e.g. &ldquo;claude-ai&rdquo;), which identifies software, not you.</li>
+  <li>When your client lists our tools or opens one of our built-in documentation resources, we record that it did so. The only address recorded is one of our own <code>graffiticode://</code> resources; anything else your client requests is not written to our analytics.</li>
 </ul>
 <p>One caveat, stated plainly: when a request fails we record a truncated backend error message so we can debug it. Error text is not intended to carry your content, but we cannot categorically rule out that a backend message quotes part of an input.</p>
 
@@ -1141,24 +1165,68 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     //
     // Stamping sessionMeta also means the rest of the session inherits the kind,
     // making the tool handler's backfill a no-op rather than the sole source.
+    //
+    // The same wrapper carries the rest of the session's funnel: `tools/list`
+    // and `resources/read` are not tool calls, so they emitted nothing at all,
+    // which left a connect that never converted indistinguishable from a
+    // directory probe. Both stages live here rather than in the request
+    // handlers because this transport instance is reused for every later POST
+    // on the session (see the existing-session branch above), so one hook sees
+    // every message.
     const forwardMessage = transport.onmessage;
+
+    // Enumerations already reported, so a host that re-lists on every turn
+    // counts as one catalog load rather than one per turn.
+    const listed = new Set<string>();
+
+    // The single identity expression for every event this transport emits.
+    // Connect, list and read must agree on the session key or the report can't
+    // join them back into one session.
+    const identityFor = (sid: string) =>
+      identify(
+        bearerToken
+          ? { type: "firebase", token: bearerToken }
+          : { type: "freePlan", sessionId: sid }
+      );
+
     transport.onmessage = (message, extra) => {
-      if (pendingConnectSession && isInitializeRequest(message)) {
-        const sid = pendingConnectSession;
-        pendingConnectSession = null;
-        const kind = (message.params as { clientInfo?: { name?: unknown } } | undefined)
-          ?.clientInfo?.name;
-        if (typeof kind === "string" && kind && !sessionMeta.clientKind) {
-          sessionMeta.clientKind = kind;
+      // Instrumentation is best-effort and must never cost us a message.
+      try {
+        if (pendingConnectSession && isInitializeRequest(message)) {
+          const sid = pendingConnectSession;
+          pendingConnectSession = null;
+          const kind = (message.params as { clientInfo?: { name?: unknown } } | undefined)
+            ?.clientInfo?.name;
+          if (typeof kind === "string" && kind && !sessionMeta.clientKind) {
+            sessionMeta.clientKind = kind;
+          }
+          // Fix the transport's own key now, while the uuid is still what we
+          // present. Free-plan tool calls later present the console's workspace
+          // handle instead, moving `session` out from under the connect; `tns`
+          // is what keeps the two joinable. Nothing to add for a bearer session,
+          // whose key is the token hash and already stable.
+          if (!bearerToken) sessionMeta.transportNamespace = deriveSessionNamespace(sid);
+          logConnect(identityFor(sid), sessionMeta);
+        } else {
+          const method = (message as { method?: string }).method;
+          const sid = transport.sessionId;
+          if (method && sid) {
+            const what = LIST_METHODS[method];
+            if (what) {
+              if (!listed.has(what)) {
+                listed.add(what);
+                logListed({ ...identityFor(sid), what }, sessionMeta);
+              }
+            } else if (method === "resources/read") {
+              const uri = (message as { params?: { uri?: unknown } }).params?.uri;
+              if (typeof uri === "string") {
+                logResource({ ...identityFor(sid), uri }, sessionMeta);
+              }
+            }
+          }
         }
-        logConnect(
-          identify(
-            bearerToken
-              ? { type: "firebase", token: bearerToken }
-              : { type: "freePlan", sessionId: sid }
-          ),
-          sessionMeta
-        );
+      } catch {
+        // ignore
       }
       forwardMessage?.(message, extra);
     };
