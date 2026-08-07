@@ -155,15 +155,21 @@ export async function startCodeGeneration(options: {
    * outright, so the console must deploy first.
    */
   clientKind?: string;
+  /**
+   * Coarse country from our edge. Forwarded rather than derived console-side:
+   * this hop is a server-to-server fetch from Cloud Run, so the console would
+   * otherwise record our own egress region for every MCP-originated item.
+   */
+  geoCountry?: string;
   prompt: string;
   modification: string;
   currentSrc?: string | null;
 }): Promise<GenerationJobResult> {
-  const { auth, itemId, lang, name, client, clientKind, prompt, modification, currentSrc } = options;
+  const { auth, itemId, lang, name, client, clientKind, geoCountry, prompt, modification, currentSrc } = options;
 
   const mutation = `
-    mutation StartCodeGeneration($itemId: String, $lang: String!, $name: String, $client: String, $clientKind: String, $prompt: String!, $modification: String!, $currentSrc: String) {
-      startCodeGeneration(itemId: $itemId, lang: $lang, name: $name, client: $client, clientKind: $clientKind, prompt: $prompt, modification: $modification, currentSrc: $currentSrc) {
+    mutation StartCodeGeneration($itemId: String, $lang: String!, $name: String, $client: String, $clientKind: String, $geoCountry: String, $prompt: String!, $modification: String!, $currentSrc: String) {
+      startCodeGeneration(itemId: $itemId, lang: $lang, name: $name, client: $client, clientKind: $clientKind, geoCountry: $geoCountry, prompt: $prompt, modification: $modification, currentSrc: $currentSrc) {
         itemId
         status
       }
@@ -173,7 +179,7 @@ export async function startCodeGeneration(options: {
   const result = await graphqlRequest<{ startCodeGeneration: GenerationJobResult }>(
     auth,
     mutation,
-    { itemId, lang, name, client, clientKind, prompt, modification, currentSrc }
+    { itemId, lang, name, client, clientKind, geoCountry, prompt, modification, currentSrc }
   );
 
   return result.startCodeGeneration;

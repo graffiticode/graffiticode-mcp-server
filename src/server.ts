@@ -640,7 +640,7 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
       }
 
       const result = await handleToolCall(
-        { auth, clientKind },
+        { auth, clientKind, geoCountry: sessionMeta.geoCountry },
         name,
         args as Record<string, unknown>
       ) as Record<string, unknown>;

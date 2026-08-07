@@ -629,9 +629,14 @@ export function toolsForClient(clientName?: string, declaresUiExtension?: boolea
 
 export interface ToolContext {
   auth: AuthContext;
-  // MCP `clientInfo.name` for this call, when the client sent one. Only used to
-  // pick the reconnect wording and the `client=` bucket on the claim URL.
+  // MCP `clientInfo.name` for this call, when the client sent one. Picks the
+  // reconnect wording and the `client=` bucket on the claim URL, and is
+  // forwarded to the console's workspace registry.
   clientKind?: string;
+  // Coarse country from the CDN edge (CF-IPCountry), never an IP. Forwarded to
+  // the console because MCP→console is a server-to-server call with no edge in
+  // front of it: only this hop knows where the agent actually connected from.
+  geoCountry?: string;
 }
 
 // The app's view page for an item, opened in a full browser tab (where a
@@ -831,6 +836,7 @@ export async function handleCreateItem(
     name,
     client: "mcp",
     clientKind: normalizeClientKind(ctx.clientKind),
+    geoCountry: ctx.geoCountry,
     prompt: description,
     modification: description,
   });
@@ -870,6 +876,7 @@ export async function handleUpdateItem(
     // only when app === "mcp" — so every MCP update was invisible to it.
     client: "mcp",
     clientKind: normalizeClientKind(ctx.clientKind),
+    geoCountry: ctx.geoCountry,
     prompt: contextualPrompt,
     modification,
     currentSrc,
