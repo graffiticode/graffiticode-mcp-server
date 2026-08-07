@@ -150,9 +150,20 @@ export interface SessionMeta {
   transportNamespace?: string;
 }
 
+/**
+ * Cap a client-declared name before it travels anywhere. `clientInfo.name` is
+ * whatever the client says it is, and it now reaches the console's workspace
+ * registry as well as our own events — one cap, defined once.
+ */
+export function normalizeClientKind(v?: string): string | undefined {
+  if (typeof v !== "string") return undefined;
+  const t = v.trim().slice(0, 64);
+  return t || undefined;
+}
+
 function applyMeta(event: Event, meta?: SessionMeta): void {
   if (!meta) return;
-  if (meta.clientKind) event.client_kind = meta.clientKind.slice(0, 64);
+  if (meta.clientKind) event.client_kind = normalizeClientKind(meta.clientKind);
   if (meta.geoCountry) event.geo_country = meta.geoCountry;
   if (meta.geoRegion) event.geo_region = meta.geoRegion;
   if (meta.transportNamespace) event.tns = meta.transportNamespace;

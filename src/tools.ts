@@ -11,6 +11,7 @@ import {
   APP_URL,
   MCP_ENDPOINT,
 } from "./api.js";
+import { normalizeClientKind } from "./events.js";
 import { widgetResourceUris } from "./widget/index.js";
 
 // --- Help Entry Structure (matches console HelpPanel) ---
@@ -829,6 +830,7 @@ export async function handleCreateItem(
     lang: langId,
     name,
     client: "mcp",
+    clientKind: normalizeClientKind(ctx.clientKind),
     prompt: description,
     modification: description,
   });
@@ -862,6 +864,12 @@ export async function handleUpdateItem(
     auth: ctx.auth,
     itemId: item_id,
     lang: existingItem.lang,
+    // `client: "mcp"` was missing here while create_item has always sent it.
+    // The console carries it through the queued job into item_updated /
+    // item_generation_failed as `app`, and the MCP funnel report admits those
+    // only when app === "mcp" — so every MCP update was invisible to it.
+    client: "mcp",
+    clientKind: normalizeClientKind(ctx.clientKind),
     prompt: contextualPrompt,
     modification,
     currentSrc,

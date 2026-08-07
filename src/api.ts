@@ -143,15 +143,27 @@ export async function startCodeGeneration(options: {
   lang: string;
   name?: string;
   client?: string;
+  /**
+   * The agent software making the call, e.g. "claude-code". Distinct from
+   * `client`, which the console reads app-wide as the item SOURCE SURFACE
+   * (console|mcp|front) — reusing that name for this taxonomy would collide.
+   * Feeds the console's workspace registry, which records the client kind of a
+   * workspace's first create attempt.
+   *
+   * REQUIRES the console to declare `clientKind` on the startCodeGeneration
+   * mutation. A variable the schema doesn't accept fails GraphQL validation
+   * outright, so the console must deploy first.
+   */
+  clientKind?: string;
   prompt: string;
   modification: string;
   currentSrc?: string | null;
 }): Promise<GenerationJobResult> {
-  const { auth, itemId, lang, name, client, prompt, modification, currentSrc } = options;
+  const { auth, itemId, lang, name, client, clientKind, prompt, modification, currentSrc } = options;
 
   const mutation = `
-    mutation StartCodeGeneration($itemId: String, $lang: String!, $name: String, $client: String, $prompt: String!, $modification: String!, $currentSrc: String) {
-      startCodeGeneration(itemId: $itemId, lang: $lang, name: $name, client: $client, prompt: $prompt, modification: $modification, currentSrc: $currentSrc) {
+    mutation StartCodeGeneration($itemId: String, $lang: String!, $name: String, $client: String, $clientKind: String, $prompt: String!, $modification: String!, $currentSrc: String) {
+      startCodeGeneration(itemId: $itemId, lang: $lang, name: $name, client: $client, clientKind: $clientKind, prompt: $prompt, modification: $modification, currentSrc: $currentSrc) {
         itemId
         status
       }
@@ -161,7 +173,7 @@ export async function startCodeGeneration(options: {
   const result = await graphqlRequest<{ startCodeGeneration: GenerationJobResult }>(
     auth,
     mutation,
-    { itemId, lang, name, client, prompt, modification, currentSrc }
+    { itemId, lang, name, client, clientKind, prompt, modification, currentSrc }
   );
 
   return result.startCodeGeneration;
