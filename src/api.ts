@@ -135,11 +135,34 @@ export async function generateCode(options: {
 export interface GenerationJobResult {
   itemId: string;
   status: string;
+  /**
+   * The workspace the item actually landed in, free-plan only. The same sha256
+   * namespace the funnel logs — not a credential, since the console only accepts
+   * a *signed* session token — so it is safe to read and log. Tells us whether a
+   * `siblingOf` hint was honoured.
+   */
+  workspaceNamespace?: string | null;
 }
 
 export async function startCodeGeneration(options: {
   auth: AuthContext;
   itemId?: string;
+  /**
+   * A previous item from the same conversation. Free-plan only: the console
+   * adopts that item's workspace, so this create lands beside it instead of
+   * opening a new one.
+   *
+   * This is what keeps a stateless client's items together. A host that mints a
+   * fresh MCP session per tool call (ChatGPT) presents a new session namespace
+   * every call, and a create — naming no item — has nothing for the console to
+   * rebind onto, so each item used to open its own workspace and needed its own
+   * claim link. Ignored for authenticated callers, who have a durable identity.
+   *
+   * REQUIRES the console to declare `siblingOf` on the startCodeGeneration
+   * mutation. A variable the schema doesn't accept fails GraphQL validation
+   * outright, so the console must deploy first — same rule as `clientKind`.
+   */
+  siblingOf?: string;
   lang: string;
   name?: string;
   client?: string;
@@ -165,13 +188,14 @@ export async function startCodeGeneration(options: {
   modification: string;
   currentSrc?: string | null;
 }): Promise<GenerationJobResult> {
-  const { auth, itemId, lang, name, client, clientKind, geoCountry, prompt, modification, currentSrc } = options;
+  const { auth, itemId, siblingOf, lang, name, client, clientKind, geoCountry, prompt, modification, currentSrc } = options;
 
   const mutation = `
-    mutation StartCodeGeneration($itemId: String, $lang: String!, $name: String, $client: String, $clientKind: String, $geoCountry: String, $prompt: String!, $modification: String!, $currentSrc: String) {
-      startCodeGeneration(itemId: $itemId, lang: $lang, name: $name, client: $client, clientKind: $clientKind, geoCountry: $geoCountry, prompt: $prompt, modification: $modification, currentSrc: $currentSrc) {
+    mutation StartCodeGeneration($itemId: String, $siblingOf: String, $lang: String!, $name: String, $client: String, $clientKind: String, $geoCountry: String, $prompt: String!, $modification: String!, $currentSrc: String) {
+      startCodeGeneration(itemId: $itemId, siblingOf: $siblingOf, lang: $lang, name: $name, client: $client, clientKind: $clientKind, geoCountry: $geoCountry, prompt: $prompt, modification: $modification, currentSrc: $currentSrc) {
         itemId
         status
+        workspaceNamespace
       }
     }
   `;
@@ -179,7 +203,7 @@ export async function startCodeGeneration(options: {
   const result = await graphqlRequest<{ startCodeGeneration: GenerationJobResult }>(
     auth,
     mutation,
-    { itemId, lang, name, client, clientKind, geoCountry, prompt, modification, currentSrc }
+    { itemId, siblingOf, lang, name, client, clientKind, geoCountry, prompt, modification, currentSrc }
   );
 
   return result.startCodeGeneration;

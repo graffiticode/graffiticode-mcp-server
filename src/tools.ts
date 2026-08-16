@@ -76,7 +76,9 @@ Division of labor: the generator is the router — it identifies which languages
 
 Workflow: list_languages(search, domain) → get_language_info(language) → create_item(language, description) → render_item(item_id) → update_item(item_id, modification) → render_item(item_id) to iterate. render_item is the preferred user-facing retrieval tool: it keeps language-private code and compiled data out of the model transcript while still hydrating supported host widgets. Use get_item only when a caller explicitly needs the raw language-private src/data for programmatic work. To reuse content in a new request: get_spec(item_id) → create_item(language, spec + intent framing).
 
-create_item and update_item start generation and return immediately with status "generating"; normally follow them with render_item(item_id) to retrieve and display the result. render_item and get_item both wait for completion and return status "ready", "failed", or "generating" (call the same retrieval tool again).`;
+create_item and update_item start generation and return immediately with status "generating"; normally follow them with render_item(item_id) to retrieve and display the result. render_item and get_item both wait for completion and return status "ready", "failed", or "generating" (call the same retrieval tool again).
+
+When you create a SECOND or later item for the same user, pass the earlier item's id as create_item's continue_from_item_id. Their items then stay together and one sign-in link saves all of them; without it, each item is saved separately.`;
 
 // --- Tool Definitions ---
 
@@ -163,6 +165,11 @@ Generation runs asynchronously: this returns immediately with an item_id and sta
       name: {
         type: "string",
         description: "Optional friendly name for the item",
+      },
+      continue_from_item_id: {
+        type: "string",
+        description:
+          "Optional. The item_id of an item you created earlier in THIS conversation. Pass it whenever you are making another item for the same user, so all their items stay together and a single sign-in link saves all of them. Omit it only for the user's first item.",
       },
     },
     required: ["language", "description"],
@@ -816,9 +823,14 @@ function detectForwardedArtifact(description: string): string | null {
 
 export async function handleCreateItem(
   ctx: ToolContext,
-  args: { language: string; description: string; name?: string }
+  args: {
+    language: string;
+    description: string;
+    name?: string;
+    continue_from_item_id?: string;
+  }
 ): Promise<unknown> {
-  const { language, description, name } = args;
+  const { language, description, name, continue_from_item_id } = args;
 
   const misuse = detectForwardedArtifact(description);
   if (misuse) {
@@ -834,6 +846,11 @@ export async function handleCreateItem(
     auth: ctx.auth,
     lang: langId,
     name,
+    // Keeps a stateless client's items in ONE anonymous workspace, so a single
+    // claim link saves the whole conversation. Passed straight through without
+    // validation: only the console can say whether the id is reachable, and it
+    // silently declines rather than failing the create if it isn't.
+    siblingOf: continue_from_item_id,
     client: "mcp",
     clientKind: normalizeClientKind(ctx.clientKind),
     geoCountry: ctx.geoCountry,
