@@ -28,7 +28,21 @@ export type AuthContext =
   // workspace token. onWorkspace lets a response rebind it, which is how a
   // client keeps working in one workspace across the transport sessions it keeps
   // losing (restart, scale-out, ChatGPT's per-tool-call sessions).
-  | { type: "freePlan"; sessionId: string; onWorkspace?: (token: string) => void };
+  | {
+      type: "freePlan";
+      sessionId: string;
+      onWorkspace?: (token: string) => void;
+      /**
+       * The workspace this call actually resolved to, as the console reported it.
+       *
+       * Set by the api layer once a mutation answers, and read by the funnel
+       * instrumentation so `session` names the workspace rather than the
+       * transport. Per-call by construction: getAuth() builds a fresh context
+       * for every invocation, so this cannot leak between calls the way the
+       * transport-scoped `onWorkspace` binding does.
+       */
+      effectiveNamespace?: string;
+    };
 
 interface GraphQLResponse<T> {
   data?: T;
@@ -206,6 +220,7 @@ export async function startCodeGeneration(options: {
     { itemId, siblingOf, lang, name, client, clientKind, geoCountry, prompt, modification, currentSrc }
   );
 
+  captureWorkspaceNamespace(auth, result.startCodeGeneration);
   return result.startCodeGeneration;
 }
 
@@ -291,6 +306,27 @@ export interface Item {
 export function captureWorkspace(auth: AuthContext, item: { workspace?: string | null } | null): void {
   if (!item?.workspace || auth.type !== "freePlan") return;
   auth.onWorkspace?.(item.workspace);
+}
+
+/**
+ * Record which workspace a call actually landed in, for the funnel only.
+ *
+ * Distinct from captureWorkspace: that carries a signed TOKEN forward so the next
+ * request stays in the workspace, and only works while the transport lives. This
+ * carries the plain namespace hash, which is what the event stream needs — the
+ * console can adopt a workspace we never presented (a sibling create), so the
+ * namespace we logged was the transport's and never the one the item went into.
+ *
+ * That mismatch is why adoption was invisible: `session` and `tns` were identical
+ * on every event, which is precisely the drift `session` was supposed to show.
+ * The hash is not a credential — only a signed token is accepted as one.
+ */
+export function captureWorkspaceNamespace(
+  auth: AuthContext,
+  job: { workspaceNamespace?: string | null } | null,
+): void {
+  if (!job?.workspaceNamespace || auth.type !== "freePlan") return;
+  auth.effectiveNamespace = job.workspaceNamespace;
 }
 
 export async function createItem(options: {

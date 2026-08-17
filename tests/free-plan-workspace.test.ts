@@ -1,7 +1,8 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 import { deriveSessionNamespace, namespaceForSession } from "../src/claim-token.js";
-import { captureWorkspace, type AuthContext } from "../src/api.js";
+import { effectiveSession } from "../src/events.js";
+import { captureWorkspace, captureWorkspaceNamespace, type AuthContext } from "../src/api.js";
 import { mintSessionToken } from "../src/session-token.js";
 
 const UUID = "11111111-2222-3333-4444-555555555555";
@@ -97,4 +98,38 @@ test("authenticated callers never adopt a workspace", () => {
   // callers, but an authenticated session must not be rebindable regardless.
   const auth: AuthContext = { type: "firebase", token: "id-token" };
   assert.doesNotThrow(() => captureWorkspace(auth, { workspace: fakeToken({ sessionNamespace: NS }) }));
+});
+
+// --- what the funnel labels a call with -------------------------------------
+// `session` is supposed to name the WORKSPACE and `tns` the transport, so a join
+// on tns survives the drift between them (see src/events.ts). That drift never
+// actually appeared: startCodeGeneration reported no workspace, so session was
+// always the transport's own namespace and the two fields were identical on
+// every event ever emitted. These cover the reporting seam that fixes it.
+
+test("a reported workspace namespace becomes the event's session", () => {
+  const auth: AuthContext = { type: "freePlan", sessionId: UUID };
+  // Deliberately NOT NS: if the adopted value equalled the fallback, this would
+  // pass whether or not effectiveSession preferred it.
+  const adopted = "d".repeat(64);
+  assert.notEqual(adopted, NS);
+  captureWorkspaceNamespace(auth, { workspaceNamespace: adopted });
+  assert.equal(auth.effectiveNamespace, adopted);
+  assert.equal(effectiveSession(auth, NS), adopted);
+});
+
+test("without one, the event keeps the namespace we derived ourselves", () => {
+  const auth: AuthContext = { type: "freePlan", sessionId: UUID };
+  captureWorkspaceNamespace(auth, { workspaceNamespace: null });
+  captureWorkspaceNamespace(auth, null);
+  assert.equal(auth.effectiveNamespace, undefined);
+  assert.equal(effectiveSession(auth, NS), NS);
+});
+
+test("an authenticated caller is never relabelled", () => {
+  // A bearer session is keyed by its token hash; there is no anonymous workspace
+  // to adopt, and rewriting its session would break the firebase funnel.
+  const auth: AuthContext = { type: "firebase", token: "tok" };
+  captureWorkspaceNamespace(auth, { workspaceNamespace: "c".repeat(64) });
+  assert.equal(effectiveSession(auth, NS), NS);
 });

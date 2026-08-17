@@ -51,6 +51,7 @@ import { buildChallengeResponse } from "./challenge.js";
 import { startSseKeepalive } from "./sse-keepalive.js";
 import type { AuthContext } from "./api.js";
 import {
+  effectiveSession,
   identify,
   logConnect,
   logListed,
@@ -594,6 +595,10 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
         : undefined;
     const descLen = description?.length;
     let identity: { auth: "freePlan" | "firebase"; session: string } | null = null;
+    // Hoisted so the catch below can label an error with the workspace the call
+    // reached before it failed — a create can adopt a workspace and then have
+    // generation fail, and that failure belongs to the adopted workspace.
+    let authCtx: AuthContext | null = null;
 
     // clientInfo isn't known when the session id is minted (mcp_connect), but
     // it's set by the time any tool runs — backfill it onto the session meta.
@@ -630,6 +635,7 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
 
     try {
       const auth = await authProvider.getAuth();
+      authCtx = auth;
       identity = identify(auth);
 
       // Emitted before the call runs, not after: the decision to ask is the
@@ -649,6 +655,7 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
       const outcome: EventOutcome = result.status === "failed" ? "generation_failed" : "ok";
       logToolCall({
         ...identity,
+        session: effectiveSession(auth, identity.session),
         tool: name,
         outcome,
         ms: Date.now() - start,
@@ -679,6 +686,7 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
       if (identity) {
         logToolCall({
           ...identity,
+          session: authCtx ? effectiveSession(authCtx, identity.session) : identity.session,
           tool: name,
           outcome: "error",
           ms: Date.now() - start,

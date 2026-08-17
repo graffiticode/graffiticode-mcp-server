@@ -145,6 +145,21 @@ export function identify(auth: AuthContext): { auth: "freePlan" | "firebase"; se
   return { auth: "firebase", session: hashToken(auth.token) };
 }
 
+/**
+ * The workspace to label a tool event with: the one the call actually resolved
+ * to, falling back to what `identify()` derived from the credential we presented.
+ *
+ * These differ whenever the console rebinds us — a sibling create adopts another
+ * workspace, and the caller never presented its namespace. Before this, `session`
+ * always held the transport's own namespace, so it was identical to `tns` on
+ * every event and the drift `session` exists to express never appeared. Joins
+ * still key on `tns`, which is exactly why `session` is free to move.
+ */
+export function effectiveSession(auth: AuthContext, fallback: string): string {
+  if (auth.type === "freePlan" && auth.effectiveNamespace) return auth.effectiveNamespace;
+  return fallback;
+}
+
 export interface SessionMeta {
   clientKind?: string;
   geoCountry?: string;
