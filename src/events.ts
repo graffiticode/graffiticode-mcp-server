@@ -19,7 +19,10 @@ import type { AuthContext } from "./api.js";
  *   - never log a client-supplied string verbatim. `mcp_resource` carries a
  *     URI, which is why it is emitted ONLY for our own `graffiticode://`
  *     namespace: anything else a client asks for is dropped rather than
- *     written, so the field can't become a channel for arbitrary text.
+ *     written, so the field can't become a channel for arbitrary text. `lang`
+ *     is the same hazard and gets the same treatment (see `normalizeLang`):
+ *     `language` is a free-text tool argument, and clients really do put
+ *     prompts in it.
  *
  * The free-plan session hash reuses `namespaceForSession` so the logged
  * `session` equals the `sessionNamespace` the console stamps on items/claims,
@@ -161,6 +164,35 @@ export function normalizeClientKind(v?: string): string | undefined {
   return t || undefined;
 }
 
+/**
+ * A language id we recognise, or the `(invalid)` sentinel. Never the input.
+ *
+ * `lang` is read straight off the `language` tool argument, which is free text.
+ * Clients pass descriptions in it — "create a 3 by 3 table filled with random
+ * numbers" and "create a green bar chart using mock data" both reached these
+ * logs, which is exactly the raw-prompt content the contract above promises
+ * never to write. So this is an allowlist, not a truncation: anything that
+ * isn't a language id is replaced, not shortened.
+ *
+ * It also canonicalises. Handlers strip the leading "L" before calling the API
+ * but logged the raw argument, so L0173 / l0173 / 0173 were three separate keys
+ * in every per-language count.
+ *
+ * `(invalid)` rather than dropping the field: a client putting junk in
+ * `language` is a routing bug worth seeing, and the sentinel keeps that signal
+ * without carrying the content. Deliberately identical to the console's
+ * `langKey` (src/lib/funnel-events.ts) — the two streams are joined in the
+ * funnel report, and a second normaliser that disagreed would re-fragment the
+ * counts this one exists to merge.
+ */
+export function normalizeLang(v?: string): string | undefined {
+  if (typeof v !== "string" || !v) return undefined;
+  const t = v.trim();
+  if (/^\d{2,6}$/.test(t)) return `L${t}`;
+  if (/^L\d{2,6}$/i.test(t)) return t.toUpperCase();
+  return "(invalid)";
+}
+
 function applyMeta(event: Event, meta?: SessionMeta): void {
   if (!meta) return;
   if (meta.clientKind) event.client_kind = normalizeClientKind(meta.clientKind);
@@ -230,7 +262,8 @@ export function logSessionStarted(
     session: params.session,
     tool: params.tool,
   };
-  if (params.lang !== undefined) event.lang = params.lang;
+  const lang = normalizeLang(params.lang);
+  if (lang !== undefined) event.lang = lang;
   applyMeta(event, meta);
   emit(event);
 }
@@ -256,7 +289,8 @@ export function logToolCall(params: {
     outcome: params.outcome,
     ms: params.ms,
   };
-  if (params.lang !== undefined) event.lang = params.lang;
+  const lang = normalizeLang(params.lang);
+  if (lang !== undefined) event.lang = lang;
   if (params.descLen !== undefined) event.desc_len = params.descLen;
   if (params.err) event.err = params.err.slice(0, 200);
   if (params.progress !== undefined) event.progress = params.progress;
