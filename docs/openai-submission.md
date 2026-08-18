@@ -11,6 +11,9 @@ server to OpenAI's app directory (Apps SDK, `platform.openai.com/plugins`) as a
   screenshots. (Claude keeps a native inline widget; that is a separate host.)
 - **Legal:** privacy `https://mcp.graffiticode.org/privacy`, terms
   `https://mcp.graffiticode.org/terms`, support `support@graffiticode.org`.
+- **Listing copy:** [`openai-listing-copy.md`](./openai-listing-copy.md) is the canonical,
+  versioned source for every public publisher field (category, tagline, description, starter
+  prompts). The portal is **not** the source of truth — change both in the same sitting.
 
 ---
 
