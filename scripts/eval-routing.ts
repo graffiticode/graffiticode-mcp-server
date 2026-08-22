@@ -73,8 +73,8 @@ async function catalogInvariants() {
 
   const learnosity = await ids({ domain: "learnosity" });
   check(
-    "domain:learnosity contains L0176 (item content) and L0158 (deprecated)",
-    learnosity.includes("L0176") && learnosity.includes("L0158"),
+    "domain:learnosity contains L0176 (item content), and no longer the retired L0158",
+    learnosity.includes("L0176") && !learnosity.includes("L0158"),
     `got ${learnosity.join(", ")}`,
   );
 
@@ -163,10 +163,9 @@ const CASES: Case[] = [
   },
   // The specialists must still be reachable.
   { prompt: "Grade 5 ELA reading item on citing evidence from an informational passage.", expect: "L0175" },
-  { prompt: "Flashcards for Spanish vocabulary — 10 common food words with their English translations.", expect: "L0159" },
   { prompt: "A spreadsheet problem where students compute column totals with SUM.", expect: "L0166" },
-  { prompt: "Area model multiplication question with a visual grid.", expect: "L0153" },
-  { prompt: "A map question asking students to click state capitals.", expect: "L0152" },
+  { prompt: "A concept web where students link the causes of the Great Depression.", expect: "L0169" },
+  { prompt: "A bar chart of quarterly revenue for four regions.", expect: "L0173" },
 ];
 
 function loadSkill(name: string): string {

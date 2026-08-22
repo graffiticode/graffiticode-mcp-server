@@ -105,7 +105,7 @@ Discover what Graffiticode languages are available. The catalog is dynamic and g
 
 | Name | Type | Required | Description |
 |------|------|----------|-------------|
-| `search` | string | No | Match by keyword (e.g. "spreadsheet", "flashcard", "chart") |
+| `search` | string | No | Match by keyword (e.g. "spreadsheet", "chart", "concept web") |
 | `domain` | string | No | Narrow to a domain (e.g. "assessments", "sheets", "diagrams") |
 
 Returns each language's `id`, `name`, `description`, `domains`, and a `when_to_use` steering note.
@@ -189,7 +189,7 @@ Get a platform-neutral, plain-English description of an item's content.
 |------|------|----------|-------------|
 | `item_id` | string | Yes | The item ID to describe. |
 
-This is the **only sanctioned way to move content between languages**. To turn a spreadsheet into flashcards, call `get_spec` on the spreadsheet item, then pass that spec (plus your intent) to `create_item` for the flashcard language.
+This is the **only sanctioned way to move content between languages**. To turn a spreadsheet into a chart, call `get_spec` on the spreadsheet item, then pass that spec (plus your intent) to `create_item` for the chart language.
 
 ---
 
