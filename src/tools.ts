@@ -1103,6 +1103,24 @@ export async function handleGetSpec(
   return response;
 }
 
+/**
+ * Catalog entries that are not content-authoring targets, and so have no place
+ * in discovery. `L0000` is the root language, `L0003` a primitives demo, and
+ * `L0010`/`L0013` internal utility dialects (composition planning, thumbnail
+ * capture) an agent should never route a user request to.
+ *
+ * They sort first, so an agent asking "what does Graffiticode do?" met four
+ * meaningless answers before the real catalog — and the funnel logs show real
+ * ChatGPT users doing exactly that: `list_languages` → `get_language_info(L0000)`
+ * → `get_language_info(L0010)` → gone, without ever creating anything.
+ *
+ * Filtered HERE rather than in `api.ts` because it is a statement about the
+ * DISCOVERY surface, not about the catalog: `get_language_info` still resolves
+ * these ids for a caller that names one, so existing items in them stay
+ * introspectable. Keyed by the bare backend id, without the "L" prefix.
+ */
+const NON_AUTHORING_LANGUAGES = new Set(["0000", "0003", "0010", "0013"]);
+
 export async function handleListLanguages(
   ctx: ToolContext,
   args: { domain?: string; search?: string }
@@ -1114,13 +1132,15 @@ export async function handleListLanguages(
   });
 
   return {
-    languages: languages.map(lang => ({
-      id: `L${lang.id}`,
-      name: lang.name,
-      description: lang.description,
-      ...(lang.routingHint ? { when_to_use: lang.routingHint } : {}),
-      domains: lang.domains,
-    })),
+    languages: languages
+      .filter(lang => !NON_AUTHORING_LANGUAGES.has(lang.id))
+      .map(lang => ({
+        id: `L${lang.id}`,
+        name: lang.name,
+        description: lang.description,
+        ...(lang.routingHint ? { when_to_use: lang.routingHint } : {}),
+        domains: lang.domains,
+      })),
   };
 }
 
