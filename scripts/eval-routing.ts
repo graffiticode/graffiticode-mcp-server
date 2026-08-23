@@ -163,6 +163,7 @@ const CASES: Case[] = [
   },
   // The specialists must still be reachable.
   { prompt: "Grade 5 ELA reading item on citing evidence from an informational passage.", expect: "L0175" },
+  { prompt: "Flashcards for Spanish vocabulary — 10 common food words with their English translations.", expect: "L0159" },
   { prompt: "A spreadsheet problem where students compute column totals with SUM.", expect: "L0166" },
   { prompt: "A concept web where students link the causes of the Great Depression.", expect: "L0169" },
   { prompt: "A bar chart of quarterly revenue for four regions.", expect: "L0173" },

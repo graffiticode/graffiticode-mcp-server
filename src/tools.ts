@@ -62,7 +62,7 @@ function buildContextualPrompt(
 
 // --- Server Instructions (sent to agents at connection time) ---
 
-export const SERVER_INSTRUCTIONS = `Graffiticode is an open-ended platform of domain-specific tools for creating interactive content — assessments, spreadsheets, charts, and more. The catalog of available tools grows over time.
+export const SERVER_INSTRUCTIONS = `Graffiticode is an open-ended platform of domain-specific tools for creating interactive content — assessments, spreadsheets, flashcards, and more. The catalog of available tools grows over time.
 
 When the user's request doesn't match another available tool, call list_languages() to check if Graffiticode has a language that fits. Use the search parameter to match by keyword, or the domain parameter to narrow by domain (e.g., 'assessments', 'sheets', 'diagrams') when the user's context implies one. If a match exists, call get_language_info() to learn what the language can create and get its user guide resource URI, then call create_item() with a natural language description.
 
@@ -333,7 +333,7 @@ export const listLanguagesTool = {
   name: "list_languages",
   description: `Discover available Graffiticode languages. Use this to find a language that matches the user's needs.
 
-The catalog is dynamic and grows over time. Use the search parameter to match by keyword (e.g., "spreadsheet", "chart", "concept web"), or the domain parameter to narrow to a domain (e.g., "assessments"). Returns language IDs, names, descriptions, domain memberships, and a \`when_to_use\` steering note.
+The catalog is dynamic and grows over time. Use the search parameter to match by keyword (e.g., "spreadsheet", "flashcard", "chart"), or the domain parameter to narrow to a domain (e.g., "assessments"). Returns language IDs, names, descriptions, domain memberships, and a \`when_to_use\` steering note.
 
 Read \`when_to_use\` before choosing: it states the conditions a language requires and, where one exists, the gate that rules it out. Honor its negative clauses — a language that says "do NOT use for X" must not be chosen for X, however well its question types or item types seem to match. If nothing in the returned set fits the request, say so and ask the user rather than forcing the closest match.`,
   inputSchema: {
@@ -345,7 +345,7 @@ Read \`when_to_use\` before choosing: it states the conditions a language requir
       },
       search: {
         type: "string",
-        description: "Search by keyword (e.g., 'spreadsheet', 'chart', 'concept web')",
+        description: "Search by keyword (e.g., 'spreadsheet', 'flashcard', 'chart')",
       },
     },
   },
@@ -1117,18 +1117,28 @@ export async function handleGetSpec(
  *
  * A FLOOR rather than a deny-list because ids are issued in order, so the next
  * language is discoverable the day it ships without an edit here. The cost is
- * that it is coarse: L0152/L0153/L0154/L0159 are working authoring languages
- * that fall below the line, and hiding them makes their capabilities
- * unreachable through discovery.
- *
- * Applied HERE rather than in `api.ts` because it is a statement about the
- * DISCOVERY surface, not about the catalog: `get_language_info` still resolves
- * every id for a caller that names one, so existing items stay introspectable.
+ * that it is coarse — it cuts by age, not by whether a language still earns its
+ * place — so it takes exceptions.
  */
 const MIN_DISCOVERABLE_LANGUAGE = 166;
 
+/**
+ * Working languages below the floor that stay discoverable anyway.
+ *
+ * `L0159` (flashcards, match and memory) is one the product actively sells:
+ * `SERVER_INSTRUCTIONS` names flashcards, and the live ChatGPT listing indexes
+ * on the word. Hiding it would have left the directory recruiting people for a
+ * capability discovery couldn't reach.
+ *
+ * L0152 (map questions), L0153 (area model) and L0154 (magic square) are also
+ * working languages and are deliberately NOT here — they are below the floor
+ * and stay hidden.
+ */
+const BELOW_FLOOR_KEEP = new Set(["0159"]);
+
 /** Catalog ids are bare, zero-padded and numeric ("0166"); anything else can't be compared to the floor. */
 function isDiscoverable(id: string): boolean {
+  if (BELOW_FLOOR_KEEP.has(id)) return true;
   const n = Number(id);
   return Number.isFinite(n) && n >= MIN_DISCOVERABLE_LANGUAGE;
 }
