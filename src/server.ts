@@ -162,6 +162,7 @@ const PRIVACY_HTML = `<!DOCTYPE html>
   <li>Location is recorded only as a <strong>coarse country</strong> (and, where available, region) derived at our CDN edge. <strong>We do not record your IP address.</strong></li>
   <li>We record the <strong>client kind</strong> (the name your MCP client reports, e.g. &ldquo;claude-ai&rdquo;), which identifies software, not you.</li>
   <li>When your client lists our tools or opens one of our built-in documentation resources, we record that it did so. The only address recorded is one of our own <code>graffiticode://</code> resources; anything else your client requests is not written to our analytics.</li>
+        <li>When you search our language catalog, we record the <strong>length</strong> of your search term and how many languages matched — never the search text itself. A domain filter is recorded only when it matches one we publish; anything else is recorded as <code>(invalid)</code>.</li>
 </ul>
 <p>One caveat, stated plainly: when a request fails we record a truncated backend error message so we can debug it. Error text is not intended to carry your content, but we cannot categorically rule out that a backend message quotes part of an input.</p>
 
@@ -594,6 +595,17 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
         ? toolArgs.modification
         : undefined;
     const descLen = description?.length;
+    // Discovery shape, list_languages only. The search STRING never leaves this
+    // scope — only its length — so a user's own phrasing can't reach the logs;
+    // `domain` is allowlisted downstream by normalizeDomain.
+    const searchLen =
+      name === "list_languages" && typeof toolArgs.search === "string"
+        ? toolArgs.search.length
+        : undefined;
+    const domain =
+      name === "list_languages" && typeof toolArgs.domain === "string"
+        ? toolArgs.domain
+        : undefined;
     let identity: { auth: "freePlan" | "firebase"; session: string } | null = null;
     // Hoisted so the catch below can label an error with the workspace the call
     // reached before it failed — a create can adopt a workspace and then have
@@ -661,6 +673,11 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
         ms: Date.now() - start,
         lang,
         descLen,
+        searchLen,
+        domain,
+        // How many languages the catalog actually offered back. A zero here on a
+        // non-empty search is the signal the other two fields exist to find.
+        results: Array.isArray(result.languages) ? result.languages.length : undefined,
         progress: progressToken !== undefined,
         err: outcome === "generation_failed" ? String(result.error ?? "") : undefined,
         meta: sessionMeta,
@@ -692,6 +709,8 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
           ms: Date.now() - start,
           lang,
           descLen,
+          searchLen,
+          domain,
           progress: progressToken !== undefined,
           err: message,
           meta: sessionMeta,

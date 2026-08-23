@@ -69,6 +69,21 @@ interface ToolEvent extends BaseEvent {
   // Whether the client requested out-of-band progress (sent a progressToken).
   // Tells us if the keepalive uses notifications/progress or the log fallback.
   progress?: boolean;
+  /**
+   * Discovery shape, `list_languages` only. `search` is free text a user's own
+   * phrasing flows into, so it gets the `desc_len` treatment, not the `lang`
+   * treatment: we record THAT a search happened and how long it was, never what
+   * it said. `domain` is allowlisted (see `normalizeDomain`).
+   *
+   * `results` is the field that earns the other two. 135 catalog calls produced
+   * 4 creates, and metadata alone couldn't say whether agents were browsing the
+   * whole catalog or searching and coming back empty — a zero-result search is a
+   * capability the catalog was asked for and doesn't advertise, which is the one
+   * discovery signal worth acting on.
+   */
+  search_len?: number;
+  domain?: string;
+  results?: number;
 }
 
 interface ConnectEvent extends BaseEvent {
@@ -200,6 +215,28 @@ export function normalizeClientKind(v?: string): string | undefined {
  * funnel report, and a second normaliser that disagreed would re-fragment the
  * counts this one exists to merge.
  */
+/**
+ * A domain the catalog actually publishes, or the `(invalid)` sentinel.
+ *
+ * Same allowlist reasoning as `normalizeLang`, for the same reason: `domain` is
+ * a free-text tool argument, and a client that puts a prompt in `language`
+ * will put one here too. Knowing WHICH domain an agent scoped to is worth
+ * having — it says which of our shelves a request was looking for — so this
+ * cannot be reduced to a length the way `search` is.
+ *
+ * Hardcoded rather than read from the catalog: this runs on the logging path,
+ * which must not depend on a network fetch, and the taxonomy changes about
+ * once a year. Add new domains here when the catalog gains one — an unlisted
+ * domain logs as `(invalid)` and shows up as a spike worth investigating.
+ */
+const KNOWN_DOMAINS = new Set(["assessments", "sheets", "diagrams", "learnosity"]);
+
+export function normalizeDomain(v?: string): string | undefined {
+  if (typeof v !== "string" || !v) return undefined;
+  const t = v.trim().toLowerCase();
+  return KNOWN_DOMAINS.has(t) ? t : "(invalid)";
+}
+
 export function normalizeLang(v?: string): string | undefined {
   if (typeof v !== "string" || !v) return undefined;
   const t = v.trim();
@@ -293,6 +330,9 @@ export function logToolCall(params: {
   descLen?: number;
   err?: string;
   progress?: boolean;
+  searchLen?: number;
+  domain?: string;
+  results?: number;
   meta?: SessionMeta;
 }): void {
   const event: ToolEvent = {
@@ -309,6 +349,10 @@ export function logToolCall(params: {
   if (params.descLen !== undefined) event.desc_len = params.descLen;
   if (params.err) event.err = params.err.slice(0, 200);
   if (params.progress !== undefined) event.progress = params.progress;
+  if (params.searchLen !== undefined) event.search_len = params.searchLen;
+  const domain = normalizeDomain(params.domain);
+  if (domain !== undefined) event.domain = domain;
+  if (params.results !== undefined) event.results = params.results;
   applyMeta(event, params.meta);
   emit(event);
 }
