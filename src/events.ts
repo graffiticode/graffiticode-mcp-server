@@ -84,6 +84,23 @@ interface ToolEvent extends BaseEvent {
   search_len?: number;
   domain?: string;
   results?: number;
+  /**
+   * Latency breakdown. `ms` is the whole call; these say where it went.
+   *
+   * `auth_ms` resolving the caller, `upstream_ms` waiting on the console and
+   * the template host across `upstream_n` calls. What they don't account for
+   * is our own compute — `ms - auth_ms - upstream_ms`.
+   *
+   * `proc_s` is process uptime in seconds when the call ran, and exists to
+   * settle one question the other fields can't: whether a slow first call is a
+   * RESTARTED INSTANCE or a warm instance doing something slow. A 12-20s call
+   * at proc_s≈5 is a cold start; the same call at proc_s≈40000 is not, and the
+   * two have nothing in common as fixes.
+   */
+  auth_ms?: number;
+  upstream_ms?: number;
+  upstream_n?: number;
+  proc_s?: number;
 }
 
 interface ConnectEvent extends BaseEvent {
@@ -336,6 +353,10 @@ export function logToolCall(params: {
   searchLen?: number;
   domain?: string;
   results?: number;
+  authMs?: number;
+  upstreamMs?: number;
+  upstreamCalls?: number;
+  procUptimeS?: number;
   meta?: SessionMeta;
 }): void {
   const event: ToolEvent = {
@@ -363,6 +384,10 @@ export function logToolCall(params: {
   const domain = normalizeDomain(params.domain);
   if (domain !== undefined) event.domain = domain;
   if (params.results !== undefined) event.results = params.results;
+  if (params.authMs !== undefined) event.auth_ms = params.authMs;
+  if (params.upstreamMs !== undefined) event.upstream_ms = params.upstreamMs;
+  if (params.upstreamCalls !== undefined) event.upstream_n = params.upstreamCalls;
+  if (params.procUptimeS !== undefined) event.proc_s = params.procUptimeS;
   applyMeta(event, params.meta);
   emit(event);
 }

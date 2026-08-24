@@ -50,6 +50,7 @@ import { formatToolResult } from "./tool-result.js";
 import { buildChallengeResponse } from "./challenge.js";
 import { startSseKeepalive } from "./sse-keepalive.js";
 import type { AuthContext } from "./api.js";
+import { withUpstreamTiming } from "./api.js";
 import {
   effectiveSession,
   identify,
@@ -645,8 +646,16 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
       extra.sendNotification(note).catch(() => {});
     }, 10_000);
 
+    // Latency breakdown. `ms` alone says a call took 19 seconds; it cannot say
+    // whether that went on resolving auth, waiting for the console, or our own
+    // code — and the first tool call of every organic visit costs 12-20s while
+    // the rest cost ~300ms, so which of the three it is decides where to look.
+    let authMs: number | undefined;
+    let upstream: { ms: number; calls: number } | undefined;
     try {
+      const authStart = Date.now();
       const auth = await authProvider.getAuth();
+      authMs = Date.now() - authStart;
       authCtx = auth;
       identity = identify(auth);
 
@@ -657,11 +666,13 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
         logSessionStarted({ ...identity, tool: name, lang }, sessionMeta);
       }
 
-      const result = await handleToolCall(
+      const call = await withUpstreamTiming(() => handleToolCall(
         { auth, clientKind, geoCountry: sessionMeta.geoCountry },
         name,
         args as Record<string, unknown>
-      ) as Record<string, unknown>;
+      ) as Promise<Record<string, unknown>>);
+      upstream = call.timing;
+      const result = call.result;
 
       // A handled generation error returns status:"failed" rather than throwing.
       const outcome: EventOutcome = result.status === "failed" ? "generation_failed" : "ok";
@@ -675,6 +686,10 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
         descLen,
         searchLen,
         domain,
+        authMs,
+        upstreamMs: upstream?.ms,
+        upstreamCalls: upstream?.calls,
+        procUptimeS: Math.round(process.uptime()),
         // How many languages the catalog actually offered back. A zero here on a
         // non-empty search is the signal the other two fields exist to find.
         results: Array.isArray(result.languages) ? result.languages.length : undefined,
@@ -711,6 +726,10 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
           descLen,
           searchLen,
           domain,
+          authMs,
+          upstreamMs: upstream?.ms,
+          upstreamCalls: upstream?.calls,
+          procUptimeS: Math.round(process.uptime()),
           progress: progressToken !== undefined,
           err: message,
           meta: sessionMeta,

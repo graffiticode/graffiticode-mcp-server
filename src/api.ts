@@ -2,6 +2,8 @@
  * Graffiticode GraphQL API client
  */
 
+import { AsyncLocalStorage } from "async_hooks";
+
 const CONSOLE_API_URL = process.env.GRAFFITICODE_CONSOLE_URL || "https://console.graffiticode.org/api";
 
 // Graffiticode API host. Serves language templates.
@@ -56,19 +58,64 @@ function buildAuthHeaders(auth: AuthContext): Record<string, string> {
   return { "X-Free-Plan-Session": auth.sessionId };
 }
 
+/**
+ * Per-request upstream timing, for the funnel's latency breakdown.
+ *
+ * Every organic ChatGPT arrival pays 12-20s on its FIRST tool call and ~300ms
+ * on every call after (measured 7/7 visits, 2026-08-24), and the total `ms` on
+ * an event cannot say whether that is spent resolving auth, waiting on the
+ * console, or in our own code. This splits it.
+ *
+ * AsyncLocalStorage rather than a module-level counter because requests
+ * interleave — a shared mutable would bill one caller's wait to whoever
+ * happened to finish next. Rather than a threaded parameter because the
+ * alternative is touching every api.ts signature and every call site to carry
+ * a stopwatch.
+ *
+ * Absent outside a tool call (resources, OAuth), where nothing is accumulating
+ * and `record` is a no-op.
+ */
+export interface UpstreamTiming { ms: number; calls: number }
+const upstreamStore = new AsyncLocalStorage<UpstreamTiming>();
+
+/** Run `fn` with a fresh upstream accumulator and hand back what it collected. */
+export async function withUpstreamTiming<T>(
+  fn: () => Promise<T>
+): Promise<{ result: T; timing: UpstreamTiming }> {
+  const timing: UpstreamTiming = { ms: 0, calls: 0 };
+  const result = await upstreamStore.run(timing, fn);
+  return { result, timing };
+}
+
+/** Bill elapsed wall-time to the in-flight tool call, if there is one. */
+function recordUpstream(startedAt: number): void {
+  const t = upstreamStore.getStore();
+  if (!t) return;
+  t.ms += Date.now() - startedAt;
+  t.calls += 1;
+}
+
 async function graphqlRequest<T>(
   auth: AuthContext,
   query: string,
   variables: Record<string, unknown>
 ): Promise<T> {
-  const response = await fetch(CONSOLE_API_URL, {
-    method: "POST",
-    headers: {
-      ...buildAuthHeaders(auth),
-      "Content-Type": "application/json",
-    },
-    body: JSON.stringify({ query, variables }),
-  });
+  const startedAt = Date.now();
+  let response: Response;
+  try {
+    response = await fetch(CONSOLE_API_URL, {
+      method: "POST",
+      headers: {
+        ...buildAuthHeaders(auth),
+        "Content-Type": "application/json",
+      },
+      body: JSON.stringify({ query, variables }),
+    });
+  } finally {
+    // In `finally` so a failed upstream call still reports the time it burned —
+    // a timeout is exactly the case the breakdown exists to expose.
+    recordUpstream(startedAt);
+  }
 
   if (!response.ok) {
     const error = await response.text();
@@ -658,8 +705,10 @@ export async function getLanguageInfo(options: {
 
 export async function getTemplate(language: string): Promise<string | null> {
   const langId = language.replace(/^L/i, "");
+  const startedAt = Date.now();
   try {
     const response = await fetch(`${API_URL}/L${langId}/template.gc`);
+    recordUpstream(startedAt);
     if (!response.ok) return null;
     const text = await response.text();
     return text || null;
