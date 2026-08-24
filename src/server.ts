@@ -434,6 +434,28 @@ function keepSseAlive(res: ServerResponse): void {
 // /.well-known/mcp.json so agents and registries can locate the canonical
 // endpoint and tool set without an authenticated call. Trial tokens are NOT
 // published here — they are scoped per toolset on the toolset subdomains.
+const ROBOTS_TXT = `# Graffiticode MCP server — https://mcp.graffiticode.org
+#
+# This host is an MCP (Model Context Protocol) endpoint, not a website.
+# Directory and catalogue crawlers are welcome: everything served here is
+# public by design.
+#
+# Machine-readable description of this server and the tools it exposes:
+#   /  ·  /mcp.json  ·  /.well-known/mcp.json
+# Human-readable:
+#   /about  ·  /privacy  ·  /terms
+# The endpoint itself (Streamable HTTP; POST an \`initialize\` first):
+#   /mcp
+#
+# Please send a User-Agent that names you, ideally with a contact URL —
+# "example-crawler/1.0 (+https://example.com/bot)". Clients impersonating
+# another product's User-Agent may be challenged.
+
+User-agent: *
+Allow: /
+Disallow: /oauth/
+`;
+
 const MCP_DISCOVERY = {
   mcp_endpoint: `${MCP_SERVER_URL}/mcp`,
   site: MCP_SERVER_URL,
@@ -938,6 +960,24 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
   if (url.pathname === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });
     res.end(JSON.stringify({ status: "ok" }));
+    return;
+  }
+
+  // robots.txt. Returned 404 to ~10 requests a week, and a 404 is ambiguous —
+  // some directory crawlers read it as "unknown, back off". This host is an MCP
+  // endpoint whose whole surface is public by design, and being indexed by
+  // catalogue aggregators is distribution we want, so say so explicitly.
+  //
+  // The User-Agent note is the policy the edge actually enforces: a WAF rule
+  // challenges a client impersonating another product's UA. Honest crawlers —
+  // agent-tools.cloud, mcp-reputation-scanner and the rest — are untouched, and
+  // it costs nothing to tell the next one where the line is.
+  if (url.pathname === "/robots.txt") {
+    res.writeHead(200, {
+      "Content-Type": "text/plain; charset=utf-8",
+      "Cache-Control": "public, max-age=86400",
+    });
+    res.end(ROBOTS_TXT);
     return;
   }
 
