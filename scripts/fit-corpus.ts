@@ -222,22 +222,6 @@ export const CORPUS: FitCase[] = [
     plausible: ["L0154"],
   },
   {
-    id: "cov-form",
-    prompt:
-      "A signup form for our parent-teacher night: name, email, child's grade, and a dropdown " +
-      "for a time slot.",
-    bucket: "covered",
-    area: "forms",
-    plausible: ["L0174"],
-  },
-  {
-    id: "cov-figjam",
-    prompt: "Lay out a retro board in FigJam with columns for what went well and what to improve.",
-    bucket: "covered",
-    area: "diagrams",
-    plausible: ["L0172"],
-  },
-  {
     id: "cov-learnosity-named",
     prompt:
       "Author a Learnosity MCQ on adding fractions for our item bank — four options, one correct.",
@@ -335,11 +319,20 @@ export const CORPUS: FitCase[] = [
     area: "reference-interactives",
   },
   {
+    id: "unc-figjam",
+    prompt: "Lay out a retro board in FigJam with columns for what went well and what to improve.",
+    bucket: "uncertain",
+    area: "diagrams",
+    note:
+      "L0172 targets FigJam but needs a human to wire up the Figma side, so it is hidden " +
+      "from the catalog. FigJam is currently a gap, not a covered case.",
+  },
+  {
     id: "unc-flowchart",
     prompt: "A flowchart of how a bill becomes a law, with decision branches.",
     bucket: "uncertain",
     area: "diagrams",
-    note: "L0172 targets FigJam specifically; a plain flowchart may have no home.",
+    note: "L0172 targeted FigJam specifically and is now hidden; flowcharts have no home.",
   },
   {
     id: "unc-seq-diagram",
@@ -373,12 +366,23 @@ export const CORPUS: FitCase[] = [
     area: "sheets",
   },
   {
+    id: "unc-form",
+    prompt:
+      "A signup form for our parent-teacher night: name, email, child's grade, and a dropdown " +
+      "for a time slot.",
+    bucket: "uncertain",
+    area: "forms",
+    note:
+      "L0174 makes forms but is unfinished and no longer discoverable, so nothing here " +
+      "should answer this. A create anyway is worth looking at.",
+  },
+  {
     id: "unc-survey",
     prompt:
       "A 10-question Likert survey on student engagement that I can send out and collect responses.",
     bucket: "uncertain",
     area: "forms",
-    note: "L0174 makes forms; whether it covers response collection is exactly the question.",
+    note: "L0174 made forms and is now hidden; surveys and response collection are a gap.",
   },
   {
     id: "unc-adaptive",

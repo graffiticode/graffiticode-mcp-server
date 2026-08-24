@@ -1136,8 +1136,22 @@ const MIN_DISCOVERABLE_LANGUAGE = 166;
  */
 const BELOW_FLOOR_KEEP = new Set(["0159"]);
 
+/**
+ * Languages above the floor that are hidden anyway — the floor's other exception.
+ *
+ * `L0172` (FigJam boards) generates real output, but landing it in FigJam takes a
+ * human wiring up the Figma side; an agent that picks it hands the user something
+ * they can't finish from chat. `L0174` (forms) is unfinished.
+ *
+ * Both are hidden from discovery only. `get_language_info` and `create_item` still
+ * answer for them, the same way they do for the sub-floor ids, so anything that
+ * already holds the id keeps working.
+ */
+const ABOVE_FLOOR_HIDE = new Set(["0172", "0174"]);
+
 /** Catalog ids are bare, zero-padded and numeric ("0166"); anything else can't be compared to the floor. */
 function isDiscoverable(id: string): boolean {
+  if (ABOVE_FLOOR_HIDE.has(id)) return false;
   if (BELOW_FLOOR_KEEP.has(id)) return true;
   const n = Number(id);
   return Number.isFinite(n) && n >= MIN_DISCOVERABLE_LANGUAGE;
