@@ -231,6 +231,9 @@ export function normalizeClientKind(v?: string): string | undefined {
  */
 const KNOWN_DOMAINS = new Set(["assessments", "sheets", "diagrams", "learnosity"]);
 
+/** How much of a backend error to keep. See the note at the `err` assignment. */
+const ERR_MAX_CHARS = 500;
+
 export function normalizeDomain(v?: string): string | undefined {
   if (typeof v !== "string" || !v) return undefined;
   const t = v.trim().toLowerCase();
@@ -347,7 +350,14 @@ export function logToolCall(params: {
   const lang = normalizeLang(params.lang);
   if (lang !== undefined) event.lang = lang;
   if (params.descLen !== undefined) event.desc_len = params.descLen;
-  if (params.err) event.err = params.err.slice(0, 200);
+  // 500, not 200. On a scope rejection this field is the backend's own summary
+  // of what the caller asked for, which the funnel report reads as a demand
+  // signal — the request Graffiticode could not serve, in the words of the
+  // system that refused it. At 200 those were cutting off mid-description
+  // ("…with multi-dimensional constraints (coverage windows, role"), losing the
+  // part that says what to build. Still a cap: this is the one field that can
+  // quote an input, and PRIVACY.md says so.
+  if (params.err) event.err = params.err.slice(0, ERR_MAX_CHARS);
   if (params.progress !== undefined) event.progress = params.progress;
   if (params.searchLen !== undefined) event.search_len = params.searchLen;
   const domain = normalizeDomain(params.domain);
