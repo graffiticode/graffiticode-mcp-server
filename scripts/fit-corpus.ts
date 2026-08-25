@@ -171,13 +171,6 @@ export const CORPUS: FitCase[] = [
     plausible: ["L0152"],
   },
   {
-    id: "cov-venn",
-    prompt: "A Venn diagram comparing mitosis and meiosis with three overlapping regions.",
-    bucket: "covered",
-    area: "diagrams",
-    plausible: ["L0171"],
-  },
-  {
     id: "cov-concept-web",
     prompt: "A concept map with 'ecosystem' in the middle and the main components branching off.",
     bucket: "covered",
@@ -317,6 +310,15 @@ export const CORPUS: FitCase[] = [
     prompt: "Show the structure of a water molecule that students can rotate.",
     bucket: "uncertain",
     area: "reference-interactives",
+  },
+  {
+    id: "unc-venn",
+    prompt: "A Venn diagram comparing mitosis and meiosis with three overlapping regions.",
+    bucket: "uncertain",
+    area: "diagrams",
+    note:
+      "L0171 makes Venn diagrams but was withdrawn from discovery on 2026-08-25, so " +
+      "nothing reachable answers this. A create anyway is worth looking at.",
   },
   {
     id: "unc-figjam",

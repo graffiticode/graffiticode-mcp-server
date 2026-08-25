@@ -1161,13 +1161,14 @@ const BELOW_FLOOR_KEEP = new Set(["0159"]);
  *
  * `L0172` (FigJam boards) generates real output, but landing it in FigJam takes a
  * human wiring up the Figma side; an agent that picks it hands the user something
- * they can't finish from chat. `L0174` (forms) is unfinished.
+ * they can't finish from chat. `L0174` (forms) is unfinished. `L0171` (Venn
+ * diagrams) was withdrawn from discovery on 2026-08-25.
  *
- * Both are hidden from discovery only. `get_language_info` and `create_item` still
+ * All are hidden from discovery only. `get_language_info` and `create_item` still
  * answer for them, the same way they do for the sub-floor ids, so anything that
  * already holds the id keeps working.
  */
-const ABOVE_FLOOR_HIDE = new Set(["0172", "0174"]);
+const ABOVE_FLOOR_HIDE = new Set(["0171", "0172", "0174"]);
 
 /** Catalog ids are bare, zero-padded and numeric ("0166"); anything else can't be compared to the floor. */
 function isDiscoverable(id: string): boolean {
