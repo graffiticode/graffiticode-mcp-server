@@ -64,6 +64,19 @@ interface ToolEvent extends BaseEvent {
   outcome: EventOutcome;
   ms: number;
   lang?: string;
+  /**
+   * The item this call was about — the create's result id, or the id the caller
+   * passed to update/render/get/spec. It is what turns a stream of independent
+   * calls into a LIFECYCLE: creates join to their own updates, renders and
+   * claims by this key, so "did anyone do anything with what they made" becomes
+   * answerable without guessing from timestamps.
+   *
+   * Not personal data and already logged elsewhere in the platform (the app's
+   * `artifact_view` carries the same id), so this adds no new exposure — but it
+   * is still normalised, because `item_id` is a free-text tool argument exactly
+   * like `language`. See `normalizeItem`.
+   */
+  item?: string;
   desc_len?: number;
   err?: string;
   // Whether the client requested out-of-band progress (sent a progressToken).
@@ -248,6 +261,27 @@ export function normalizeClientKind(v?: string): string | undefined {
  */
 const KNOWN_DOMAINS = new Set(["assessments", "sheets", "diagrams", "learnosity"]);
 
+/**
+ * A well-formed item handle, or the `(invalid)` sentinel. Never the input.
+ *
+ * `item_id` is free text off the tool arguments, and the same clients that put
+ * "create a green bar chart using mock data" in `language` will put prose here.
+ * Item ids are Firestore doc ids — 20 chars of [A-Za-z0-9_-] — so anything else
+ * is replaced rather than truncated, keeping the promise that no field can carry
+ * a raw prompt.
+ *
+ * The sentinel rather than dropping the field: a client calling render_item with
+ * junk is a real routing bug, and it should be visible as one.
+ */
+const ITEM_ID_PATTERN = /^[A-Za-z0-9_-]{1,64}$/;
+
+export function normalizeItem(item?: string): string | undefined {
+  if (item === undefined || item === null) return undefined;
+  const trimmed = String(item).trim();
+  if (trimmed.length === 0) return undefined;
+  return ITEM_ID_PATTERN.test(trimmed) ? trimmed : "(invalid)";
+}
+
 /** How much of a backend error to keep. See the note at the `err` assignment. */
 const ERR_MAX_CHARS = 500;
 
@@ -347,6 +381,7 @@ export function logToolCall(params: {
   outcome: EventOutcome;
   ms: number;
   lang?: string;
+  item?: string;
   descLen?: number;
   err?: string;
   progress?: boolean;
@@ -370,6 +405,8 @@ export function logToolCall(params: {
   };
   const lang = normalizeLang(params.lang);
   if (lang !== undefined) event.lang = lang;
+  const item = normalizeItem(params.item);
+  if (item !== undefined) event.item = item;
   if (params.descLen !== undefined) event.desc_len = params.descLen;
   // 500, not 200. On a scope rejection this field is the backend's own summary
   // of what the caller asked for, which the funnel report reads as a demand

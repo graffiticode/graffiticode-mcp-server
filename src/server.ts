@@ -629,6 +629,12 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
       name === "list_languages" && typeof toolArgs.domain === "string"
         ? toolArgs.domain
         : undefined;
+    // The item the caller named. create_item has none yet — its id comes back on
+    // the result — so the success path prefers the result's id and falls back to
+    // this. Kept here so the ERROR path can still say which item a failed
+    // update/render was about, which is the half of the lifecycle that explains
+    // an abandoned item.
+    const argItemId = typeof toolArgs.item_id === "string" ? toolArgs.item_id : undefined;
     let identity: { auth: "freePlan" | "firebase"; session: string } | null = null;
     // Hoisted so the catch below can label an error with the workspace the call
     // reached before it failed — a create can adopt a workspace and then have
@@ -705,6 +711,7 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
         outcome,
         ms: Date.now() - start,
         lang,
+        item: typeof result.item_id === "string" ? result.item_id : argItemId,
         descLen,
         searchLen,
         domain,
@@ -745,6 +752,7 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
           outcome: "error",
           ms: Date.now() - start,
           lang,
+          item: argItemId,
           descLen,
           searchLen,
           domain,
