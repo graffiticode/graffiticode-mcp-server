@@ -216,6 +216,17 @@ test("free-plan claim fields carry the host bucket and the reconnect hint", () =
   assert.ok(fields.claim_message.includes(fields.claim_url), "message must carry the link");
   assert.ok(fields.claim_message.includes(reconnectHint("editor")), "message must carry the hint");
 
+  // The widget footer gets its own attribution: same claim, same agent, src=footer.
+  // Without a distinct producer of src=footer, every render-host click arrives
+  // stamped `chat` and the funnel cannot tell the two surfaces apart — which is
+  // exactly what production showed before this existed.
+  assert.match(fields.claim_url_footer, /[?&]src=footer(&|$)/);
+  assert.match(fields.claim_url_footer, /[?&]token=tok-abc(&|$)/);
+  assert.match(fields.claim_url_footer, /[?&]agent=editor(&|$)/);
+  // The chat-facing message must keep the chat attribution, or the fix inverts
+  // the very thing it measures.
+  assert.doesNotMatch(fields.claim_message, /[?&]src=footer/);
+
   // An unnamed client still gets a well-formed URL rather than agent=undefined.
   const anon = buildClaimFields(auth, "tok-abc");
   assert.match(anon!.claim_url, /[?&]agent=unknown(&|$)/);

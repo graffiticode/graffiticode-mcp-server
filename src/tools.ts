@@ -673,7 +673,7 @@ export function buildClaimFields(
   auth: AuthContext,
   claimToken?: string | null,
   clientKind?: string
-): { token: string; claim_url: string; claim_message: string } | null {
+): { token: string; claim_url: string; claim_url_footer: string; claim_message: string } | null {
   if (auth.type !== "freePlan" || !claimToken) return null;
   // `src=chat` attributes the click to the link an agent prints, as distinct
   // from the render-host footer's Claim button (which carries src=footer). The
@@ -688,10 +688,19 @@ export function buildClaimFields(
   // the item source surface (console|mcp|front, see its _app.tsx), and reusing that
   // name for a different taxonomy is a collision waiting to be discovered.
   const host = classifyClientHost(clientKind);
-  const claim_url = `${CONSOLE_URL}/claim?token=${claimToken}&src=chat&agent=${host}`;
+  const claimUrlFor = (src: "chat" | "footer") =>
+    `${CONSOLE_URL}/claim?token=${claimToken}&src=${src}&agent=${host}`;
+  const claim_url = claimUrlFor("chat");
   return {
     token: claimToken,
     claim_url,
+    // The same claim, stamped for the widget's footer button. Minted here rather
+    // than rewritten in the browser: the widget used to open `claim_url` verbatim,
+    // so every render-host click arrived stamped `chat` and the two surfaces were
+    // indistinguishable in the funnel — 35 claim views, all `chat`, with no
+    // producer of `src=footer` anywhere in the codebase. The server owns this
+    // string; the widget should not be parsing and rewriting it.
+    claim_url_footer: claimUrlFor("footer"),
     // Markdown link rather than a bare URL — the token is a ~250-char JWT, and the
     // ready summary prints a second one right above this. The raw URL stays
     // available as the `claim_url` field.
@@ -1049,6 +1058,13 @@ async function handleItemResult(
       hydration.claim_message as string | undefined
     );
     if (mode === "render") {
+      // Widget-only, and deliberately not written by applyViewAndClaim: it must
+      // not reach the chat-facing fields or get_item's raw output, or a model
+      // could print the footer-attributed link and invert the attribution it
+      // exists to measure. `_meta.graffiticode` is stripped for non-widget
+      // clients, so this reaches exactly the surface it describes.
+      const claimFooter = buildClaimFields(ctx.auth, item.claimToken, ctx.clientKind)?.claim_url_footer;
+      if (claimFooter) hydration.claim_url_footer = claimFooter;
       return {
         ...compact,
         // Links are echoed as real fields, not only inside `summary`. Non-widget
