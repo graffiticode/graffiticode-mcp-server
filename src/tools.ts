@@ -673,7 +673,7 @@ export function buildClaimFields(
   auth: AuthContext,
   claimToken?: string | null,
   clientKind?: string
-): { token: string; claim_url: string; claim_url_footer: string; claim_message: string } | null {
+): { token: string; claim_url: string; claim_url_widget: string; claim_message: string } | null {
   if (auth.type !== "freePlan" || !claimToken) return null;
   // `src=chat` attributes the click to the link an agent prints, as distinct
   // from the render-host footer's Claim button (which carries src=footer). The
@@ -688,19 +688,23 @@ export function buildClaimFields(
   // the item source surface (console|mcp|front, see its _app.tsx), and reusing that
   // name for a different taxonomy is a collision waiting to be discovered.
   const host = classifyClientHost(clientKind);
-  const claimUrlFor = (src: "chat" | "footer") =>
+  const claimUrlFor = (src: "chat" | "widget") =>
     `${CONSOLE_URL}/claim?token=${claimToken}&src=${src}&agent=${host}`;
   const claim_url = claimUrlFor("chat");
   return {
     token: claimToken,
     claim_url,
-    // The same claim, stamped for the widget's footer button. Minted here rather
-    // than rewritten in the browser: the widget used to open `claim_url` verbatim,
-    // so every render-host click arrived stamped `chat` and the two surfaces were
-    // indistinguishable in the funnel — 35 claim views, all `chat`, with no
-    // producer of `src=footer` anywhere in the codebase. The server owns this
-    // string; the widget should not be parsing and rewriting it.
-    claim_url_footer: claimUrlFor("footer"),
+    // The same claim, stamped for the widget's in-host footer button. Minted here
+    // rather than rewritten in the browser: the widget used to open `claim_url`
+    // verbatim, so its clicks arrived stamped `chat` and the two surfaces were
+    // indistinguishable in the funnel — 35 claim views, all `chat`.
+    //
+    // `widget`, NOT `footer`: three surfaces can offer this claim, and each needs
+    // its own value. `chat` is the link an agent prints, `widget` is this button
+    // inside the host, and `footer` is the app's /form attribution bar (see the
+    // app's FormFooter, reached via view_url's `?claim=`). Collapsing any two of
+    // them re-creates the blind spot this exists to remove.
+    claim_url_widget: claimUrlFor("widget"),
     // Markdown link rather than a bare URL — the token is a ~250-char JWT, and the
     // ready summary prints a second one right above this. The raw URL stays
     // available as the `claim_url` field.
@@ -1063,8 +1067,8 @@ async function handleItemResult(
       // could print the footer-attributed link and invert the attribution it
       // exists to measure. `_meta.graffiticode` is stripped for non-widget
       // clients, so this reaches exactly the surface it describes.
-      const claimFooter = buildClaimFields(ctx.auth, item.claimToken, ctx.clientKind)?.claim_url_footer;
-      if (claimFooter) hydration.claim_url_footer = claimFooter;
+      const claimWidget = buildClaimFields(ctx.auth, item.claimToken, ctx.clientKind)?.claim_url_widget;
+      if (claimWidget) hydration.claim_url_widget = claimWidget;
       return {
         ...compact,
         // Links are echoed as real fields, not only inside `summary`. Non-widget

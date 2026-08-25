@@ -206,12 +206,13 @@ export function startRenderer(host: HostAdapter): void {
   }
 
   function appendFooterLink(sc: Record<string, unknown>, container?: HTMLElement): void {
-    // Prefer the footer-stamped claim URL (src=footer) so a click here is
-    // distinguishable in the funnel from a click on the link the agent prints
-    // (src=chat) — the two surfaces are the thing being compared. `claim_url` is
-    // the fallback for a hydration payload minted before the server carried both.
+    // Prefer the widget-stamped claim URL (src=widget) so a click here is
+    // distinguishable in the funnel both from the link an agent prints (src=chat)
+    // and from the app's /form footer (src=footer) — three surfaces, three values.
+    // `claim_url` is the fallback for a hydration payload minted before the server
+    // carried both; it costs the attribution, not the claim.
     const claimUrl =
-      typeof sc.claim_url_footer === "string" ? sc.claim_url_footer :
+      typeof sc.claim_url_widget === "string" ? sc.claim_url_widget :
       typeof sc.claim_url === "string" ? sc.claim_url : undefined;
     const viewUrl = typeof sc.view_url === "string" ? sc.view_url : undefined;
     const label = claimUrl ? "Sign in to save ↗" : viewUrl ? "Open in Graffiticode ↗" : null;
