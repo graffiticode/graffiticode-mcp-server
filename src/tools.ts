@@ -70,6 +70,8 @@ Some languages are gated: they target a specific vendor or platform and carry a 
 
 All requests to create_item and update_item must be natural language descriptions of what to create or change. A language-specific AI backend handles all code generation. Do not attempt to generate Graffiticode DSL code directly.
 
+Write those descriptions in ENGLISH. The generator is English-only and rejects a request written in another language. This constrains the instruction you send, not the content you ask for: text that should appear inside the item — vocabulary, names, quoted passages, a whole passage in another language — may be in any language. So a user writing to you in Russian gets an English description of what to build, with their Russian content carried through verbatim.
+
 get_language_info returns an inline authoring_guide summary, supported_item_types, and example_prompts — these are usually sufficient to compose a good create_item request. For deeper reference (vocabulary cues, scope boundaries, detailed item-type docs) read the user_guide_resource URI via ReadResource.
 
 Division of labor: the generator is the router — it identifies which languages a request needs and composes any pipeline. Your job is to send it the highest-quality description. Item ids are opaque handles. To reuse an existing item's content in a new request (any language), do NOT pass its id or get_item output (src/data) — those are private to that item's own language. Converge the content in its own language first, then call get_spec(item_id) to get a platform-neutral English description, and pass THAT (plus your intent framing) as the create_item description. Never name upstream languages or wire pipelines yourself; describe what you want and let the generator compose.
@@ -146,7 +148,9 @@ export const createItemTool = {
   name: "create_item",
   description: `Create interactive content in any Graffiticode language. Describe what you want in natural language — a language-specific AI generates the result.
 
-Call list_languages() first to discover available languages, then pass the language ID here. Your closest match is good enough — the platform validates it against the language's scope and re-routes the request if another language fits better. The description should be a natural language request, not code. Be specific about the content, structure, layout, theme, and any assessment or interaction requirements.
+Call list_languages() first to discover available languages, then pass the language ID here. Your closest match is good enough — the platform validates it against the language's scope and re-routes the request if another language fits better. The description should be a natural language request, not code, written in English. Be specific about the content, structure, layout, theme, and any assessment or interaction requirements.
+
+Only the description itself must be English — content you want to appear in the item (vocabulary, names, passages) may be in any language.
 
 To reuse content from an existing item (any language) — e.g. "make this spreadsheet into a Learnosity question" — call get_spec(item_id) and use its returned text as this description, adding only your intent/target framing. Never paste another item's src/data or its id, and do not name upstream languages or wire a pipeline: just describe what you want and let the generator identify the languages and compose.
 
@@ -200,6 +204,8 @@ export const updateItemTool = {
 This replaces the item's current content in place — the previous version cannot be restored through the assistant, so treat each update as an overwrite.
 
 The language is auto-detected from the item. Conversation history is preserved, so you can make incremental changes: "add another concept", "change the theme to dark", "make the header row blue".
+
+Write the modification in English, as with create_item; content destined for the item itself may be in any language.
 
 Like create_item, generation runs asynchronously: this returns immediately with status "generating". Call render_item(item_id) to retrieve and display the updated result.`,
   inputSchema: {
