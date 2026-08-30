@@ -164,7 +164,11 @@ const CASES: Case[] = [
   // The specialists must still be reachable.
   { prompt: "Grade 5 ELA reading item on citing evidence from an informational passage.", expect: "L0175" },
   { prompt: "Flashcards for Spanish vocabulary — 10 common food words with their English translations.", expect: "L0159" },
-  { prompt: "A spreadsheet problem where students compute column totals with SUM.", expect: "L0166" },
+  // L0179, not L0166: L0166 is the legacy spreadsheet dialect and ships a when_to_use that
+  // says so on the wire ("Deprecated in favor of L0179 — prefer L0179 for all new spreadsheet
+  // content"). A model that picks L0179 here is obeying that hint, so expecting L0166 asserted
+  // that routing must IGNORE a deprecation notice we deliberately publish.
+  { prompt: "A spreadsheet problem where students compute column totals with SUM.", expect: "L0179" },
   { prompt: "A concept web where students link the causes of the Great Depression.", expect: "L0169" },
   { prompt: "A bar chart of quarterly revenue for four regions.", expect: "L0173" },
 ];
