@@ -10,6 +10,17 @@
  * Not compiled by tsc (browser-only) — bundled by scripts/build-widget.mjs.
  */
 import type { HostAdapter, ToolResult } from "./host.js";
+import {
+  describeItem,
+  isRecord,
+  mergeToolPayload,
+  normalizeLang,
+  type ItemContent,
+} from "../../item-content.js";
+
+// Re-exported because tests/widget-contract.test.ts imports it from here, and the
+// widget's payload contract is the thing that test exists to pin.
+export { mergeToolPayload };
 
 // Injected by the HTML generator: the origin serving /widget/lang/<id>.mjs.
 declare const __MCP_ORIGIN__: string;
@@ -19,27 +30,6 @@ declare const __NATIVE__: string[];
 interface LangModule {
   styles: string;
   mount: (el: HTMLElement, data: unknown) => void;
-}
-
-function normalizeLang(lang: unknown): string {
-  return `L${String(lang ?? "").replace(/^[lL]/, "")}`;
-}
-
-function isRecord(value: unknown): value is Record<string, unknown> {
-  return !!value && typeof value === "object" && !Array.isArray(value);
-}
-
-/** Merge the model-visible result with the namespaced widget hydration payload. */
-export function mergeToolPayload(r: ToolResult): Record<string, unknown> {
-  const namespaced = isRecord(r.meta.graffiticode)
-    ? r.meta.graffiticode
-    : r.meta;
-  return { ...r.structuredContent, ...namespaced };
-}
-
-function unwrapData(raw: unknown): unknown {
-  if (isRecord(raw) && ("data" in raw || "errors" in raw)) return raw.data;
-  return raw;
 }
 
 const el = <K extends keyof HTMLElementTagNameMap>(
@@ -123,56 +113,37 @@ export function startRenderer(host: HostAdapter): void {
     appendFooterLink(sc, card);
   }
 
-  // Render real content from the data we already hold, so the card is a preview,
-  // not an ad for our website. Shapes verified against the language compilers.
+  // Render the shared content model as DOM. The extraction lives in
+  // item-content.ts so the tool result's text says the same thing this card does;
+  // what stays here is only the markup.
   function cardBody(lang: string, sc: Record<string, unknown>): HTMLElement | null {
-    const unwrapped = unwrapData(sc.data);
-    const data = isRecord(unwrapped) ? unwrapped : undefined;
+    const content: ItemContent = describeItem(lang, sc);
 
-    // Learnosity assessments: data = { type, request: { questions: [...] } }.
-    if ((lang === "L0158" || lang === "L0176") && data) {
-      const request = data.request as { questions?: unknown[] } | undefined;
-      const questions = Array.isArray(request?.questions) ? request!.questions : [];
-      if (questions.length) {
-        const wrap = el("div", "card-body");
-        wrap.appendChild(el("div", "card-text", `${questions.length} question${questions.length > 1 ? "s" : ""}`));
-        const list = el("ol", "q-list");
-        for (const q of questions.slice(0, 8)) {
-          const qq = q as Record<string, unknown>;
-          const li = el("li");
-          const stimulus = String(qq.stimulus ?? qq.prompt ?? "").replace(/<[^>]+>/g, "").trim();
-          li.appendChild(el("div", "q-stim", stimulus || "(question)"));
-          const opts = qq.options as Array<Record<string, unknown>> | undefined;
-          const valid = (qq["valid-response"] ?? qq.validResponse) as Record<string, unknown> | undefined;
-          const correct = new Set(
-            Array.isArray(valid?.value) ? (valid!.value as unknown[]).map(String) : []
-          );
-          if (Array.isArray(opts)) {
-            const ul = el("ul", "q-opts");
-            for (const o of opts) {
-              const label = String(o.label ?? o.value ?? "");
-              const isCorrect = correct.has(String(o.value));
-              ul.appendChild(el("li", isCorrect ? "correct" : undefined, (isCorrect ? "✓ " : "") + label));
-            }
-            li.appendChild(ul);
+    if (content.kind === "questions") {
+      const wrap = el("div", "card-body");
+      const n = content.count;
+      wrap.appendChild(el("div", "card-text", `${n} question${n === 1 ? "" : "s"}`));
+      const list = el("ol", "q-list");
+      for (const q of content.shown) {
+        const li = el("li");
+        li.appendChild(el("div", "q-stim", q.stimulus));
+        if (q.options.length) {
+          const ul = el("ul", "q-opts");
+          for (const o of q.options) {
+            ul.appendChild(
+              el("li", o.correct ? "correct" : undefined, (o.correct ? "✓ " : "") + o.label)
+            );
           }
-          list.appendChild(li);
+          li.appendChild(ul);
         }
-        wrap.appendChild(list);
-        return wrap;
+        list.appendChild(li);
       }
+      wrap.appendChild(list);
+      return wrap;
     }
 
-    // Spec doc: the item IS prose.
-    if (lang === "L0177") {
-      const text = String((data?.print ?? sc.spec ?? sc.src ?? "") || "");
-      if (text) return el("pre", "card-pre", text.slice(0, 4000));
-    }
-
-    // Everything else: a compact, readable preview of the data we have.
-    if (data) {
-      return el("pre", "card-pre", JSON.stringify(data, null, 2).slice(0, 2000));
-    }
+    if (content.kind === "prose") return el("pre", "card-pre", content.text);
+    if (content.kind === "preview") return el("pre", "card-pre", content.json);
     return el("div", "card-text", "Open it in Graffiticode to view.");
   }
 

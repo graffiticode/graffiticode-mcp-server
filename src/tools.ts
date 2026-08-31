@@ -12,6 +12,7 @@ import {
   MCP_ENDPOINT,
 } from "./api.js";
 import { normalizeClientKind } from "./events.js";
+import { contentToMarkdown, describeItem, normalizeLang } from "./item-content.js";
 import { widgetResourceUris } from "./widget/index.js";
 
 // --- Help Entry Structure (matches console HelpPanel) ---
@@ -808,7 +809,11 @@ export function buildReadySummary(
   name: string | null,
   language: string,
   viewUrl: string,
-  claimMessage?: string
+  claimMessage?: string,
+  // The merged payload, so the summary can show what the item CONTAINS. Optional
+  // because the summary predates it, and a caller without `data` should still get
+  // the title and the link rather than nothing.
+  payload?: Record<string, unknown>
 ): string {
   const shown = displayName(name);
   const title = shown ? `**${shown}**` : "Your item";
@@ -818,8 +823,45 @@ export function buildReadySummary(
   const lines = [
     `${title} (${language}) is ready — [open the form view](${viewUrl})`,
   ];
+  // The content itself, rendered from the same model the widget draws. Without it
+  // a client that renders no widget saw only the line above — a name and a URL —
+  // and could not tell a correct item from a broken one without opening a browser.
+  // Placed before the claim message so the item leads and the account prompt follows.
+  if (payload) {
+    const body = contentToMarkdown(describeItem(normalizeLang(language), payload));
+    if (body) lines.push(body);
+  }
   if (claimMessage) lines.push(claimMessage);
   return lines.join("\n\n");
+}
+
+/**
+ * Summaries for the states that are not "ready".
+ *
+ * These branches returned bare objects with no `summary` field, and
+ * `formatToolResult` falls back to `JSON.stringify(structuredContent, null, 2)`
+ * when `summary` is not a string — so every still-generating and every failed
+ * render answered the user with a pretty-printed JSON blob. Four of an OpenAI
+ * reviewer's renders hit the poll deadline on 2026-08-29 and got exactly that.
+ */
+export function buildGeneratingSummary(
+  name: string | null,
+  retrievalTool: string,
+  itemId: string
+): string {
+  const shown = displayName(name);
+  const title = shown ? `**${shown}**` : "Your item";
+  return `${title} is still generating — call \`${retrievalTool}("${itemId}")\` again to keep waiting.`;
+}
+
+export function buildFailedSummary(
+  name: string | null,
+  language: string,
+  error: string
+): string {
+  const shown = displayName(name);
+  const title = shown ? `**${shown}**` : "Your item";
+  return `${title} (${language}) could not be generated — ${error}`;
 }
 
 // Conservative guard against the over-reaching inputs get_spec exists to replace: passing an item
@@ -978,12 +1020,14 @@ async function handleItemResult(
 
     if (status === "failed") {
       // No view_url/claim_url: a failed item has nothing to open or claim.
+      const error = item.generationError || "Generation failed";
       return {
         item_id: item.id,
         status: "failed",
-        error: item.generationError || "Generation failed",
+        error,
         language: `L${item.lang}`,
         name: item.name,
+        summary: buildFailedSummary(item.name, `L${item.lang}`, error),
       };
     }
 
@@ -997,6 +1041,7 @@ async function handleItemResult(
           error: "Generation timed out",
           language: `L${item.lang}`,
           name: item.name,
+          summary: buildFailedSummary(item.name, `L${item.lang}`, "Generation timed out"),
         };
       }
       if (Date.now() < deadline) {
@@ -1011,6 +1056,7 @@ async function handleItemResult(
         language: `L${item.lang}`,
         name: item.name,
         message: `Still generating. Call ${retrievalTool}(item_id) again to keep waiting.`,
+        summary: buildGeneratingSummary(item.name, retrievalTool, item.id),
       };
     }
 
@@ -1041,6 +1087,7 @@ async function handleItemResult(
         language: `L${item.lang}`,
         name: item.name,
         message: `Still generating. Call ${retrievalTool}(item_id) again to keep waiting.`,
+        summary: buildGeneratingSummary(item.name, retrievalTool, item.id),
       };
     }
 
@@ -1058,14 +1105,21 @@ async function handleItemResult(
       updated: item.updated,
     };
     applyViewAndClaim(hydration, ctx.auth, item.id, item.claimToken, ctx.clientKind);
-    // Chat-facing summary for clients that render text rather than the widget
-    // (e.g. Codex). Surfaces the form-view link instead of dumping language-
-    // private source/data. Widget hosts ignore this and render from hydration.
+    // Chat-facing summary. It now carries the item's CONTENT — rendered from the
+    // same model the widget draws (item-content.ts) — not just a link. `data` is
+    // already in hand here, so this costs no upstream call.
+    //
+    // What it still does not do is dump `src` or the raw `data` blob: the summary
+    // is a description OF the item, so a model reading the transcript learns what
+    // was made without being handed a language-private artifact it might try to
+    // edit or forward. Widget hosts render from hydration and additionally get
+    // this as their fallback if the widget never mounts.
     const summary = buildReadySummary(
       item.name,
       `L${item.lang}`,
       hydration.view_url as string,
-      hydration.claim_message as string | undefined
+      hydration.claim_message as string | undefined,
+      { ...compact, ...hydration }
     );
     if (mode === "render") {
       // Widget-only, and deliberately not written by applyViewAndClaim: it must
