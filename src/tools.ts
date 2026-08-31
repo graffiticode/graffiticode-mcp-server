@@ -510,23 +510,44 @@ export function isWidgetHost(clientName?: string): boolean {
  * doesn't contain "claude".
  *
  * Only the FIRST misfire is fixed here, by requiring the declaration on top of the
- * name whitelist. Dropping the name check (capability + "not OpenAI") would fix the
- * second too, but it would let ANY unknown client that declares the extension render
- * the widget — including `web-sandbox`-style names, which is precisely the family the
- * whitelist was added to catch after ChatGPT's consumer app slipped past a blacklist.
- * With the OpenAI app-directory submission live, a false negative (a dev connector
- * getting a text link) is cheap; a false positive (the widget appearing in ChatGPT)
- * is not. A client that wants the widget must both declare the extension and be a
- * recognized Claude host.
+ * name whitelist. Dropping the name check entirely would fix the second too, but it
+ * would let ANY unknown client that declares the extension render the widget —
+ * including `web-sandbox`-style names. A false negative (a dev connector getting a
+ * text link) is cheap; a false positive is not.
+ *
+ * OpenAI is now a SECOND, separate route rather than an exclusion. ChatGPT does not
+ * declare `io.modelcontextprotocol/ui` — it reads `openai/outputTemplate`, which the
+ * Apps SDK documents as a compatibility alias for `_meta.ui.resourceUri` — so the
+ * extension test can never admit it and a name match is the only signal available.
+ * That is the same shape as the original blacklist which ChatGPT's consumer app
+ * slipped past, so this is deliberately an ALLOW-list of OpenAI names, not a
+ * catch-all: an unknown client still gets text.
+ *
+ * The reason it is safe to serve now and was not before: the widget used to latch on
+ * the first result and sit on "Loading…" forever when a host delivered nothing, which
+ * is what "stuck Generating…" was. Those are fixed, and a native mount that draws
+ * nothing now falls back to the content card. The worst case is the card.
  */
+export type WidgetRoute = "mcp-apps" | "openai" | "none";
+
+export function widgetRouteFor(
+  clientName?: string,
+  declaresUiExtension?: boolean
+): WidgetRoute {
+  if (declaresUiExtension === true && isWidgetHost(clientName)) return "mcp-apps";
+  if (isOpenAIClient(clientName)) return "openai";
+  return "none";
+}
+
+/** Back-compat predicate: "does this client get a widget at all". */
 export function shouldAdvertiseWidget(
   clientName?: string,
   declaresUiExtension?: boolean
 ): boolean {
-  return declaresUiExtension === true && isWidgetHost(clientName);
+  return widgetRouteFor(clientName, declaresUiExtension) !== "none";
 }
 
-// Kept for the funnel/logging classification; NOT used for widget routing anymore.
+// Used for BOTH the funnel classification and the OpenAI widget route.
 export function isOpenAIClient(clientName?: string): boolean {
   return !!clientName && /openai|chatgpt|codex/i.test(clientName);
 }
@@ -618,7 +639,7 @@ function stripWidgetMeta(meta: Record<string, unknown>): Record<string, unknown>
 // clients. The widget resource URI is content-hashed (the host caches by URI) and
 // computed at runtime, so it's injected here rather than baked into the static _meta.
 export function toolsForClient(clientName?: string, declaresUiExtension?: boolean): Tool[] {
-  const widgetHost = shouldAdvertiseWidget(clientName, declaresUiExtension);
+  const route = widgetRouteFor(clientName, declaresUiExtension);
   const uiUri = widgetResourceUris().mcp;
   return tools.map((t) => {
     const rec = t as Record<string, unknown>;
@@ -627,15 +648,29 @@ export function toolsForClient(clientName?: string, declaresUiExtension?: boolea
     if (!("openai/resultCanProduceWidget" in meta)) return t;
     // stripWidgetMeta drops the openai marker + any ui.* keys, keeping securitySchemes.
     const base = stripWidgetMeta(meta);
-    if (!widgetHost) {
-      // ChatGPT/OpenAI/unknown: no widget/UI descriptor metadata, securitySchemes kept.
+    if (route === "none") {
+      // Unknown client: no widget/UI descriptor metadata, securitySchemes kept.
       return { ...rec, _meta: base } as unknown as Tool;
     }
-    // Claude: preserve securitySchemes and point at the native MCP-Apps widget.
-    return {
-      ...rec,
-      _meta: { ...base, ui: { resourceUri: uiUri }, "ui/resourceUri": uiUri },
-    } as unknown as Tool;
+    // Both routes point at the SAME resource. `openai/outputTemplate` is documented
+    // by the Apps SDK as a compatibility alias for `_meta.ui.resourceUri`, and the
+    // widget's own host adapter picks its transport by feature-detecting
+    // `window.openai`, so one build serves both. The keys differ; the artifact does
+    // not. `ui/resourceUri` is the legacy flat spelling, kept for older MCP hosts.
+    const ui: Record<string, unknown> = {
+      ...base,
+      ui: { resourceUri: uiUri },
+      "ui/resourceUri": uiUri,
+    };
+    if (route === "openai") {
+      ui["openai/outputTemplate"] = uiUri;
+      // Shown in ChatGPT while the call runs and after it returns. Generation is
+      // asynchronous and routinely outlives one render_item poll, so the invoking
+      // string is what a user reads for most of the wait.
+      ui["openai/toolInvocation/invoking"] = "Working in Graffiticode…";
+      ui["openai/toolInvocation/invoked"] = "Opened in Graffiticode";
+    }
+    return { ...rec, _meta: ui } as unknown as Tool;
   });
 }
 

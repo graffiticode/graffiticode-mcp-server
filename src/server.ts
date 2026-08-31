@@ -44,6 +44,8 @@ import {
   SERVER_INSTRUCTIONS,
   toolsForClient,
   shouldAdvertiseWidget,
+  widgetRouteFor,
+  isOpenAIClient,
   isWidgetHost,
 } from "./tools.js";
 import { formatToolResult } from "./tool-result.js";
@@ -596,7 +598,9 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
     const declaresUi = declaresUiExtension(server);
     console.log(
       `[widget] tools/list host=${clientName ?? "?"} v=${server.getClientVersion()?.version ?? "?"} → ${
-        shouldAdvertiseWidget(clientName, declaresUi) ? "native widget" : "text-link (no widget)"
+        widgetRouteFor(clientName, declaresUi) === "mcp-apps" ? "native widget (mcp-apps)"
+          : widgetRouteFor(clientName, declaresUi) === "openai" ? "native widget (openai)"
+          : "text-link (no widget)"
       } | declares_ui_extension=${declaresUi} extensions=[${declaredExtensions.join(",")}]`
     );
     return {
@@ -746,7 +750,12 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
       // it never even imported a language bundle. Hydration is small, hidden from the
       // model transcript, and harmless to a client that ignores it, so any
       // Claude-family client keeps it.
-      const stripHydration = !isWidgetHost(server.getClientVersion()?.name);
+      // OpenAI is included for the same reason, from the other direction: ChatGPT's
+      // component reads the payload off `window.openai.toolResponseMetadata` (falling
+      // back to `toolOutput._meta`), so stripping hydration would hand it a mounted
+      // widget with nothing to draw — the blank-panel failure, reintroduced.
+      const clientName = server.getClientVersion()?.name;
+      const stripHydration = !isWidgetHost(clientName) && !isOpenAIClient(clientName);
       return formatToolResult(result, { stripHydration });
     } catch (error) {
       const message = error instanceof Error ? error.message : String(error);

@@ -17,7 +17,14 @@ import type { AuthContext } from "../src/api.js";
 
 type ToolRecord = Record<string, unknown> & { name: string };
 
-const NON_CLAUDE_CLIENTS = ["ChatGPT", "openai-apps", "codex-mcp-client", "web-sandbox", "gpt", "some-unknown-host", undefined as unknown as string];
+// OpenAI clients now take the `openai` widget route (Phase 3); everything else
+// unrecognised still gets text only. Split apart because the two now differ.
+const OPENAI_CLIENTS = ["ChatGPT", "openai-apps", "openai-mcp", "openai-mcp (Codex)", "codex-mcp-client"];
+// "gpt" belongs here, not above: the OpenAI route is an ALLOW-list of names we have
+// actually seen (/openai|chatgpt|codex/), so a bare "gpt" is an unrecognised client
+// and must get text. Same reasoning as web-sandbox.
+const UNKNOWN_CLIENTS = ["web-sandbox", "some-unknown-host", "gpt", undefined as unknown as string];
+const NON_CLAUDE_CLIENTS = [...OPENAI_CLIENTS, ...UNKNOWN_CLIENTS];
 const WIDGET_TOOLS = new Set(["render_item", "get_item"]);
 const expectedSchemes = JSON.parse(JSON.stringify(TOOL_SECURITY_SCHEMES));
 
@@ -45,18 +52,44 @@ test("every tool advertises noauth-only securitySchemes to every client (incl. u
   }
 });
 
-test("non-Claude clients (incl. unknowns) get securitySchemes but NO widget/UI metadata", () => {
-  // Whitelist semantics: the widget goes to verified MCP Apps hosts (Claude) only.
-  // Covers client names a naive OpenAI blacklist would MISS — the ChatGPT consumer app
-  // and any unknown client — which is why the widget leaked before. But securitySchemes
-  // must survive so OpenAI's Scan Tools sees the optional-auth contract.
-  for (const client of NON_CLAUDE_CLIENTS) {
+test("UNKNOWN clients get securitySchemes but NO widget/UI metadata", () => {
+  // Still allow-list semantics. A client we do not recognise gets text, even if it
+  // declares the UI extension — `web-sandbox`-style names are the family the
+  // whitelist was added to catch. securitySchemes must survive regardless so
+  // OpenAI's Scan Tools sees the optional-auth contract.
+  for (const client of UNKNOWN_CLIENTS) {
     for (const tool of toolsForClient(client, true) as ToolRecord[]) {
       const meta = metaOf(tool);
       assert.equal(meta.ui, undefined, `${client}/${tool.name} leaked ui`);
       assert.equal(meta["ui/resourceUri"], undefined, `${client}/${tool.name} leaked ui/resourceUri`);
+      assert.equal(meta["openai/outputTemplate"], undefined, `${client}/${tool.name} leaked outputTemplate`);
       assert.equal(meta["openai/resultCanProduceWidget"], undefined, `${client}/${tool.name} leaked widget hint`);
       assert.deepEqual(Object.keys(meta), ["securitySchemes"], `${client}/${tool.name} _meta should be securitySchemes-only`);
+    }
+  }
+});
+
+test("OpenAI clients get outputTemplate pointing at the SAME resource Claude uses", () => {
+  // openai/outputTemplate is the Apps SDK's documented compatibility alias for
+  // _meta.ui.resourceUri. One artifact, two key spellings — if these ever diverge,
+  // ChatGPT mounts a different build than Claude does.
+  const claude = toolsForClient("claude-ai", true) as ToolRecord[];
+  const claudeUri = metaOf(claude.find((t) => t.name === "render_item")!)["ui/resourceUri"];
+  assert.ok(typeof claudeUri === "string" && claudeUri.startsWith("ui://"));
+
+  for (const client of OPENAI_CLIENTS) {
+    // false: ChatGPT does NOT declare io.modelcontextprotocol/ui, so the route must
+    // not depend on it.
+    for (const tool of toolsForClient(client, false) as ToolRecord[]) {
+      const meta = metaOf(tool);
+      if (!WIDGET_TOOLS.has(tool.name)) {
+        assert.deepEqual(Object.keys(meta), ["securitySchemes"], `${client}/${tool.name}`);
+        continue;
+      }
+      assert.equal(meta["openai/outputTemplate"], claudeUri, `${client}/${tool.name} outputTemplate`);
+      assert.deepEqual(meta.ui, { resourceUri: claudeUri }, `${client}/${tool.name} ui.resourceUri`);
+      assert.ok(meta["openai/toolInvocation/invoking"], `${client}/${tool.name} invoking label`);
+      assert.deepEqual(meta.securitySchemes, expectedSchemes, `${client}/${tool.name} securitySchemes`);
     }
   }
 });
