@@ -77,6 +77,28 @@ interface ToolEvent extends BaseEvent {
    * like `language`. See `normalizeItem`.
    */
   item?: string;
+  /**
+   * The `status` the tool RETURNED — not whether the call succeeded.
+   *
+   * `outcome` already says the call didn't throw, and that is exactly what made
+   * this invisible: `render_item` polls for at most
+   * `GET_ITEM_POLL_DEADLINE_MS` (45s) and then returns
+   * `{ status: "generating", message: "Still generating. Call … again" }`. That
+   * is a well-formed, non-throwing result carrying no item, so it logged
+   * `outcome: "ok"` and was indistinguishable from a delivered item.
+   *
+   * Over 2026-08, 32 of 121 render_item calls (26%) hit that deadline: 1485 of
+   * 3088 user-seconds spent waiting returned nothing, and 40% of items needed
+   * more than one render (worst case 8 renders / 345s). Meanwhile the funnel
+   * reported "Tool success 97.1%" for a night when 45% of renders returned
+   * nothing. Without this field the report cannot tell the difference, so a
+   * degradation in generation time reads as healthy traffic.
+   *
+   * Allowlisted like `domain`, not free text: it is server-generated today, but
+   * it is read off a result object and the same discipline applies to anything
+   * that lands in a log line.
+   */
+  status?: string;
   desc_len?: number;
   err?: string;
   // Whether the client requested out-of-band progress (sent a progressToken).
@@ -285,6 +307,20 @@ export function normalizeItem(item?: string): string | undefined {
 /** How much of a backend error to keep. See the note at the `err` assignment. */
 const ERR_MAX_CHARS = 500;
 
+/**
+ * Statuses a tool result can carry. `ready`/`generating`/`failed` come from the
+ * item lifecycle; `error` is the API's data-envelope status. Anything else is a
+ * bug or a shape change and should show up as `(invalid)` rather than widen the
+ * field into free text.
+ */
+const KNOWN_STATUSES = new Set(["ready", "generating", "failed", "error"]);
+
+export function normalizeStatus(v?: string): string | undefined {
+  if (typeof v !== "string" || !v) return undefined;
+  const t = v.trim().toLowerCase();
+  return KNOWN_STATUSES.has(t) ? t : "(invalid)";
+}
+
 export function normalizeDomain(v?: string): string | undefined {
   if (typeof v !== "string" || !v) return undefined;
   const t = v.trim().toLowerCase();
@@ -382,6 +418,7 @@ export function logToolCall(params: {
   ms: number;
   lang?: string;
   item?: string;
+  status?: string;
   descLen?: number;
   err?: string;
   progress?: boolean;
@@ -407,6 +444,8 @@ export function logToolCall(params: {
   if (lang !== undefined) event.lang = lang;
   const item = normalizeItem(params.item);
   if (item !== undefined) event.item = item;
+  const status = normalizeStatus(params.status);
+  if (status !== undefined) event.status = status;
   if (params.descLen !== undefined) event.desc_len = params.descLen;
   // 500, not 200. On a scope rejection this field is the backend's own summary
   // of what the caller asked for, which the funnel report reads as a demand

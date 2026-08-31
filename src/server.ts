@@ -164,6 +164,7 @@ const PRIVACY_HTML = `<!DOCTYPE html>
   <li>We record the <strong>client kind</strong> (the name your MCP client reports, e.g. &ldquo;claude-ai&rdquo;), which identifies software, not you.</li>
   <li>When your client lists our tools or opens one of our built-in documentation resources, we record that it did so. The only address recorded is one of our own <code>graffiticode://</code> resources; anything else your client requests is not written to our analytics.</li>
         <li>When you search our language catalog, we record the <strong>length</strong> of your search term and how many languages matched — never the search text itself. A domain filter is recorded only when it matches one we publish; anything else is recorded as <code>(invalid)</code>.</li>
+        <li>We record the <strong>lifecycle status</strong> a call returned (<code>ready</code>, <code>generating</code>, <code>failed</code>) so we can tell a delivered item from one still being generated. It describes the state of your item, not its contents, and anything outside that published set is recorded as <code>(invalid)</code>.</li>
 </ul>
 <p>One caveat, stated plainly: when a request fails we record a truncated backend error message so we can debug it. Error text is not intended to carry your content, but we cannot categorically rule out that a backend message quotes part of an input.</p>
 
@@ -712,6 +713,11 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
         ms: Date.now() - start,
         lang,
         item: typeof result.item_id === "string" ? result.item_id : argItemId,
+        // What the result actually SAID, not just that it didn't throw. A
+        // render_item that polls out at 45s returns status:"generating" with no
+        // item — a success by `outcome` and a wasted 45s to the user. See the
+        // `status` field on ToolEvent.
+        status: typeof result.status === "string" ? result.status : undefined,
         descLen,
         searchLen,
         domain,
