@@ -67,6 +67,9 @@ const STYLES = `
   body.dark .refine-input { background: #0b1220; border-color: #4b5563; }
   .card-pre { margin-top: 10px; padding: 10px; font-size: 12px; white-space: pre-wrap; overflow-x: auto;
     background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; max-height: 320px; overflow-y: auto; }
+.card-table{width:100%;border-collapse:collapse;margin:8px 0;font-size:12px}
+.card-table th,.card-table td{border:1px solid var(--border,#d8d8d8);padding:4px 6px;text-align:left;vertical-align:top}
+.card-table th{font-weight:600;background:rgba(127,127,127,.10)}
   body.dark .card-pre { background: #0b1220; border-color: #374151; }
   .q-list { margin-top: 10px; padding-left: 18px; display: flex; flex-direction: column; gap: 10px; }
   .q-stim { font-weight: 500; }

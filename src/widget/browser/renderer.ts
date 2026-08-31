@@ -142,7 +142,38 @@ export function startRenderer(host: HostAdapter): void {
       return wrap;
     }
 
+    if (content.kind === "table") {
+      const wrap = el("div", "card-body");
+      // Named only when there is more than one — see contentToMarkdown.
+      if (content.sheetName && content.totalSheets > 1) {
+        wrap.appendChild(el("div", "card-text", content.sheetName));
+      }
+      const table = el("table", "card-table");
+      const thead = el("thead");
+      const hr = el("tr");
+      for (const h of content.headers) hr.appendChild(el("th", undefined, h));
+      thead.appendChild(hr);
+      table.appendChild(thead);
+      const tbody = el("tbody");
+      for (const row of content.rows) {
+        const tr = el("tr");
+        for (let i = 0; i < content.headers.length; i++) {
+          tr.appendChild(el("td", undefined, row[i] ?? ""));
+        }
+        tbody.appendChild(tr);
+      }
+      table.appendChild(tbody);
+      wrap.appendChild(table);
+      const hidden = content.totalRows - content.rows.length;
+      if (hidden > 0 || content.totalSheets > 1) {
+        wrap.appendChild(el("div", "card-text", "Open it in Graffiticode to see the rest."));
+      }
+      return wrap;
+    }
+
     if (content.kind === "prose") return el("pre", "card-pre", content.text);
+    // The raw dump stays here — a last resort inside a scrollable panel, and the
+    // reason contentToMarkdown refuses to put this shape in a chat message.
     if (content.kind === "preview") return el("pre", "card-pre", content.json);
     return el("div", "card-text", "Open it in Graffiticode to view.");
   }

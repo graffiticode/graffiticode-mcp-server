@@ -33,8 +33,20 @@ export interface QuestionSummary {
   options: { label: string; correct: boolean }[];
 }
 
+export interface TableContent {
+  kind: "table";
+  sheetName?: string;
+  headers: string[];
+  rows: string[][];
+  /** Data rows in the sheet, before the display cap. */
+  totalRows: number;
+  /** Sheets in the workbook; >1 means the table below is only the first. */
+  totalSheets: number;
+}
+
 export type ItemContent =
   | { kind: "questions"; count: number; shown: QuestionSummary[] }
+  | TableContent
   | { kind: "prose"; text: string }
   | { kind: "preview"; json: string }
   | { kind: "empty" };
@@ -43,8 +55,11 @@ export type ItemContent =
 const QUESTIONS_SHOWN = 8;
 /** A spec document is the item; show enough to judge it, not the whole thing. */
 const PROSE_CAP = 4000;
-/** The generic JSON preview. Large enough to be evidence, small enough to skim. */
+/** The generic JSON preview. Widget-only — see contentToMarkdown. */
 const PREVIEW_CAP = 2000;
+/** Table display caps. Enough to show the shape and judge the content. */
+const MAX_TABLE_ROWS = 12;
+const MAX_TABLE_COLS = 8;
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -64,6 +79,57 @@ export function mergeToolPayload(r: ToolPayload): Record<string, unknown> {
 export function unwrapData(raw: unknown): unknown {
   if (isRecord(raw) && ("data" in raw || "errors" in raw)) return raw.data;
   return raw;
+}
+
+/** "B12" -> { col: "B", row: 12 }. Anything else is not a cell address. */
+function parseCellRef(ref: string): { col: string; row: number } | null {
+  const m = /^([A-Z]+)(\d+)$/.exec(ref);
+  return m ? { col: m[1], row: Number(m[2]) } : null;
+}
+
+/** Spreadsheet column order: A..Z, then AA.. — length first, then alphabetical. */
+function compareCols(a: string, b: string): number {
+  return a.length - b.length || a.localeCompare(b);
+}
+
+/**
+ * Turn a compiled sheet into a table.
+ *
+ * The compiled form keys cells by address (`{ cells: { A1: { text }, … } }`), which
+ * is a rendering detail, not something a reader should ever be shown. Row 1 is
+ * treated as the header — that is the convention every spreadsheet these languages
+ * generate follows, and when it doesn't hold the first row simply reads as a header,
+ * which is a far smaller error than printing the raw object.
+ */
+function sheetToTable(sheet: Record<string, unknown>, totalSheets: number): TableContent | null {
+  const cells = isRecord(sheet.cells) ? sheet.cells : undefined;
+  if (!cells) return null;
+
+  const byRow = new Map<number, Map<string, string>>();
+  const cols = new Set<string>();
+  for (const [ref, cell] of Object.entries(cells)) {
+    const at = parseCellRef(ref);
+    if (!at) continue;
+    const text = isRecord(cell) ? String(cell.text ?? "") : String(cell ?? "");
+    if (!byRow.has(at.row)) byRow.set(at.row, new Map());
+    byRow.get(at.row)!.set(at.col, text);
+    cols.add(at.col);
+  }
+  if (!byRow.size) return null;
+
+  const orderedCols = [...cols].sort(compareCols).slice(0, MAX_TABLE_COLS);
+  const orderedRows = [...byRow.keys()].sort((a, b) => a - b);
+  const readRow = (r: number) => orderedCols.map((c) => byRow.get(r)?.get(c) ?? "");
+
+  const [headerRow, ...dataRows] = orderedRows;
+  return {
+    kind: "table",
+    sheetName: typeof sheet.name === "string" ? sheet.name : undefined,
+    headers: readRow(headerRow),
+    rows: dataRows.slice(0, MAX_TABLE_ROWS).map(readRow),
+    totalRows: dataRows.length,
+    totalSheets,
+  };
 }
 
 /**
@@ -119,17 +185,43 @@ export function describeItem(lang: string, sc: Record<string, unknown>): ItemCon
     if (text) return { kind: "prose", text: text.slice(0, PROSE_CAP) };
   }
 
-  // Everything else: a compact, readable preview of the data we have.
+  // Spreadsheets (L0166 and its successor L0179 emit the same compiled form).
+  // Matched on SHAPE rather than language id so a new sheet-shaped dialect is
+  // readable the day it ships, without an entry here.
+  if (data && Array.isArray(data.sheets) && data.sheets.length) {
+    const first = data.sheets[0];
+    if (isRecord(first)) {
+      const table = sheetToTable(first, data.sheets.length);
+      if (table) return table;
+    }
+  }
+
+  // Everything else. `preview` is a WIDGET-only shape — contentToMarkdown refuses
+  // to put it in chat. See the note there.
   if (data) return { kind: "preview", json: JSON.stringify(data, null, 2).slice(0, PREVIEW_CAP) };
   return { kind: "empty" };
+}
+
+/** Markdown table cells are pipe-delimited, so a pipe in the data ends the cell. */
+function escapeCell(text: string): string {
+  return text.replace(/\|/g, "\\|").replace(/\n/g, " ").trim();
 }
 
 /**
  * Render the content model as Markdown, for the tool result's text block.
  *
  * Every client renders this — it is the one representation guaranteed to arrive,
- * so it is also the fallback when a widget fails to mount. Returns "" for `empty`
- * rather than a placeholder sentence: the caller already prints a title and a
+ * so it is also the fallback when a widget fails to mount.
+ *
+ * `preview` returns "" ON PURPOSE. It is a raw `JSON.stringify` of the compiled
+ * data, which is a fine last resort inside a scrollable panel in the widget and is
+ * never acceptable in a chat message: a real spreadsheet's compiled form is mostly
+ * hex fills and column widths, and it would reach the user as a wall of machine
+ * output. A title and a link say less but do not insult the reader. So chat gets
+ * content only where we can present it as content — questions, a table, prose —
+ * and the dump stays behind in the widget where the shape came from.
+ *
+ * `empty` returns "" for the same reason: the caller already prints a title and a
  * link, and "no content" is better said by absence than by a line of apology.
  */
 export function contentToMarkdown(content: ItemContent): string {
@@ -149,10 +241,32 @@ export function contentToMarkdown(content: ItemContent): string {
       if (remaining > 0) lines.push("", `…and ${remaining} more.`);
       return lines.join("\n");
     }
+    case "table": {
+      const { headers, rows, totalRows, totalSheets, sheetName } = content;
+      const width = headers.length;
+      const pad = (cells: string[]) =>
+        Array.from({ length: width }, (_, i) => escapeCell(cells[i] ?? ""));
+      const lines: string[] = [];
+      // The sheet's own name earns its place only when there is more than one, to
+      // say WHICH sheet this is. On a single-sheet workbook it just repeats the
+      // item title the caller printed a line above.
+      if (sheetName && totalSheets > 1) lines.push(`**${sheetName}**`, "");
+      lines.push(`| ${pad(headers).join(" | ")} |`);
+      lines.push(`| ${Array.from({ length: width }, () => "---").join(" | ")} |`);
+      for (const r of rows) lines.push(`| ${pad(r).join(" | ")} |`);
+      const notes: string[] = [];
+      const hiddenRows = totalRows - rows.length;
+      if (hiddenRows > 0) notes.push(`${hiddenRows} more row${hiddenRows === 1 ? "" : "s"}`);
+      if (totalSheets > 1) {
+        notes.push(`${totalSheets - 1} more sheet${totalSheets === 2 ? "" : "s"}`);
+      }
+      if (notes.length) lines.push("", `…and ${notes.join(", ")}.`);
+      return lines.join("\n");
+    }
     case "prose":
       return content.text;
     case "preview":
-      return ["```json", content.json, "```"].join("\n");
+      return "";
     case "empty":
       return "";
   }

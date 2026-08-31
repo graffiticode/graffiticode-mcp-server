@@ -76,10 +76,12 @@ test("a spec language renders as prose, not JSON", () => {
   assert.equal(contentToMarkdown(c), "# Recipe\nStep one.");
 });
 
-test("anything else gets a fenced JSON preview", () => {
-  const md = contentToMarkdown(describeItem("L0179", { language: "L0179", data: { sheets: [{ id: "s1" }] } }));
-  assert.match(md, /^```json\n/);
-  assert.match(md, /"sheets"/);
+test("a sheet with no cells falls back to preview, which chat suppresses", () => {
+  // sheets[] present but no `cells` — sheetToTable declines, so this lands on the
+  // widget-only preview shape and contributes nothing to the chat text.
+  const c = describeItem("L0179", { language: "L0179", data: { sheets: [{ id: "s1" }] } });
+  assert.equal(c.kind, "preview");
+  assert.equal(contentToMarkdown(c), "");
 });
 
 test("no data yields empty content, and empty renders as nothing", () => {
@@ -143,4 +145,98 @@ test("generating and failed produce prose, and never look like JSON", () => {
   assert.match(failed, /could not be generated — Generation timed out/);
 
   for (const s of [gen, failed]) assert.doesNotMatch(s, /^\s*[{[]/);
+});
+
+// --- Spreadsheets: a table, never a dump ------------------------------------
+
+const SHEET = {
+  language: "L0179",
+  data: {
+    sheets: [
+      {
+        id: "s1",
+        name: "Water Cycle Stages",
+        columns: { A: { width: 160 }, B: { width: 420 } },
+        cells: {
+          A1: { text: "Stage", "font-weight": "bold" },
+          B1: { text: "Short Description", "font-weight": "bold" },
+          A2: { text: "Evaporation" },
+          B2: { text: "Liquid water warms and changes into water vapor." },
+          A3: { text: "Condensation" },
+          B3: { text: "Water vapor cools into droplets." },
+        },
+      },
+      { id: "s2", name: "Notes", cells: { A1: { text: "x" } } },
+    ],
+  },
+};
+
+test("a spreadsheet becomes a table, keyed off shape not language id", () => {
+  const c = describeItem("L0179", SHEET);
+  assert.equal(c.kind, "table");
+  if (c.kind !== "table") return;
+  assert.deepEqual(c.headers, ["Stage", "Short Description"]);
+  assert.equal(c.rows.length, 2);
+  assert.deepEqual(c.rows[0], ["Evaporation", "Liquid water warms and changes into water vapor."]);
+  assert.equal(c.totalSheets, 2);
+  // Same compiled form, so the deprecated predecessor reads identically.
+  assert.equal(describeItem("L0166", SHEET).kind, "table");
+});
+
+test("the table renders as Markdown with the other sheet noted", () => {
+  const md = contentToMarkdown(describeItem("L0179", SHEET));
+  assert.match(md, /\| Stage \| Short Description \|/);
+  assert.match(md, /\| --- \| --- \|/);
+  assert.match(md, /\| Evaporation \|/);
+  assert.match(md, /…and 1 more sheet\./);
+  assert.doesNotMatch(md, /font-weight/);
+  // Two sheets, so naming this one is informative.
+  assert.match(md, /\*\*Water Cycle Stages\*\*/);
+});
+
+test("cells are ordered by column and row, not by object key order", () => {
+  const c = describeItem("L0179", {
+    language: "L0179",
+    data: { sheets: [{ cells: { B2: { text: "b2" }, A1: { text: "h1" }, A2: { text: "a2" }, B1: { text: "h2" } } }] },
+  });
+  assert.equal(c.kind === "table" && c.headers.join(","), "h1,h2");
+  assert.equal(c.kind === "table" && c.rows[0].join(","), "a2,b2");
+});
+
+test("a pipe in a cell cannot break out of the table", () => {
+  const md = contentToMarkdown(
+    describeItem("L0179", { language: "L0179", data: { sheets: [{ cells: { A1: { text: "a|b" }, A2: { text: "c|d" } } }] } })
+  );
+  assert.match(md, /a\\\|b/);
+  assert.match(md, /c\\\|d/);
+});
+
+// The whole point of the exercise: chat never receives machine output.
+test("an unrecognised shape yields NO chat content, and never JSON", () => {
+  const c = describeItem("L0170", { language: "L0170", data: { some: { nested: ["thing"] } } });
+  assert.equal(c.kind, "preview"); // the widget may still show it
+  assert.equal(contentToMarkdown(c), ""); // chat gets nothing
+});
+
+test("no describeItem output ever puts a JSON fence in chat", () => {
+  const payloads = [
+    { language: "L0179", data: { sheets: [{ cells: { A1: { text: "x" } } }] } },
+    { language: "L0170", data: { anything: 1 } },
+    { language: "L0176", data: { request: { questions: [{ stimulus: "q", options: [] }] } } },
+    { language: "L0177", data: { print: "text" } },
+    { language: "L0173", data: { chart: { series: [1, 2] } } },
+  ];
+  for (const p of payloads) {
+    const md = contentToMarkdown(describeItem(normalizeLang(p.language), p));
+    assert.doesNotMatch(md, /```json/);
+    assert.doesNotMatch(md, /"font-weight"|\{\s*\n\s*"/);
+  }
+});
+
+test("a single-sheet workbook does not repeat its name as a heading", () => {
+  const md = contentToMarkdown(
+    describeItem("L0179", { language: "L0179", data: { sheets: [{ name: "Budget", cells: { A1: { text: "H" }, A2: { text: "v" } } }] } })
+  );
+  assert.doesNotMatch(md, /\*\*Budget\*\*/);
+  assert.match(md, /\| H \|/);
 });
