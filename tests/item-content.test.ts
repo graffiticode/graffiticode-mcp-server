@@ -240,3 +240,86 @@ test("a single-sheet workbook does not repeat its name as a heading", () => {
   assert.doesNotMatch(md, /\*\*Budget\*\*/);
   assert.match(md, /\| H \|/);
 });
+
+// --- Charts and concept webs, from real compiled output ---------------------
+
+// Captured from item DUjFu0StLUJPRpT1T8b9 (L0173): ECharts option format.
+const CHART = {
+  language: "L0173",
+  data: {
+    data: {
+      type: "chart",
+      option: {
+        title: { text: "Monthly Sales" },
+        xAxis: { type: "category", data: ["January", "February", "March", "April"] },
+        yAxis: { type: "value" },
+        series: [{ type: "bar", data: [42000, 38000, 51000, 47000] }],
+      },
+    },
+    errors: [],
+  },
+};
+
+// Captured from item Wy4dOYQqcXMY35Gh4toK (L0169).
+const WEB = {
+  language: "L0169",
+  data: {
+    data: {
+      conceptWeb: {
+        topic: "Water Cycle",
+        instructions: "Follow the arrows to explore each stage.",
+        anchor: { text: "Water Cycle", value: "Water Cycle" },
+        connections: [
+          { text: "Evaporation", value: "Evaporation" },
+          { text: "Condensation", value: "Condensation" },
+        ],
+        edges: [
+          { type: "dashed", to: "*", from: "Water Cycle" },
+          { type: "solid-arrow", from: "Evaporation", to: "Condensation", text: "Liquid water warms into vapor." },
+        ],
+      },
+    },
+    errors: [],
+  },
+};
+
+test("a chart becomes the numbers it draws", () => {
+  const c = describeItem("L0173", CHART);
+  assert.equal(c.kind, "chart");
+  if (c.kind !== "chart") return;
+  assert.equal(c.title, "Monthly Sales");
+  assert.equal(c.chartType, "bar");
+  assert.deepEqual(c.categories, ["January", "February", "March", "April"]);
+  assert.deepEqual(c.series[0].values, ["42000", "38000", "51000", "47000"]);
+
+  const md = contentToMarkdown(c);
+  assert.match(md, /\*\*Monthly Sales\*\* — bar chart/);
+  assert.match(md, /\| January \| 42000 \|/);
+});
+
+test("a concept web keeps its edge labels, and drops the layout edge", () => {
+  const c = describeItem("L0169", WEB);
+  assert.equal(c.kind, "conceptweb");
+  if (c.kind !== "conceptweb") return;
+  assert.equal(c.topic, "Water Cycle");
+  assert.deepEqual(c.concepts, ["Evaporation", "Condensation"]);
+  // The `to: "*"` radial fan-out is layout, not content.
+  assert.equal(c.links.length, 1);
+  assert.deepEqual(c.links[0], {
+    from: "Evaporation",
+    to: "Condensation",
+    label: "Liquid water warms into vapor.",
+  });
+
+  const md = contentToMarkdown(c);
+  assert.match(md, /\*\*Water Cycle\*\* — concept web/);
+  assert.match(md, /- Evaporation → Condensation — Liquid water warms into vapor\./);
+});
+
+test("charts and concept webs reach chat, and still never as JSON", () => {
+  for (const p of [CHART, WEB]) {
+    const md = contentToMarkdown(describeItem(normalizeLang(p.language), p));
+    assert.notEqual(md, "");
+    assert.doesNotMatch(md, /```json|"type":/);
+  }
+});

@@ -44,9 +44,27 @@ export interface TableContent {
   totalSheets: number;
 }
 
+export interface ChartContent {
+  kind: "chart";
+  chartType?: string;
+  title?: string;
+  categories: string[];
+  series: { name?: string; values: string[] }[];
+}
+
+export interface ConceptWebContent {
+  kind: "conceptweb";
+  topic?: string;
+  instructions?: string;
+  concepts: string[];
+  links: { from: string; to: string; label?: string }[];
+}
+
 export type ItemContent =
   | { kind: "questions"; count: number; shown: QuestionSummary[] }
   | TableContent
+  | ChartContent
+  | ConceptWebContent
   | { kind: "prose"; text: string }
   | { kind: "preview"; json: string }
   | { kind: "empty" };
@@ -60,6 +78,9 @@ const PREVIEW_CAP = 2000;
 /** Table display caps. Enough to show the shape and judge the content. */
 const MAX_TABLE_ROWS = 12;
 const MAX_TABLE_COLS = 8;
+/** Chart categories and concept-web edges: enough to read the thing, not all of it. */
+const MAX_SERIES_POINTS = 12;
+const MAX_LINKS = 12;
 
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
@@ -185,6 +206,65 @@ export function describeItem(lang: string, sc: Record<string, unknown>): ItemCon
     if (text) return { kind: "prose", text: text.slice(0, PROSE_CAP) };
   }
 
+  // Charts compile to an ECharts `option`. A category axis plus one or more series
+  // IS a table — the same numbers the picture draws — so it is presented as one
+  // rather than described in the abstract ("a bar chart with 4 points" tells a
+  // reader nothing they can check).
+  if (data && data.type === "chart" && isRecord(data.option)) {
+    const option = data.option;
+    const xAxis = isRecord(option.xAxis) ? option.xAxis : undefined;
+    const categories = Array.isArray(xAxis?.data) ? xAxis!.data.map(String) : [];
+    const rawSeries = Array.isArray(option.series) ? option.series : [];
+    const series = rawSeries.filter(isRecord).map((sr) => ({
+      name: typeof sr.name === "string" ? sr.name : undefined,
+      values: Array.isArray(sr.data) ? sr.data.map((v) => (v == null ? "" : String(v))) : [],
+    }));
+    if (series.some((sr) => sr.values.length)) {
+      const title = isRecord(option.title) && typeof option.title.text === "string"
+        ? option.title.text
+        : undefined;
+      const chartType = series.find((_, i) => isRecord(rawSeries[i]))
+        ? (rawSeries.find(isRecord) as Record<string, unknown>).type
+        : undefined;
+      return {
+        kind: "chart",
+        chartType: typeof chartType === "string" ? chartType : undefined,
+        title,
+        categories: categories.slice(0, MAX_SERIES_POINTS),
+        series: series.map((sr) => ({ ...sr, values: sr.values.slice(0, MAX_SERIES_POINTS) })),
+      };
+    }
+  }
+
+  // Concept webs: an anchor, its connected concepts, and labelled edges between
+  // them. The labels carry the actual teaching content, so they are the point.
+  if (data && isRecord(data.conceptWeb)) {
+    const web = data.conceptWeb;
+    const anchor = isRecord(web.anchor) ? String(web.anchor.text ?? web.anchor.value ?? "") : "";
+    const connections = Array.isArray(web.connections)
+      ? web.connections.filter(isRecord).map((c) => String(c.text ?? c.value ?? "")).filter(Boolean)
+      : [];
+    const edges = Array.isArray(web.edges) ? web.edges.filter(isRecord) : [];
+    const links = edges
+      // `to: "*"` is the anchor's radial fan-out — layout, not content.
+      .filter((e) => e.to !== "*")
+      .slice(0, MAX_LINKS)
+      .map((e) => ({
+        from: String(e.from ?? ""),
+        to: String(e.to ?? ""),
+        label: typeof e.text === "string" && e.text ? e.text : undefined,
+      }));
+    if (connections.length || links.length) {
+      return {
+        kind: "conceptweb",
+        topic: (typeof web.topic === "string" && web.topic) || anchor || undefined,
+        instructions: typeof web.instructions === "string" ? web.instructions : undefined,
+        concepts: connections,
+        links,
+      };
+    }
+  }
+
   // Spreadsheets (L0166 and its successor L0179 emit the same compiled form).
   // Matched on SHAPE rather than language id so a new sheet-shaped dialect is
   // readable the day it ships, without an entry here.
@@ -262,6 +342,34 @@ export function contentToMarkdown(content: ItemContent): string {
       }
       if (notes.length) lines.push("", `…and ${notes.join(", ")}.`);
       return lines.join("\n");
+    }
+    case "chart": {
+      const { title, chartType, categories, series } = content;
+      const lines: string[] = [];
+      const heading = [title && `**${title}**`, chartType && `${chartType} chart`]
+        .filter(Boolean)
+        .join(" — ");
+      if (heading) lines.push(heading, "");
+      const named = series.map((sr, i) => sr.name ?? (series.length > 1 ? `Series ${i + 1}` : "Value"));
+      lines.push(`| | ${named.map(escapeCell).join(" | ")} |`);
+      lines.push(`| --- | ${named.map(() => "---").join(" | ")} |`);
+      const rowCount = Math.max(categories.length, ...series.map((sr) => sr.values.length));
+      for (let i = 0; i < rowCount; i++) {
+        const label = escapeCell(categories[i] ?? String(i + 1));
+        lines.push(`| ${label} | ${series.map((sr) => escapeCell(sr.values[i] ?? "")).join(" | ")} |`);
+      }
+      return lines.join("\n");
+    }
+    case "conceptweb": {
+      const { topic, instructions, concepts, links } = content;
+      const lines: string[] = [];
+      if (topic) lines.push(`**${topic}** — concept web`, "");
+      if (instructions) lines.push(instructions, "");
+      if (concepts.length) lines.push(`Concepts: ${concepts.join(", ")}`, "");
+      for (const l of links) {
+        lines.push(`- ${l.from} → ${l.to}${l.label ? ` — ${l.label}` : ""}`);
+      }
+      return lines.join("\n").trim();
     }
     case "prose":
       return content.text;

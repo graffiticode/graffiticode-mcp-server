@@ -11,6 +11,7 @@
  */
 import type { HostAdapter, ToolResult } from "./host.js";
 import {
+  contentToMarkdown,
   describeItem,
   isRecord,
   mergeToolPayload,
@@ -167,6 +168,17 @@ export function startRenderer(host: HostAdapter): void {
       const hidden = content.totalRows - content.rows.length;
       if (hidden > 0 || content.totalSheets > 1) {
         wrap.appendChild(el("div", "card-text", "Open it in Graffiticode to see the rest."));
+      }
+      return wrap;
+    }
+
+    // Chart and concept web reuse the plain-text shapes the summary emits; the
+    // native bundle renders the real thing when there is one, and this is the
+    // readable fallback when there isn't.
+    if (content.kind === "chart" || content.kind === "conceptweb") {
+      const wrap = el("div", "card-body");
+      for (const line of contentToMarkdown(content).split("\n")) {
+        if (line.trim()) wrap.appendChild(el("div", "card-text", line.replace(/\*\*/g, "")));
       }
       return wrap;
     }
