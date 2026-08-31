@@ -54,6 +54,9 @@ const el = <K extends keyof HTMLElementTagNameMap>(
  */
 const FIRST_RESULT_DEADLINE_MS = 20_000;
 
+/** How long a native component gets to draw something before the card takes over. */
+const EMPTY_MOUNT_GRACE_MS = 1_500;
+
 export function startRenderer(host: HostAdapter): void {
   const root = document.getElementById("content")!;
   // Latched only by a TERMINAL result. The previous `done` latch fired on the
@@ -123,10 +126,28 @@ export function startRenderer(host: HostAdapter): void {
     const lang = normalizeLang(sc.language);
     if (__NATIVE__.includes(lang) && sc.data !== undefined) {
       try {
-        await mountNative(lang, sc.data);
+        const mountPoint = await mountNative(lang, sc.data);
         appendRefineAction(sc);
         appendFooterLink(sc);
         reportHeight();
+        // A mount can "succeed" and draw nothing: React renders asynchronously,
+        // so a component that throws inside its own tree, or simply produces no
+        // output for a payload shape it doesn't recognise, resolves this promise
+        // and then leaves an empty box. The try/catch below only sees synchronous
+        // and import failures.
+        //
+        // That distinction decides whether a language can be made native safely.
+        // Checked on a delay rather than inline so the ordinary path is not slowed
+        // waiting to be told it worked; if the box is still empty by then, the
+        // content card replaces it. This is what lets a language be added without
+        // proving its renderer against every payload first — the worst case is the
+        // card it would have shown anyway.
+        setTimeout(() => {
+          if (mountPoint.childNodes.length > 0) return;
+          console.warn(`[widget] native mount for ${lang} drew nothing — using the card`);
+          renderCard(sc);
+          reportHeight();
+        }, EMPTY_MOUNT_GRACE_MS);
         return;
       } catch (err) {
         // A native mount failure must not leave a blank frame — fall through to
@@ -138,7 +159,7 @@ export function startRenderer(host: HostAdapter): void {
     reportHeight();
   }
 
-  async function mountNative(lang: string, data: unknown): Promise<void> {
+  async function mountNative(lang: string, data: unknown): Promise<HTMLElement> {
     const mod = (await import(`${__MCP_ORIGIN__}/widget/lang/${lang}.mjs`)) as LangModule;
     const style = el("style");
     style.textContent = mod.styles;
@@ -148,6 +169,7 @@ export function startRenderer(host: HostAdapter): void {
     const mountPoint = el("div", "native-content");
     root.appendChild(mountPoint);
     mod.mount(mountPoint, data);
+    return mountPoint;
   }
 
   // --- Fallback content card (non-native languages) -------------------------

@@ -36,6 +36,12 @@ export const NATIVE_LANGUAGES: NativeLanguage[] = [
   // items were authored in. Same `({ state })` Form contract as l0166.
   { id: "L0173", pkg: "@graffiticode/l0173" },
   { id: "L0179", pkg: "@graffiticode/l0179-view" },
+  { id: "L0169", pkg: "@graffiticode/l0169" },
+  { id: "L0159", pkg: "@graffiticode/l0159" },
+  { id: "L0170", pkg: "@graffiticode/l0170" },
+  { id: "L0172", pkg: "@graffiticode/l0172" },
+  { id: "L0154", pkg: "@graffiticode/l0154" },
+  { id: "L0155", pkg: "@graffiticode/l0155" },
 ];
 
 /**

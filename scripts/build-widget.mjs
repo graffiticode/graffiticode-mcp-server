@@ -25,6 +25,7 @@
  */
 import { build } from "esbuild";
 import { mkdir } from "node:fs/promises";
+import { fileURLToPath } from "node:url";
 
 let NATIVE_LANGUAGES;
 try {
@@ -37,12 +38,42 @@ try {
   throw err;
 }
 
+/**
+ * Force ONE React into every language bundle.
+ *
+ * The language packages declare `react`/`react-dom` as direct DEPENDENCIES
+ * rather than peers — all of l0151/0154/0155/0159/0169/0170/0172 and
+ * l0179-view do. npm is then free to nest a private copy under the package,
+ * and esbuild faithfully bundles both, at which point hooks resolve against a
+ * null dispatcher and mounting dies with
+ * `Cannot read properties of null (reading 'useState')`. L0169 failed exactly
+ * this way; L0179 escaped it only because npm happened to hoist its copy, which
+ * is luck rather than a guarantee — the same install on a different day can
+ * nest it.
+ *
+ * Aliasing at bundle time fixes every package at once and keeps working when a
+ * new one is added, without waiting on eight republishes to move react to
+ * peerDependencies. That is still the right fix in the packages; this makes the
+ * build correct meanwhile, and harmless afterwards.
+ *
+ * react-dom/client is listed explicitly: esbuild aliases a bare specifier, and
+ * the entry template imports the subpath.
+ */
+const reactPath = (spec) => fileURLToPath(import.meta.resolve(spec));
+const REACT_ALIAS = {
+  react: reactPath("react"),
+  "react-dom": reactPath("react-dom"),
+  "react-dom/client": reactPath("react-dom/client"),
+  "react/jsx-runtime": reactPath("react/jsx-runtime"),
+};
+
 const SHARED = {
   bundle: true,
   platform: "browser",
   target: ["chrome100", "firefox100", "safari15"],
   minify: true,
   legalComments: "none",
+  alias: REACT_ALIAS,
 };
 
 // The unified widget entry (both hosts; picks the adapter at runtime).
