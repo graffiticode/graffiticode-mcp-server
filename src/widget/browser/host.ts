@@ -91,8 +91,8 @@ class SkybridgeHost implements HostAdapter {
 
   onToolResult(cb: (r: ToolResult) => void): void {
     this.toolCb = cb;
-    // Skybridge exposes the result on a global rather than an event; the connect()
-    // poll delivers it once it's populated.
+    // Skybridge exposes the result on a global rather than an event; the watch
+    // loop started by connect() delivers it, and delivers again if it changes.
   }
 
   onTheme(cb: (t: string | undefined) => void): void {
@@ -102,16 +102,47 @@ class SkybridgeHost implements HostAdapter {
   }
 
   async connect(): Promise<void> {
-    // Wait for window.openai + a populated tool result (generation may still be
-    // running when the widget first mounts).
-    for (let i = 0; i < 120; i++) {
+    // Deliver the first result, then keep watching.
+    //
+    // This used to be a bare 120 x 500ms loop that, on exhaustion, simply fell out
+    // and RESOLVED — no throw, so entry.ts's catch never fired and a timeout was
+    // indistinguishable from a delivery. The panel stayed on "Loading…" forever.
+    // That is the "stuck Generating…" report that put ChatGPT behind a whitelist.
+    //
+    // Two things changed. The wait is no longer the thing standing between the
+    // user and a rendered panel — the renderer bounds that itself and shows a
+    // truthful state — so this can watch for as long as a generation plausibly
+    // runs (minutes, not one minute) without anyone staring at a spinner. And it
+    // keeps watching AFTER the first delivery, because render_item answers
+    // { status: "generating" } when its own poll deadline expires; without a
+    // second delivery the widget would hold that first non-terminal answer
+    // forever. That matches ExtAppsHost, whose contract already promises delivery
+    // "again whenever it changes".
+    let last = "";
+    const deliver = (): boolean => {
       const r = this.read();
-      if (r) {
-        this.toolCb?.(r);
-        return;
-      }
+      if (!r) return false;
+      // Cheap identity check: only re-deliver when the payload actually differs,
+      // so a stable result doesn't re-render the panel every tick.
+      const key = JSON.stringify(r.structuredContent);
+      if (key === last) return true;
+      last = key;
+      this.toolCb?.(r);
+      return true;
+    };
+
+    for (let i = 0; i < 40; i++) {
+      if (deliver()) break;
       await new Promise((res) => setTimeout(res, 500));
     }
+
+    // Background watch. Bounded so a forgotten panel doesn't poll indefinitely;
+    // generously, because generation legitimately runs into the minutes.
+    let ticks = 0;
+    const timer = setInterval(() => {
+      deliver();
+      if (++ticks > 120) clearInterval(timer); // ~4 minutes at 2s
+    }, 2000);
   }
 
   openLink(url: string): void {

@@ -13,6 +13,7 @@ import type { HostAdapter, ToolResult } from "./host.js";
 import {
   contentToMarkdown,
   describeItem,
+  isTerminalStatus,
   isRecord,
   mergeToolPayload,
   normalizeLang,
@@ -44,20 +45,72 @@ const el = <K extends keyof HTMLElementTagNameMap>(
   return n;
 };
 
+/**
+ * How long to sit on "Loading…" before saying something truthful instead.
+ *
+ * Not a cancellation — the host keeps its subscription open and a result arriving
+ * later still renders. This only bounds how long the panel is allowed to claim it
+ * is loading when nothing has arrived.
+ */
+const FIRST_RESULT_DEADLINE_MS = 20_000;
+
 export function startRenderer(host: HostAdapter): void {
   const root = document.getElementById("content")!;
-  let done = false;
+  // Latched only by a TERMINAL result. The previous `done` latch fired on the
+  // FIRST result of any kind, and render_item returns { status: "generating" }
+  // whenever its own 45s poll deadline expires — so a slow generation showed
+  // "Generating…" and then permanently ignored the `ready` result that followed.
+  // That contradicted ExtAppsHost's own contract, which promises delivery "again
+  // whenever it changes", and made a slow item unrecoverable without a reload.
+  let settled = false;
+  let sawResult = false;
 
   host.onTheme((theme) => document.body.classList.toggle("dark", theme === "dark"));
 
   host.onToolResult((r) => {
-    if (done) return; // first result wins; ignore duplicate deliveries
-    done = true;
+    sawResult = true;
+    if (settled) return;
+    const sc = mergeToolPayload(r);
+    const status = typeof sc.status === "string" ? sc.status : undefined;
+    if (isTerminalStatus(status)) settled = true;
     void render(r);
   });
 
+  // Nothing may end on "Loading…". Two host paths could previously do exactly
+  // that, and neither surfaced an error: ExtAppsHost resolves connect() as soon
+  // as the handshake succeeds, so a tool result that never arrives leaves the
+  // panel untouched; SkybridgeHost polls for 60s and then returns SUCCESSFULLY,
+  // making a timeout indistinguishable from a delivery. Bounding it here fixes
+  // both at once, and is host-agnostic by construction.
+  setTimeout(() => {
+    if (sawResult || settled) return;
+    renderWaiting();
+  }, FIRST_RESULT_DEADLINE_MS);
+
   function reportHeight(): void {
     host.notifyHeight(document.body.scrollHeight + 24);
+  }
+
+  /**
+   * The honest state when NOTHING has arrived. Deliberately not an error and
+   * deliberately link-free: this fires only when no result has been delivered, so
+   * there is no item id and no view_url to offer — a generating payload carries
+   * neither by design. It says the true thing and gets replaced the moment a
+   * result lands.
+   */
+  function renderWaiting(): void {
+    const card = el("div", "card");
+    card.appendChild(el("div", "card-title", "Still working…"));
+    card.appendChild(
+      el(
+        "div",
+        "card-text",
+        "This is taking longer than usual. It will appear here when it is ready."
+      )
+    );
+    root.className = "";
+    root.replaceChildren(card);
+    reportHeight();
   }
 
   async function render(r: ToolResult): Promise<void> {

@@ -82,6 +82,26 @@ const MAX_TABLE_COLS = 8;
 const MAX_SERIES_POINTS = 12;
 const MAX_LINKS = 12;
 
+/**
+ * Whether a result status is the LAST word on an item.
+ *
+ * Only "generating" is non-terminal. This exists as its own exported predicate
+ * because getting it wrong is invisible and expensive: the widget used to latch
+ * on the first result of any kind, and `render_item` returns
+ * `{ status: "generating" }` whenever its own poll deadline expires — so a slow
+ * item rendered "Generating…" and then ignored the `ready` that followed, with no
+ * error and no way out but a reload.
+ *
+ * An ABSENT status counts as terminal. A ready result carries `status: "ready"`
+ * today, but older payloads and the raw get_item shape omit it, and treating
+ * "no status" as non-terminal would leave those waiting forever for a second
+ * delivery that never comes. Erring toward terminal costs at most a missed
+ * re-render; erring the other way is the bug this replaced.
+ */
+export function isTerminalStatus(status?: string): boolean {
+  return status !== "generating";
+}
+
 export function isRecord(value: unknown): value is Record<string, unknown> {
   return !!value && typeof value === "object" && !Array.isArray(value);
 }

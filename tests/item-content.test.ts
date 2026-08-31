@@ -3,6 +3,7 @@ import test from "node:test";
 import {
   contentToMarkdown,
   describeItem,
+  isTerminalStatus,
   mergeToolPayload,
   normalizeLang,
   unwrapData,
@@ -373,4 +374,22 @@ test("a container that holds no cell addresses is not mistaken for a sheet", () 
     data: { interaction: { type: "table", cells: { foo: { text: "x" } } } },
   });
   assert.notEqual(c.kind, "table");
+});
+
+// --- The latch that made a slow item unrecoverable --------------------------
+
+test("only 'generating' is non-terminal", () => {
+  assert.equal(isTerminalStatus("generating"), false);
+  for (const s of ["ready", "failed", "error", undefined]) {
+    assert.equal(isTerminalStatus(s), true, `${s} should be terminal`);
+  }
+});
+
+test("render_item's poll-deadline shape is exactly the non-terminal case", () => {
+  // This is the payload handleItemResult returns when its 45s poll expires. The
+  // widget latched on it and ignored the ready result that followed.
+  const deadline = { item_id: "x", status: "generating", language: "L0179", name: "n" };
+  assert.equal(isTerminalStatus(deadline.status), false);
+  const ready = { item_id: "x", status: "ready", language: "L0179", name: "n" };
+  assert.equal(isTerminalStatus(ready.status), true);
 });
