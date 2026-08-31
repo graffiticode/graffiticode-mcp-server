@@ -28,6 +28,21 @@ export interface NativeLanguage {
  * props contract is NOT uniform across packages (l0166 is `({state})`, l0158 is
  * `({state, targetOrigin})`).
  */
+/**
+ * Six more languages (L0169/L0159/L0170/L0172/L0154/L0155) were added here on
+ * 2026-08-31 and taken back out the same day. Their packages are published and
+ * export the right Form, and the bundles build — but only L0179 was ever confirmed
+ * rendering by a person. L0169 demonstrably did NOT mount in production: it fell
+ * through to the content card, which is the safe outcome but means every concept web
+ * paid for a 0.3MB bundle and the empty-mount grace period before showing the card it
+ * would have shown immediately.
+ *
+ * jsdom is not sufficient evidence for this. It cannot render L0173 at all (ECharts
+ * needs a canvas it lacks), so a failure there proves nothing — and L0169's thin
+ * render was read as the same kind of artifact when it was the real thing.
+ *
+ * Re-add one at a time, each only after it has been seen rendering a real item.
+ */
 export const NATIVE_LANGUAGES: NativeLanguage[] = [
   { id: "L0166", pkg: "@graffiticode/l0166" },
   // L0173 renders charts; L0179 supersedes L0166 and needed its own bundle, since
@@ -36,12 +51,6 @@ export const NATIVE_LANGUAGES: NativeLanguage[] = [
   // items were authored in. Same `({ state })` Form contract as l0166.
   { id: "L0173", pkg: "@graffiticode/l0173" },
   { id: "L0179", pkg: "@graffiticode/l0179-view" },
-  { id: "L0169", pkg: "@graffiticode/l0169" },
-  { id: "L0159", pkg: "@graffiticode/l0159" },
-  { id: "L0170", pkg: "@graffiticode/l0170" },
-  { id: "L0172", pkg: "@graffiticode/l0172" },
-  { id: "L0154", pkg: "@graffiticode/l0154" },
-  { id: "L0155", pkg: "@graffiticode/l0155" },
 ];
 
 /**
