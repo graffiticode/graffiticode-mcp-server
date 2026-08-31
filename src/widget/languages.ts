@@ -30,7 +30,12 @@ export interface NativeLanguage {
  */
 export const NATIVE_LANGUAGES: NativeLanguage[] = [
   { id: "L0166", pkg: "@graffiticode/l0166" },
+  // L0173 renders charts; L0179 supersedes L0166 and needed its own bundle, since
+  // the DEPRECATED dialect rendered natively while its live replacement fell back
+  // to a static preview — the wrong way round for the language 8 of 17 recent
+  // items were authored in. Same `({ state })` Form contract as l0166.
   { id: "L0173", pkg: "@graffiticode/l0173" },
+  { id: "L0179", pkg: "@graffiticode/l0179-view" },
 ];
 
 /**
