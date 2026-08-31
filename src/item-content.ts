@@ -114,17 +114,59 @@ function compareCols(a: string, b: string): number {
 }
 
 /**
- * Turn a compiled sheet into a table.
+ * Find the cell map in a compiled spreadsheet, wherever the dialect puts it.
  *
- * The compiled form keys cells by address (`{ cells: { A1: { text }, … } }`), which
- * is a rendering detail, not something a reader should ever be shown. Row 1 is
- * treated as the header — that is the convention every spreadsheet these languages
- * generate follows, and when it doesn't hold the first row simply reads as a header,
- * which is a far smaller error than printing the raw object.
+ * Written this way because the first attempt guessed `data.sheets[].cells` from a
+ * log excerpt and shipped: L0179 actually compiles a single table to
+ * `data.interaction.cells`, so the branch never fired against a real item and
+ * spreadsheets went out with no content at all. Rather than swap one guess for
+ * another, this probes the known containers and VERIFIES the result really is
+ * cell-address-keyed before accepting it — a container that doesn't hold cells is
+ * not a match, so a wrong guess degrades to the next candidate instead of to
+ * nonsense.
  */
-function sheetToTable(sheet: Record<string, unknown>, totalSheets: number): TableContent | null {
-  const cells = isRecord(sheet.cells) ? sheet.cells : undefined;
-  if (!cells) return null;
+function findCellMap(data: Record<string, unknown>): {
+  cells: Record<string, unknown>;
+  name?: string;
+  totalSheets: number;
+} | null {
+  const looksLikeCells = (v: unknown): v is Record<string, unknown> =>
+    isRecord(v) && Object.keys(v).some((k) => parseCellRef(k) !== null);
+
+  const interaction = isRecord(data.interaction) ? data.interaction : undefined;
+  if (looksLikeCells(interaction?.cells)) {
+    return { cells: interaction!.cells as Record<string, unknown>, totalSheets: 1 };
+  }
+  if (looksLikeCells(data.cells)) {
+    return { cells: data.cells as Record<string, unknown>, totalSheets: 1 };
+  }
+  if (Array.isArray(data.sheets)) {
+    const sheets = data.sheets.filter(isRecord);
+    const first = sheets.find((sh) => looksLikeCells(sh.cells));
+    if (first) {
+      return {
+        cells: first.cells as Record<string, unknown>,
+        name: typeof first.name === "string" ? first.name : undefined,
+        totalSheets: sheets.length,
+      };
+    }
+  }
+  return null;
+}
+
+/**
+ * Turn a compiled cell map into a table.
+ *
+ * Cells are keyed by address (`{ A1: { text }, … }`), which is a rendering detail
+ * and not something a reader should ever be shown. Row 1 is treated as the header
+ * — the convention these languages generate — and when that doesn't hold the first
+ * row merely reads as a header, a far smaller error than printing the raw object.
+ */
+function cellsToTable(
+  cells: Record<string, unknown>,
+  sheetName: string | undefined,
+  totalSheets: number
+): TableContent | null {
 
   const byRow = new Map<number, Map<string, string>>();
   const cols = new Set<string>();
@@ -145,7 +187,7 @@ function sheetToTable(sheet: Record<string, unknown>, totalSheets: number): Tabl
   const [headerRow, ...dataRows] = orderedRows;
   return {
     kind: "table",
-    sheetName: typeof sheet.name === "string" ? sheet.name : undefined,
+    sheetName,
     headers: readRow(headerRow),
     rows: dataRows.slice(0, MAX_TABLE_ROWS).map(readRow),
     totalRows: dataRows.length,
@@ -265,13 +307,13 @@ export function describeItem(lang: string, sc: Record<string, unknown>): ItemCon
     }
   }
 
-  // Spreadsheets (L0166 and its successor L0179 emit the same compiled form).
-  // Matched on SHAPE rather than language id so a new sheet-shaped dialect is
-  // readable the day it ships, without an entry here.
-  if (data && Array.isArray(data.sheets) && data.sheets.length) {
-    const first = data.sheets[0];
-    if (isRecord(first)) {
-      const table = sheetToTable(first, data.sheets.length);
+  // Spreadsheets. Matched on SHAPE rather than language id, so L0166, its
+  // successor L0179, and any future cell-addressed dialect all read correctly
+  // without an entry here.
+  if (data) {
+    const found = findCellMap(data);
+    if (found) {
+      const table = cellsToTable(found.cells, found.name, found.totalSheets);
       if (table) return table;
     }
   }

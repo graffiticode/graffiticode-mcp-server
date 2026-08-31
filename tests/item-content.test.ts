@@ -323,3 +323,54 @@ test("charts and concept webs reach chat, and still never as JSON", () => {
     assert.doesNotMatch(md, /```json|"type":/);
   }
 });
+
+// Captured VERBATIM from item f4eWUhBhHKnONtgERcZ0 (L0179) against production.
+// The first version of the table branch guessed `data.sheets[].cells` from a log
+// excerpt and shipped: the real single-table shape puts cells under
+// `data.interaction.cells`, so it never fired and spreadsheets went out empty.
+// This fixture is why the extraction now probes and verifies rather than assumes.
+const REAL_L0179 = {
+  language: "L0179",
+  data: {
+    data: {
+      title: "",
+      instructions: "",
+      validation: { points: 0, regions: { "*": { primaryColumn: null, order: "expected", rows: [] } } },
+      interaction: {
+        type: "table",
+        cells: {
+          A1: { text: "Category", "font-weight": "bold" },
+          B1: { text: "Amount", "font-weight": "bold" },
+          A2: { text: "Rent" },
+          B2: { text: "2000" },
+          A3: { text: "Food" },
+          B3: { text: "600" },
+        },
+      },
+    },
+    errors: [],
+  },
+};
+
+test("the REAL L0179 shape renders as a table", () => {
+  const c = describeItem("L0179", REAL_L0179);
+  assert.equal(c.kind, "table");
+  if (c.kind !== "table") return;
+  assert.deepEqual(c.headers, ["Category", "Amount"]);
+  assert.deepEqual(c.rows, [["Rent", "2000"], ["Food", "600"]]);
+
+  const md = contentToMarkdown(c);
+  assert.match(md, /\| Category \| Amount \|/);
+  assert.match(md, /\| Rent \| 2000 \|/);
+  assert.doesNotMatch(md, /font-weight/);
+});
+
+test("a container that holds no cell addresses is not mistaken for a sheet", () => {
+  // `interaction` present but keyed by something else entirely — must fall
+  // through rather than produce a table of nonsense.
+  const c = describeItem("L0179", {
+    language: "L0179",
+    data: { interaction: { type: "table", cells: { foo: { text: "x" } } } },
+  });
+  assert.notEqual(c.kind, "table");
+});
