@@ -14,6 +14,13 @@
 // 5-question quiz on the water cycle") were routing to the Learnosity languages (L0158/L0176),
 // which are vendor-specific and should be chosen ONLY when the user names Learnosity.
 //
+// A negative assertion alone could not finish the job. "Did not route to Learnosity" is
+// satisfied by calling nothing at all, so once the Learnosity leak was fixed the generic-quiz
+// cases went green — and stayed green through the whole period the catalog had no ungated
+// general assessment language and a model, correctly, declined to use Graffiticode for a quiz.
+// The eval was measuring the absence of a wrong answer, not the presence of a right one.
+// `expectReachable` (see Case) asserts the positive outcome, so a silent no-call now fails.
+//
 // Routing is stochastic, so each case runs N times; a 1-of-N regression is still a regression.
 
 import Anthropic from "@anthropic-ai/sdk";
@@ -134,16 +141,53 @@ async function catalogInvariants() {
 
 interface Case {
   prompt: string;
-  expect?: string;      // must route here
-  expectNot?: string[]; // must NOT route here (asking the user is an acceptable outcome)
+  /** Must route here on every run. */
+  expect?: string;
+  /**
+   * Must REACH this language: a `create` has to name it, and clarifying (`ask`) is acceptable,
+   * but a no-call FAILS.
+   *
+   * This exists because `expectNot` cannot say it. A model that calls nothing trivially
+   * satisfies "did not route to Learnosity", so the generic-quiz cases below scored PASS
+   * throughout the period the catalog had no ungated general assessment language and a model
+   * correctly refused to use Graffiticode at all — the eval was green precisely while the gap
+   * was open. Assert the positive outcome, or the check measures nothing.
+   */
+  expectReachable?: string;
+  /**
+   * Must NOT route here. A no-call passes on purpose: when nothing in the catalog fits, saying
+   * so IS the right answer, and demanding a call would invite the nearest-match failure this
+   * eval exists to catch.
+   */
+  expectNot?: string[];
   why?: string;
 }
 
 const CASES: Case[] = [
-  // The regression this change exists to fix.
-  { prompt: "Make a 5-question multiple-choice quiz on the water cycle.", expectNot: LEARNOSITY, why: "generic quiz" },
-  { prompt: "Create a short quiz to test my students on photosynthesis.", expectNot: LEARNOSITY, why: "generic quiz" },
-  { prompt: "Write a cloze fill-in-the-blank item about mitosis.", expectNot: LEARNOSITY, why: "question type is not the discriminator" },
+  // Generic assessment requests. These must reach L0180 — the ungated general assessment
+  // language, registered 2026-09-01. Before it existed they asserted only `expectNot:
+  // LEARNOSITY` and passed on a silent no-call, which is how the eval stayed green while
+  // "make me a five-question quiz" had nowhere to go.
+  {
+    prompt: "Make a 5-question multiple-choice quiz on the water cycle.",
+    expectReachable: "L0180",
+    why: "generic quiz",
+  },
+  {
+    prompt: "Create a short quiz to test my students on photosynthesis.",
+    expectReachable: "L0180",
+    why: "generic quiz",
+  },
+  // Cloze is deliberately still a no-call case. L0180 covers choice interactions ONLY — its
+  // own routingHint says text entry is not built and tells a model to say no dialect covers it
+  // rather than substituting a choice item. So declining remains correct here, and L0180 is in
+  // expectNot to catch a model that reaches for it anyway. Promote this to expectReachable
+  // when text entry ships.
+  {
+    prompt: "Write a cloze fill-in-the-blank item about mitosis.",
+    expectNot: [...LEARNOSITY, "L0180"],
+    why: "question type is not the discriminator, and no dialect does cloze yet",
+  },
   // Learnosity is named — it must still win.
   // Each names Learnosity AND specifies the content — so routing is the only open question. (An
   // underspecified prompt like "I need an item for our Learnosity item bank" makes a good agent
@@ -315,6 +359,18 @@ async function routingEval() {
     if (c.expect) {
       const ok = outcomes.every((o) => o.kind === "create" && o.language === c.expect);
       check(`${c.expect}  "${c.prompt}"`, ok, detail);
+    } else if (c.expectReachable) {
+      // Creating in the named language passes; asking a clarifying question passes, since that
+      // is a legitimate response to an underspecified request. A no-call FAILS — that is the
+      // whole point of this mode, and the outcome `expectNot` silently rewarded.
+      const ok = outcomes.every(
+        (o) => (o.kind === "create" && o.language === c.expectReachable) || o.kind === "ask",
+      );
+      check(
+        `${c.expectReachable}  "${c.prompt}"${c.why ? ` (${c.why})` : ""}`,
+        ok,
+        detail,
+      );
     } else {
       // Must not land on a gated language. Asking the user is a pass — that's the intended
       // behavior when no specialist fits.
