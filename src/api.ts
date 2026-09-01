@@ -95,10 +95,19 @@ function recordUpstream(startedAt: number): void {
   t.calls += 1;
 }
 
+/**
+ * @param opts.timeoutMs Abort the request after this many ms. OMIT IT unless the
+ *   caller has a fallback for the failure. There is deliberately NO default: this
+ *   function also carries `create_item`/`update_item` generation, which legitimately
+ *   runs 60-110s, and `render_item`'s long-poll. A blanket deadline here would break
+ *   authoring to protect discovery. Only listLanguages() passes it today, because
+ *   only listLanguages() can answer a timeout with a cached catalog.
+ */
 async function graphqlRequest<T>(
   auth: AuthContext,
   query: string,
-  variables: Record<string, unknown>
+  variables: Record<string, unknown>,
+  opts?: { timeoutMs?: number }
 ): Promise<T> {
   const startedAt = Date.now();
   let response: Response;
@@ -110,6 +119,7 @@ async function graphqlRequest<T>(
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ query, variables }),
+      ...(opts?.timeoutMs ? { signal: AbortSignal.timeout(opts.timeoutMs) } : {}),
     });
   } finally {
     // In `finally` so a failed upstream call still reports the time it burned —
@@ -571,6 +581,37 @@ interface CacheEntry<T> {
 }
 
 const listLanguagesCache = new Map<string, CacheEntry<Language[]>>();
+
+/**
+ * Two deadlines, chosen by whether we have anything to fall back to.
+ *
+ * With a fallback, fail FAST: a stale catalog now beats a fresh one in 20s, and the
+ * catalog changes on language deploys, not minute to minute.
+ *
+ * With nothing cached, wait LONG. A cold Cloud Run console revision takes ~18s to
+ * boot (measured), so a short deadline on the first call of a process would turn a
+ * normal cold start into a hard failure — the exact failure this code exists to
+ * prevent, just relocated.
+ */
+const CATALOG_TIMEOUT_WITH_FALLBACK_MS = 2500;
+const CATALOG_TIMEOUT_COLD_MS = 25000;
+
+/**
+ * The last catalog the console successfully returned for the UNFILTERED query, and
+ * the in-flight refreshes keyed by cache key.
+ *
+ * `lastGoodFullCatalog` is the cross-key safety net. The per-key cache is keyed by
+ * `domain|search`, and agents send arbitrary phrasings, so on any novel search the
+ * per-key fallback is empty precisely when it is needed. A superset of the catalog
+ * is a far better answer than an error: the agent can still see what exists.
+ *
+ * NOTE it is deliberately NOT filtered locally to match the requested search. The
+ * console owns search — vendor gating, stopwords, ranking, the result cap — and
+ * reimplementing that here would fork routing policy across two repos and drift.
+ * Serving the superset is honest; serving a locally-scored guess would not be.
+ */
+let lastGoodFullCatalog: Language[] | null = null;
+const listLanguagesInflight = new Map<string, Promise<Language[]>>();
 const getLanguageInfoCache = new Map<string, CacheEntry<LanguageInfo | null>>();
 
 export interface Language {
@@ -584,6 +625,23 @@ export interface Language {
   domains: string[];
 }
 
+/**
+ * The catalog, with a defense in front of it.
+ *
+ * A user watched Claude loop on list_languages: the console was briefly unreachable,
+ * `graphqlRequest` threw a bare `fetch failed`, and an opaque tool error is something
+ * a model answers by calling the tool again. Nothing downstream of that error could
+ * fix it — the fix is to not surface it. In order:
+ *
+ *   1. fresh cache        -> return it
+ *   2. stale cache        -> return it AND refresh in the background (never blocks)
+ *   3. nothing cached     -> await the fetch, on the long deadline
+ *   4. fetch failed       -> stale entry for this key, else the last good full catalog
+ *   5. nothing at all     -> throw, with text that tells the model NOT to retry
+ *
+ * Mirrors getSkillCatalog() in resources.ts, which already does exactly this for the
+ * skills catalog; the shape is deliberately the same so there is one pattern here.
+ */
 export async function listLanguages(options: {
   auth: AuthContext;
   domain?: string;
@@ -597,6 +655,49 @@ export async function listLanguages(options: {
     return cached.value;
   }
 
+  const haveFallback = !!cached || !!lastGoodFullCatalog;
+
+  let inflight = listLanguagesInflight.get(cacheKey);
+  if (!inflight) {
+    inflight = fetchLanguages(auth, domain, search, haveFallback)
+      .then((languages) => {
+        listLanguagesCache.set(cacheKey, {
+          value: languages,
+          expiresAt: Date.now() + LANGUAGE_CACHE_TTL_MS,
+        });
+        // Only the unfiltered query may seed the cross-key net; a search result is a
+        // subset and would masquerade as the whole catalog on some later miss.
+        if (!domain && !search) lastGoodFullCatalog = languages;
+        return languages;
+      })
+      .catch((err) => {
+        console.error(`[catalog] refresh failed: ${err?.message ?? err}`);
+        if (cached) return cached.value;
+        if (lastGoodFullCatalog) return lastGoodFullCatalog;
+        throw new Error(
+          "The Graffiticode language catalog is temporarily unavailable " +
+          `(${err?.message ?? err}). This is a transient upstream problem, not a ` +
+          "problem with your request. Do NOT retry list_languages — tell the user " +
+          "Graffiticode can't be reached right now and ask them to try again shortly."
+        );
+      })
+      .finally(() => {
+        listLanguagesInflight.delete(cacheKey);
+      });
+    listLanguagesInflight.set(cacheKey, inflight);
+  }
+
+  // Stale-while-revalidate: a stale entry answers now, the refresh above lands later.
+  if (cached) return cached.value;
+  return inflight;
+}
+
+async function fetchLanguages(
+  auth: AuthContext,
+  domain: string | undefined,
+  search: string | undefined,
+  haveFallback: boolean
+): Promise<Language[]> {
   const query = `
     query ListLanguages($domain: String, $search: String) {
       languages(domain: $domain, search: $search) {
@@ -612,13 +713,9 @@ export async function listLanguages(options: {
   const result = await graphqlRequest<{ languages: Language[] }>(
     auth,
     query,
-    { domain, search }
+    { domain, search },
+    { timeoutMs: haveFallback ? CATALOG_TIMEOUT_WITH_FALLBACK_MS : CATALOG_TIMEOUT_COLD_MS }
   );
-
-  listLanguagesCache.set(cacheKey, {
-    value: result.languages,
-    expiresAt: Date.now() + LANGUAGE_CACHE_TTL_MS,
-  });
 
   return result.languages;
 }
