@@ -999,6 +999,37 @@ export async function handleUpdateItem(
 }
 
 const GET_ITEM_POLL_DEADLINE_MS = 45_000; // under codex's ~60s tool-call cap
+/**
+ * render_item stops waiting much earlier than get_item, because its callers have
+ * different tolerances and only one of them is a UI.
+ *
+ * A widget host abandons a slow tool call and paints its own error where the
+ * widget belongs. Observed 2026-09-01, same item and same session minutes apart:
+ *
+ *   render_item  ms=33159  upstream_n=13  -> host showed "Unable to reach Graffiticode"
+ *   render_item  ms= 3356  upstream_n= 2  -> rendered correctly
+ *
+ * The server logged `outcome=ok` for BOTH — it finished the 33s call and never saw
+ * a failure, which is why this looked like a widget bug for a while. The 10s
+ * in-call heartbeat did not prevent it either: that call carried a progressToken
+ * and was sending notifications/progress the whole time.
+ *
+ * So the deadline is the lever, and it is set well under the observed failure
+ * rather than just under it — the host's actual threshold is somewhere below 33s
+ * and is not something we can read. Returning `status: "generating"` early is
+ * cheap and self-correcting: the response tells the model to call again, and the
+ * next call returns a ready item in a couple of seconds. Blocking is not cheap —
+ * it spends the host's entire patience budget and then loses the render.
+ *
+ * get_item keeps the long deadline: it is the programmatic path, its callers are
+ * scripts and Codex rather than a UI, and nothing paints an error box on it.
+ *
+ * NOTE this constant is not the ceiling. The loop tests the deadline before
+ * sleeping, so the last wait can start just under it: the real worst case is
+ * this value + GET_ITEM_POLL_INTERVAL_MS + one upstream round-trip. Measured
+ * 17.1s when this was 15s. It is set to 12s so that worst case lands near 15s.
+ */
+const RENDER_ITEM_POLL_DEADLINE_MS = 12_000;
 const GET_ITEM_POLL_INTERVAL_MS = 2_500;
 /**
  * Worker-died guard. MUST stay above the console's generation ceiling, or it
@@ -1060,7 +1091,9 @@ async function handleItemResult(
   // Poll messages name the SAME retrieval tool the caller used, so the model
   // keeps calling the right one (render_item stays compact; get_item stays raw).
   const retrievalTool = mode === "render" ? "render_item" : "get_item";
-  const deadline = Date.now() + GET_ITEM_POLL_DEADLINE_MS;
+  const deadline =
+    Date.now() +
+    (mode === "render" ? RENDER_ITEM_POLL_DEADLINE_MS : GET_ITEM_POLL_DEADLINE_MS);
 
   for (;;) {
     const item = await apiGetItemWithTask({ auth: ctx.auth, id: item_id });
