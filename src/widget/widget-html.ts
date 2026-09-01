@@ -60,11 +60,6 @@ const STYLES = `
   body.dark .card-text { color: #9ca3af; }
   .card-body { margin-top: 12px; }
   .native-content { min-width: 0; }
-  .refine-form { display: flex; gap: 8px; margin-top: 18px; }
-  .refine-input { min-width: 0; flex: 1; font: inherit; padding: 9px 10px; border: 1px solid #d1d5db;
-    border-radius: 8px; color: inherit; background: #fff; }
-  .refine-input:focus { outline: 2px solid #93c5fd; outline-offset: 1px; }
-  body.dark .refine-input { background: #0b1220; border-color: #4b5563; }
   .card-pre { margin-top: 10px; padding: 10px; font-size: 12px; white-space: pre-wrap; overflow-x: auto;
     background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; max-height: 320px; overflow-y: auto; }
 .card-table{width:100%;border-collapse:collapse;margin:8px 0;font-size:12px}
@@ -77,8 +72,6 @@ const STYLES = `
   .q-opts li { font-size: 13px; color: #6b7280; }
   .q-opts li.correct { color: #15803d; font-weight: 600; }
   body.dark .q-opts li.correct { color: #4ade80; }
-  .btn { font: inherit; font-weight: 600; cursor: pointer; padding: 10px 18px; border: none; border-radius: 8px; color: #fff; background: #2563eb; }
-  .btn:hover { background: #1d4ed8; }
   .footer-link { display: block; width: 100%; margin-top: 10px; font: inherit; font-size: 13px; cursor: pointer;
     padding: 6px; border: none; background: none; color: #2563eb; text-align: center; }
   .footer-link:hover { text-decoration: underline; }

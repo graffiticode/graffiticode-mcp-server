@@ -24,8 +24,6 @@ export interface HostAdapter {
   onTheme(cb: (theme: string | undefined) => void): void;
   /** Open a URL in a new tab via the host (sandboxed frames can't navigate top-level). */
   openLink(url: string): void;
-  /** Start a follow-up user turn (drives "Refine this item" → update_item). */
-  sendMessage(text: string): void;
   /** Report the content height so the host can size the view. */
   notifyHeight(px: number): void;
 }
@@ -61,12 +59,6 @@ class ExtAppsHost implements HostAdapter {
 
   openLink(url: string): void {
     this.app.openLink({ url }).catch(() => window.open(url, "_blank", "noopener"));
-  }
-
-  sendMessage(text: string): void {
-    this.app.sendMessage({ role: "user", content: [{ type: "text", text }] }).catch(() => {
-      /* best-effort */
-    });
   }
 
   notifyHeight(): void {
@@ -149,13 +141,6 @@ class SkybridgeHost implements HostAdapter {
     const o = windowOpenai() as { openExternal?: (a: { href: string }) => void } | undefined;
     if (o?.openExternal) o.openExternal({ href: url });
     else window.open(url, "_blank", "noopener");
-  }
-
-  sendMessage(text: string): void {
-    const o = windowOpenai() as
-      | { sendFollowUpMessage?: (a: { prompt: string }) => void }
-      | undefined;
-    o?.sendFollowUpMessage?.({ prompt: text });
   }
 
   notifyHeight(px: number): void {

@@ -127,7 +127,6 @@ export function startRenderer(host: HostAdapter): void {
     if (__NATIVE__.includes(lang) && sc.data !== undefined) {
       try {
         const mountPoint = await mountNative(lang, sc.data);
-        appendRefineAction(sc);
         appendFooterLink(sc);
         reportHeight();
         // A mount can "succeed" and draw nothing: React renders asynchronously,
@@ -181,8 +180,6 @@ export function startRenderer(host: HostAdapter): void {
 
     const body = cardBody(lang, sc);
     if (body) card.appendChild(body);
-
-    appendRefineAction(sc, card);
 
     root.className = "";
     root.replaceChildren(card);
@@ -266,33 +263,6 @@ export function startRenderer(host: HostAdapter): void {
   }
 
   // --- Shared pieces --------------------------------------------------------
-
-  function appendRefineAction(sc: Record<string, unknown>, container?: HTMLElement): void {
-    const itemId = typeof sc.item_id === "string" ? sc.item_id : undefined;
-    if (!itemId) return;
-
-    const form = el("form", "refine-form");
-    const input = el("input", "refine-input");
-    input.type = "text";
-    input.placeholder = "Describe what to change";
-    input.setAttribute("aria-label", "Describe how to refine this item");
-    const submit = el("button", "btn", "Refine");
-    submit.type = "submit";
-    form.append(input, submit);
-    form.addEventListener("submit", (event) => {
-      event.preventDefault();
-      const modification = input.value.trim();
-      if (!modification) {
-        input.focus();
-        return;
-      }
-      host.sendMessage(
-        `Please update Graffiticode item ${itemId}: ${modification}`,
-      );
-      input.value = "";
-    });
-    (container ?? root).appendChild(form);
-  }
 
   function appendFooterLink(sc: Record<string, unknown>, container?: HTMLElement): void {
     // Prefer the widget-stamped claim URL (src=widget) so a click here is
