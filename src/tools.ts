@@ -1000,7 +1000,24 @@ export async function handleUpdateItem(
 
 const GET_ITEM_POLL_DEADLINE_MS = 45_000; // under codex's ~60s tool-call cap
 const GET_ITEM_POLL_INTERVAL_MS = 2_500;
-const GENERATION_STALE_MS = 4 * 60_000; // worker-died guard
+/**
+ * Worker-died guard. MUST stay above the console's generation ceiling, or it
+ * reports a RUNNING generation as a failed one.
+ *
+ * The console gives a generation 900s on both sides of the queue — Cloud Run's
+ * `timeoutSeconds` and the Cloud Tasks `dispatchDeadline` (console commit
+ * e7b9dd0, `src/lib/generation-queue.ts`). This constant was 4 minutes, so every
+ * generation that ran between 240s and 900s was told to the agent as
+ * `status:"failed", error:"Generation timed out"` while the worker was still
+ * working — and the item then flipped to `ready` behind the user's back. Saying
+ * "it failed" about work that succeeds is worse than waiting: the agent stops
+ * polling and the user is told to start over.
+ *
+ * 960s = the console's 900s ceiling plus a minute for the queue hop and the
+ * item write. Lower this only in lockstep with that ceiling; the two numbers are
+ * a pair and neither is meaningful alone.
+ */
+const GENERATION_STALE_MS = 16 * 60_000;
 
 const sleep = (ms: number) => new Promise((resolve) => setTimeout(resolve, ms));
 
