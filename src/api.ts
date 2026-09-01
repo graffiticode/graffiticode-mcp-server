@@ -614,6 +614,31 @@ const CATALOG_TIMEOUT_COLD_MS = 25000;
  * Serving the superset is honest; serving a locally-scored guess would not be.
  */
 let lastGoodFullCatalog: Language[] | null = null;
+
+/**
+ * The last known full catalog, synchronously and without a fetch.
+ *
+ * Exists so SERVER_INSTRUCTIONS can carry the catalog inline. Instructions are
+ * built while the MCP session is being created, which is the one place that must
+ * never wait on the console — so this returns what we already have or null, and
+ * the caller falls back to instructions that tell the model to call
+ * list_languages() instead. Warmed at startup by warmCatalog().
+ */
+export function getCachedFullCatalog(): Language[] | null {
+  return lastGoodFullCatalog;
+}
+
+/**
+ * Best-effort catalog prefetch, so the first session's instructions can carry it.
+ * Never throws and never blocks startup.
+ */
+export async function warmCatalog(auth: AuthContext): Promise<void> {
+  try {
+    await listLanguages({ auth });
+  } catch (err) {
+    console.error(`[catalog] warm failed: ${(err as Error)?.message ?? err}`);
+  }
+}
 const listLanguagesInflight = new Map<string, Promise<Language[]>>();
 const getLanguageInfoCache = new Map<string, CacheEntry<LanguageInfo | null>>();
 

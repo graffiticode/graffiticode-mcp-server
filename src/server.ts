@@ -42,6 +42,7 @@ import {
   tools,
   handleToolCall,
   SERVER_INSTRUCTIONS,
+  buildServerInstructions,
   toolsForClient,
   shouldAdvertiseWidget,
   widgetRouteFor,
@@ -52,7 +53,7 @@ import { formatToolResult } from "./tool-result.js";
 import { buildChallengeResponse } from "./challenge.js";
 import { startSseKeepalive } from "./sse-keepalive.js";
 import type { AuthContext } from "./api.js";
-import { withUpstreamTiming } from "./api.js";
+import { withUpstreamTiming, getCachedFullCatalog, warmCatalog } from "./api.js";
 import {
   effectiveSession,
   identify,
@@ -572,7 +573,11 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
           [EXTENSION_ID]: { mimeTypes: [RESOURCE_MIME_TYPE] },
         },
       } as Record<string, unknown>,
-      instructions: SERVER_INSTRUCTIONS,
+      // Carries the catalog inline when we have one cached, so a clear request
+      // can go straight to create_item instead of paying ~14s for two
+      // pre-flight discovery calls. Falls back to the bare instructions —
+      // which tell the model to call list_languages() — when the cache is cold.
+      instructions: buildServerInstructions(getCachedFullCatalog()),
     }
   );
 
@@ -1371,6 +1376,10 @@ const httpServer = createServer((req, res) => {
 });
 
 httpServer.listen(PORT, () => {
+  // Prefetch the catalog so the FIRST session's instructions already carry it.
+  // Best-effort and unawaited: a cold cache only means those instructions tell the
+  // model to call list_languages(), which is exactly today's behavior.
+  void warmCatalog({ type: "freePlan", sessionId: "startup-warm" });
   console.log(`Graffiticode MCP Server (hosted) running on http://localhost:${PORT}`);
   console.log(`\nEndpoints:`);
   console.log(`  MCP:     http://localhost:${PORT}/mcp`);

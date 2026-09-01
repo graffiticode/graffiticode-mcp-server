@@ -7,6 +7,7 @@ import {
   listLanguages as apiListLanguages,
   getLanguageInfo as apiGetLanguageInfo,
   type AuthContext,
+  type Language,
   CONSOLE_URL,
   APP_URL,
   MCP_ENDPOINT,
@@ -65,7 +66,9 @@ function buildContextualPrompt(
 
 export const SERVER_INSTRUCTIONS = `Graffiticode is an open-ended platform of domain-specific tools for creating interactive content — assessments, spreadsheets, flashcards, and more. The catalog of available tools grows over time.
 
-When the user's request doesn't match another available tool, call list_languages() to check if Graffiticode has a language that fits. Use the search parameter to match by keyword, or the domain parameter to narrow by domain (e.g., 'assessments', 'sheets', 'diagrams') when the user's context implies one. If a match exists, call get_language_info() to learn what the language can create and get its user guide resource URI, then call create_item() with a natural language description.
+When the user's request doesn't match another available tool, check whether Graffiticode has a language that fits. If the catalog below already names an obvious fit, call create_item(language, description) DIRECTLY — do not call list_languages() or get_language_info() first. Those two calls cost the user roughly fourteen seconds before any work starts, and for a clear request they add nothing: create_item accepts a best guess and the platform re-routes the request if another language fits better.
+
+Call list_languages(search, domain) only when the catalog does not obviously answer the request — to search by keyword, to narrow by domain (e.g. 'assessments', 'sheets', 'diagrams'), or to confirm what exists before telling the user nothing fits. Call get_language_info(language) only when you need detail the catalog line does not give you: supported item types, example prompts, or scope boundaries for a request you are unsure the language covers.
 
 Some languages are gated: they target a specific vendor or platform and carry a \`when_to_use\` note saying so. Never pick one unless the user actually named that vendor or platform — matching item types (multiple-choice, cloze, short text) is never sufficient. If no language fits the request, tell the user what Graffiticode does have and ask, rather than settling for the nearest match.
 
@@ -77,11 +80,87 @@ get_language_info returns an inline authoring_guide summary, supported_item_type
 
 Division of labor: the generator is the router — it identifies which languages a request needs and composes any pipeline. Your job is to send it the highest-quality description. Item ids are opaque handles. To reuse an existing item's content in a new request (any language), do NOT pass its id or get_item output (src/data) — those are private to that item's own language. Converge the content in its own language first, then call get_spec(item_id) to get a platform-neutral English description, and pass THAT (plus your intent framing) as the create_item description. Never name upstream languages or wire pipelines yourself; describe what you want and let the generator compose.
 
-Workflow: list_languages(search, domain) → get_language_info(language) → create_item(language, description) → render_item(item_id) → update_item(item_id, modification) → render_item(item_id) to iterate. render_item is the preferred user-facing retrieval tool: it keeps language-private code and compiled data out of the model transcript while still hydrating supported host widgets. Use get_item only when a caller explicitly needs the raw language-private src/data for programmatic work. To reuse content in a new request: get_spec(item_id) → create_item(language, spec + intent framing).
+Workflow, common case: create_item(language, description) → render_item(item_id) → update_item(item_id, modification) → render_item(item_id) to iterate. Add list_languages / get_language_info at the front ONLY when the catalog below is insufficient (see above). render_item is the preferred user-facing retrieval tool: it keeps language-private code and compiled data out of the model transcript while still hydrating supported host widgets. Use get_item only when a caller explicitly needs the raw language-private src/data for programmatic work. To reuse content in a new request: get_spec(item_id) → create_item(language, spec + intent framing).
 
 create_item and update_item start generation and return immediately with status "generating"; normally follow them with render_item(item_id) to retrieve and display the result. render_item and get_item both wait for completion and return status "ready", "failed", or "generating" (call the same retrieval tool again).
 
 When you create a SECOND or later item for the same user, pass the earlier item's id as create_item's continue_from_item_id. Their items then stay together and one sign-in link saves all of them; without it, each item is saved separately.`;
+
+/**
+ * Instructions with the catalog inlined.
+ *
+ * Discovery used to cost ~14s of a ~45s request: SERVER_INSTRUCTIONS prescribed
+ * list_languages -> get_language_info -> create_item, and each pre-flight call
+ * costs its own latency PLUS a model turnaround (measured 2.7s and 7.2s). The
+ * whole catalog as "id — description" is ~1.3KB / ~330 tokens, so carrying it in
+ * the instructions is far cheaper than fetching it, every session, forever.
+ *
+ * Each line is the description PLUS any LIMIT sentences pulled out of the routing
+ * hint. Both halves are load-bearing and they answer different questions:
+ * the description says what a language MAKES, the limits say what it REFUSES.
+ *
+ * Shipping descriptions alone was tried first and regressed immediately. With only
+ * "L0180 — Quizzes and assessment items" in front of it, the model routed
+ * "Write a cloze fill-in-the-blank item" to L0180 on 3 of 3 runs; it had correctly
+ * declined on 3 of 3 before. L0180's "cloze ... not built yet — do not route those
+ * here" lives in its routing hint, so cutting hints for size cut exactly the signal
+ * that prevents over-routing. Vendor gates survived (they sit in the description),
+ * capability limits did not.
+ *
+ * So we extract only the sentences that constrain — the ones carrying ONLY/NOT/
+ * never/EARLY/not built — and cap them, rather than inlining hints whole: those run
+ * to 1.4KB each and would dwarf the instructions. get_language_info stays the way to
+ * get the full hint when a request genuinely needs that detail.
+ *
+ * `isDiscoverable` is applied here for the same reason handleListLanguages applies
+ * it: instructions must not advertise a language the tool would refuse to return.
+ *
+ * Falls back to the bare instructions when no catalog is cached, which is why this
+ * takes the catalog rather than fetching it — building instructions happens while
+ * a session is being created, and that path must never wait on the console.
+ */
+
+/**
+ * The sentences in a routing hint that RULE THINGS OUT, for the inlined catalog.
+ *
+ * A hint is mostly a description of capability, which the catalog line already has.
+ * What it uniquely carries is the negative half — the vendor gate, and the item
+ * types a language does not implement yet. That half is small and it is what keeps
+ * a model from routing a cloze request to a choice-only language.
+ *
+ * Capped because a couple of hints enumerate their limits at length, and the point
+ * of inlining is to stay far cheaper than fetching.
+ */
+function limitSentences(hint?: string | null, maxChars = 400): string {
+  if (!hint) return "";
+  const kept = hint
+    .split(/(?<=\.)\s+/)
+    .filter((sentence) => /\b(ONLY when|do NOT|does NOT|are not built|not built yet|EARLY|never)\b/i.test(sentence))
+    .map((sentence) => sentence.trim());
+  if (kept.length === 0) return "";
+  let out = "";
+  for (const sentence of kept) {
+    if (out.length + sentence.length + 1 > maxChars) break;
+    out += (out ? " " : "") + sentence;
+  }
+  return out;
+}
+
+export function buildServerInstructions(catalog?: Language[] | null): string {
+  if (!catalog || catalog.length === 0) return SERVER_INSTRUCTIONS;
+  const lines = catalog
+    .filter((l) => isDiscoverable(l.id))
+    .map((l) => {
+      const limits = limitSentences(l.routingHint);
+      return `L${l.id} — ${l.description}${limits ? ` ${limits}` : ""}`;
+    })
+    .join("\n");
+  if (!lines) return SERVER_INSTRUCTIONS;
+  return `${SERVER_INSTRUCTIONS}
+
+Catalog (current; each line is "id — what it makes"). Route from this directly when the fit is obvious:
+${lines}`;
+}
 
 // --- Tool Definitions ---
 

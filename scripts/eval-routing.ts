@@ -28,13 +28,16 @@ import { readFileSync } from "node:fs";
 import { resolve } from "node:path";
 import {
   SERVER_INSTRUCTIONS,
+  buildServerInstructions,
   listLanguagesTool,
   getLanguageInfoTool,
   handleListLanguages,
   handleGetLanguageInfo,
   type ToolContext,
 } from "../src/tools.js";
-import type { AuthContext } from "../src/api.js";
+// The RAW catalog (unprefixed ids), because buildServerInstructions formats the
+// "L####" itself — handleListLanguages already prefixes and would double it.
+import { listLanguages as apiListLanguages, type AuthContext } from "../src/api.js";
 
 const MODEL = "claude-opus-4-8";
 const RUNS_PER_CASE = Number(process.env.EVAL_RUNS ?? 3);
@@ -257,12 +260,18 @@ const askUserStub = {
 };
 
 type Outcome =
-  | { kind: "create"; language: string }
-  | { kind: "ask"; question: string }
-  | { kind: "none"; text: string };
+| { kind: "create"; language: string; discovery?: number }
+  | { kind: "ask"; question: string; discovery?: number }
+  | { kind: "none"; text: string; discovery?: number };
 
 async function routeOnce(client: Anthropic, prompt: string, system: string): Promise<Outcome> {
   const messages: Anthropic.MessageParam[] = [{ role: "user", content: prompt }];
+  // How many list_languages/get_language_info calls the model made before deciding.
+  // This is the latency metric the inlined catalog exists to move: each one costs
+  // its own round-trip PLUS a model turnaround (measured 2.7s and 7.2s in a real
+  // session), so a routing decision reached with 0 discovery calls is ~14s faster
+  // than the same decision reached with 2.
+  let discovery = 0;
   const tools = [
     { name: listLanguagesTool.name, description: listLanguagesTool.description, input_schema: listLanguagesTool.inputSchema },
     { name: getLanguageInfoTool.name, description: getLanguageInfoTool.description, input_schema: getLanguageInfoTool.inputSchema },
@@ -288,15 +297,15 @@ async function routeOnce(client: Anthropic, prompt: string, system: string): Pro
         .trim();
 
     const calls = res.content.filter((b): b is Anthropic.ToolUseBlock => b.type === "tool_use");
-    if (calls.length === 0) return { kind: "none", text: sayText() };
+    if (calls.length === 0) return { kind: "none", text: sayText(), discovery };
 
     // A routing decision ends the run.
     for (const call of calls) {
       if (call.name === "create_item") {
-        return { kind: "create", language: norm(String((call.input as any).language ?? "")) };
+        return { kind: "create", language: norm(String((call.input as any).language ?? "")), discovery };
       }
       if (call.name === "ask_user") {
-        return { kind: "ask", question: String((call.input as any).question ?? "") };
+        return { kind: "ask", question: String((call.input as any).question ?? ""), discovery };
       }
     }
 
@@ -307,8 +316,8 @@ async function routeOnce(client: Anthropic, prompt: string, system: string): Pro
       try {
         out =
           call.name === "list_languages"
-            ? await handleListLanguages(ctx, call.input as any)
-            : await handleGetLanguageInfo(ctx, call.input as any);
+            ? ((discovery += 1), await handleListLanguages(ctx, call.input as any))
+            : ((discovery += 1), await handleGetLanguageInfo(ctx, call.input as any));
       } catch (err) {
         out = { error: String(err) };
       }
@@ -316,7 +325,7 @@ async function routeOnce(client: Anthropic, prompt: string, system: string): Pro
     }
     messages.push({ role: "user", content: results });
   }
-  return { kind: "none", text: "(tool-loop exhausted)" };
+  return { kind: "none", text: "(tool-loop exhausted)", discovery };
 }
 
 async function routingEval() {
@@ -327,9 +336,29 @@ async function routingEval() {
   }
   const client = new Anthropic({ apiKey: anthropicKey });
 
-  // The real agent-facing surface: server instructions + the two skills that teach discovery.
+  // The real agent-facing surface: server instructions + the two skills that teach
+  // discovery.
+  //
+  // Instructions are built the way server.ts builds them — with the live catalog
+  // inlined — because that is what changes routing. Testing the bare
+  // SERVER_INSTRUCTIONS would measure a prompt no client is ever sent, and the
+  // whole point of inlining the catalog is that the model can now route WITHOUT
+  // calling list_languages first. If the catalog fetch fails we fall back to the
+  // bare text, exactly as the server does.
+  let catalogForInstructions: Awaited<ReturnType<typeof apiListLanguages>> | null = null;
+  try {
+    catalogForInstructions = await apiListLanguages({ auth });
+  } catch {
+    catalogForInstructions = null;
+  }
+  const instructions = buildServerInstructions(catalogForInstructions);
+  console.log(
+    `instructions: ${instructions.length} chars` +
+      (catalogForInstructions ? ` (catalog inlined: ${catalogForInstructions.length} languages)` : " (no catalog — bare)")
+  );
+
   const system = [
-    SERVER_INSTRUCTIONS,
+    instructions,
     "\n\n--- Skill: assessments ---\n",
     loadSkill("assessments"),
     "\n\n--- Skill: learnosity ---\n",
@@ -345,7 +374,12 @@ async function routingEval() {
 
     const summarize = (o: Outcome) =>
       o.kind === "create" ? o.language : o.kind === "ask" ? "ASKED" : "no-call";
-    const detail = outcomes.map(summarize).join(", ");
+    // Discovery calls per run, appended to the detail. This is the latency metric:
+    // "disc 0,0,0" means every run routed straight to create_item, skipping the two
+    // pre-flight calls that used to cost ~14s before generation even started.
+    const disc = outcomes.map((o) => o.discovery ?? 0);
+    const detail =
+      outcomes.map(summarize).join(", ") + `  [disc ${disc.join(",")}]`;
 
     // A non-routing outcome is only meaningful if you can read what it said — print it so a
     // "no-call" that quietly authored a quiz in chat can't hide behind a green check.
