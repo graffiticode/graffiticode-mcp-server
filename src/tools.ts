@@ -1027,9 +1027,15 @@ const GET_ITEM_POLL_DEADLINE_MS = 45_000; // under codex's ~60s tool-call cap
  * NOTE this constant is not the ceiling. The loop tests the deadline before
  * sleeping, so the last wait can start just under it: the real worst case is
  * this value + GET_ITEM_POLL_INTERVAL_MS + one upstream round-trip. Measured
- * 17.1s when this was 15s. It is set to 12s so that worst case lands near 15s.
+ * 17.1s when this was 15s.
+ *
+ * It is 8s because the host's error was later reported appearing in UNDER 30s,
+ * which only bounds the threshold from above — it could be well under 15s. The
+ * budget now covers the WHOLE call (see the getData deadline below), not just
+ * the generating wait: a render that found the item ready at 12s then spent 9s
+ * fetching data still took 21.1s and still lost the render.
  */
-const RENDER_ITEM_POLL_DEADLINE_MS = 12_000;
+const RENDER_ITEM_POLL_DEADLINE_MS = 8_000;
 const GET_ITEM_POLL_INTERVAL_MS = 2_500;
 /**
  * Worker-died guard. MUST stay above the console's generation ceiling, or it
@@ -1155,7 +1161,28 @@ async function handleItemResult(
       throw new Error(`Task not found for item: ${item_id}`);
     }
 
-    const data = await getData({ auth: ctx.auth, taskId: item.taskId });
+    // The deadline has to cover this too. A poll loop that finishes inside budget
+    // and then spends 9s in getData has still blown the caller's budget — observed
+    // at 21.1s on a call whose generating-wait was correctly capped. Past the
+    // deadline we return "generating" rather than start an unbounded fetch: the
+    // item IS ready, so the model's next call skips the wait entirely and spends
+    // its whole budget here.
+    const remainingMs = deadline - Date.now();
+    if (mode === "render" && remainingMs <= 0) {
+      return {
+        item_id: item.id,
+        status: "generating",
+        language: `L${item.lang}`,
+        name: item.name,
+        message: `Still generating. Call ${retrievalTool}(item_id) again to keep waiting.`,
+        summary: buildGeneratingSummary(item.name, retrievalTool, item.id),
+      };
+    }
+    const data = await getData({
+      auth: ctx.auth,
+      taskId: item.taskId,
+      ...(mode === "render" ? { timeoutMs: remainingMs } : {}),
+    });
 
     // The item reports ready and its task is visible, but the rendered data
     // isn't available yet (data(id) returned a 404 envelope) — a transient

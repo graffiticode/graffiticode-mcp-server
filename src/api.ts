@@ -286,8 +286,10 @@ export async function startCodeGeneration(options: {
 export async function getData(options: {
   auth: AuthContext;
   taskId: string;
+  /** Optional deadline, for callers that owe an answer within a fixed budget. */
+  timeoutMs?: number;
 }): Promise<unknown> {
-  const { auth, taskId } = options;
+  const { auth, taskId, timeoutMs } = options;
 
   const query = `
     query GetData($id: String!) {
@@ -298,7 +300,8 @@ export async function getData(options: {
   const result = await graphqlRequest<{ data: string }>(
     auth,
     query,
-    { id: taskId }
+    { id: taskId },
+    timeoutMs ? { timeoutMs } : undefined
   );
 
   return JSON.parse(result.data);
