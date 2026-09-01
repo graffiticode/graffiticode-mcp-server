@@ -1,6 +1,6 @@
 /**
  * The language registry: the single source of truth for which languages the
- * widget can render natively, and which fall back to a content card.
+ * widget renders natively.
  *
  * Consumed by both `scripts/build-widget.mjs` (which bundles one ESM module per
  * native language into `dist/widget/lang/<id>.mjs`) and the runtime handlers in
@@ -21,27 +21,29 @@ export interface NativeLanguage {
 }
 
 /**
- * Languages whose npm package exports a `Form` that renders purely from the
- * item's `data` — no network, no vendor script. These get a native bundle.
+ * Every language the catalog lists renders natively. There is no "non-renderable"
+ * tier: each language ships a React `Form` view, so if `list_languages` returns it,
+ * it belongs here. A listed language with no entry silently degrades to the content
+ * card, which reads as a broken render rather than a deliberate one.
  *
- * Adding one is a one-line entry, but check its `Form` signature first: the
- * props contract is NOT uniform across packages (l0166 is `({state})`, l0158 is
- * `({state, targetOrigin})`).
- */
-/**
- * Six more languages (L0169/L0159/L0170/L0172/L0154/L0155) were added here on
- * 2026-08-31 and taken back out the same day. Their packages are published and
- * export the right Form, and the bundles build — but only L0179 was ever confirmed
- * rendering by a person. L0169 demonstrably did NOT mount in production: it fell
- * through to the content card, which is the safe outcome but means every concept web
- * paid for a 0.3MB bundle and the empty-mount grace period before showing the card it
- * would have shown immediately.
+ * This replaces an earlier `NON_RENDERABLE_LANGUAGES` set that exempted
+ * L0158/L0176/L0177/L0170 on the theory that vendor-script, spec-emitting and
+ * data-provider languages had nothing to show. They do — each has a `Form` in its
+ * repo's `packages/view`. That set was also never imported anywhere, so it
+ * documented a policy the code did not implement.
  *
- * jsdom is not sufficient evidence for this. It cannot render L0173 at all (ECharts
- * needs a canvas it lacks), so a failure there proves nothing — and L0169's thin
- * render was read as the same kind of artifact when it was the real thing.
+ * The props contract is uniform across all of these: each package exports
+ * `Form: ({ state })` (the `FormProps` from `@graffiticode/l0000-view`) plus a
+ * `./style.css` subpath, which is exactly what `entrySource()` in
+ * `scripts/build-widget.mjs` generates against.
  *
- * Re-add one at a time, each only after it has been seen rendering a real item.
+ * VERIFICATION DEBT: the eight added 2026-09-01 build, but none has been seen
+ * rendering a real item by a person. That is the bar this file previously set, after
+ * L0169 was added on the strength of a clean build and then did NOT mount in
+ * production — it fell through to the content card, having paid for a 0.3MB bundle
+ * and the empty-mount grace period first. jsdom does not clear that bar either: it
+ * cannot render L0173 at all, so a failure there proves nothing. Treat every entry
+ * after L0179 below as unverified until someone has watched it render.
  */
 export const NATIVE_LANGUAGES: NativeLanguage[] = [
   { id: "L0166", pkg: "@graffiticode/l0166" },
@@ -51,16 +53,25 @@ export const NATIVE_LANGUAGES: NativeLanguage[] = [
   // items were authored in. Same `({ state })` Form contract as l0166.
   { id: "L0173", pkg: "@graffiticode/l0173" },
   { id: "L0179", pkg: "@graffiticode/l0179-view" },
-];
 
-/**
- * Languages that cannot render natively and must use the fallback content card.
- * Not a gap to be closed — each is non-renderable by design:
- *   L0158/L0176  inject Learnosity's vendor script at runtime
- *   L0177        emits a spec document, no runnable output
- *   L0170        a data provider; its output is a payload, not a view
- */
-export const NON_RENDERABLE_LANGUAGES = new Set(["L0158", "L0176", "L0177", "L0170"]);
+  // Added 2026-09-01. The first three were on npm already; the five `-view`
+  // packages were built in their own repos but had never been pushed, which was
+  // the only thing blocking them.
+  { id: "L0159", pkg: "@graffiticode/l0159" },
+  // L0169 is the known-bad one: added and reverted 2026-08-31 because it did not
+  // mount in production. Nothing about it has been fixed since — it is here because
+  // the catalog lists it, and it is the first entry that should be checked by hand.
+  { id: "L0169", pkg: "@graffiticode/l0169" },
+  { id: "L0170", pkg: "@graffiticode/l0170" },
+  // L0175 has a published base package too (`@graffiticode/l0175`), but that one is
+  // the COMPILER: no `Form`, no `style.css`, so pointing at it fails the build. The
+  // view is always the `-view` package, as with L0179.
+  { id: "L0175", pkg: "@graffiticode/l0175-view" },
+  { id: "L0176", pkg: "@graffiticode/l0176-view" },
+  { id: "L0177", pkg: "@graffiticode/l0177-view" },
+  { id: "L0178", pkg: "@graffiticode/l0178-view" },
+  { id: "L0180", pkg: "@graffiticode/l0180-view" },
+];
 
 /** Normalize `0166` / `l0166` / `L0166` to `L0166`. */
 export function normalizeLanguageId(lang: string): string {
