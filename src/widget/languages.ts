@@ -44,6 +44,14 @@ export interface NativeLanguage {
  * and the empty-mount grace period first. jsdom does not clear that bar either: it
  * cannot render L0173 at all, so a failure there proves nothing. Treat every entry
  * after L0179 below as unverified until someone has watched it render.
+ *
+ * L0180 has now cleared that bar: it was watched rendering a real item in ChatGPT.
+ * What that sighting also showed is that DRAWING is not the whole bar — it drew its
+ * options and then would not select one, because the widget's `mount()` gave the
+ * Form an `apply` that notified React of nothing. Fixed in `scripts/build-widget.mjs`
+ * and pinned by `tests/widget-native-mount.test.ts`. The lesson generalizes to every
+ * entry here: "it mounted" and "it works" are different claims, and only the second
+ * one matters for an interactive language.
  */
 export const NATIVE_LANGUAGES: NativeLanguage[] = [
   { id: "L0166", pkg: "@graffiticode/l0166" },
