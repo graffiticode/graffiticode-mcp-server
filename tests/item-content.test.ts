@@ -393,3 +393,99 @@ test("render_item's poll-deadline shape is exactly the non-terminal case", () =>
   const ready = { item_id: "x", status: "ready", language: "L0179", name: "n" };
   assert.equal(isTerminalStatus(ready.status), true);
 });
+
+
+/**
+ * L0180 fell through every branch to `preview`, and `preview` is deliberately empty
+ * in chat — so the most-used assessment language summarised as a title and a link,
+ * and a model relaying that could only say it had made something. Both fixtures are
+ * real compiled payloads.
+ */
+test("L0180 choice items summarise as questions with the answer key marked", () => {
+  const content = describeItem("L0180", {
+    data: {
+      data: {
+        interaction: {
+          type: "choice",
+          prompt: "Which gas do plants absorb from the air during photosynthesis?",
+          maxChoices: 1,
+          options: [
+            { id: "A", text: "Oxygen" },
+            { id: "B", text: "Carbon dioxide" },
+            { id: "C", text: "Nitrogen" },
+          ],
+        },
+        validation: {
+          responseProcessing: "map_response",
+          points: 1,
+          mapping: { B: { correct: true, points: 1 } },
+        },
+      },
+      errors: [],
+    },
+  });
+
+  assert.equal(content.kind, "questions");
+  const md = contentToMarkdown(content);
+  assert.match(md, /Which gas do plants absorb/);
+  assert.match(md, /✓ Carbon dioxide/);
+  // Only the key is marked — a summary that ticks everything is worse than none.
+  assert.doesNotMatch(md, /✓ Oxygen/);
+  assert.doesNotMatch(md, /✓ Nitrogen/);
+});
+
+test("L0180 reads a match_correct key, not just a mapping", () => {
+  // The two response-processing templates are alternatives and never both present;
+  // reading only `mapping` would mark every option in this item wrong.
+  const content = describeItem("L0180", {
+    data: {
+      interaction: {
+        type: "choice",
+        prompt: "Select both amphibians.",
+        maxChoices: 2,
+        options: [
+          { id: "A", text: "Frog" },
+          { id: "B", text: "Lizard" },
+          { id: "C", text: "Salamander" },
+        ],
+      },
+      validation: { responseProcessing: "match_correct", points: 1, correctResponse: ["A", "C"] },
+    },
+  });
+
+  const md = contentToMarkdown(content);
+  assert.match(md, /✓ Frog/);
+  assert.match(md, /✓ Salamander/);
+  assert.doesNotMatch(md, /✓ Lizard/);
+});
+
+test("L0180 multi-part items count and key each part", () => {
+  const content = describeItem("L0180", {
+    data: {
+      interaction: {
+        type: "item",
+        stimulus: { title: "A short passage" },
+        parts: [
+          { id: "p1", type: "choice", prompt: "What is the claim?", options: [{ id: "A", text: "Frogs breathe through skin" }] },
+          { id: "p2", type: "choice", prompt: "Which line supports it?", options: [{ id: "X", text: "Line 4" }, { id: "Y", text: "Line 9" }] },
+        ],
+      },
+      validation: {
+        points: 1,
+        scoring: "conjunctive",
+        parts: {
+          p1: { points: 1, mapping: { A: { correct: true, points: 1 } } },
+          p2: { points: 1, correctResponse: ["Y"] },
+        },
+      },
+    },
+  });
+
+  assert.equal(content.kind, "questions");
+  assert.equal((content as { count: number }).count, 2);
+  const md = contentToMarkdown(content);
+  assert.match(md, /2 questions/);
+  assert.match(md, /✓ Frogs breathe through skin/);
+  assert.match(md, /✓ Line 9/);
+  assert.doesNotMatch(md, /✓ Line 4/);
+});

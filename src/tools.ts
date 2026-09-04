@@ -187,6 +187,13 @@ const itemStatusProperties = {
   name: nullableString,
   message: { type: "string" },
   error: { type: "string" },
+  // The chat-facing prose. It is ALSO the tool result's text block, and the
+  // duplication is deliberate: clients that honour `outputSchema` (Claude Code,
+  // Cowork) render structuredContent and drop the text block, so a summary that
+  // lived only there reached those models not at all. Declared here because every
+  // one of these schemas is `additionalProperties: false` — an undeclared field is
+  // a validation failure, not a silent extra.
+  summary: { type: "string" },
 } as const;
 
 const renderItemOutputSchema = {
@@ -1312,6 +1319,21 @@ async function handleItemResult(
       hydration.claim_message as string | undefined,
       { ...compact, ...hydration }
     );
+    // The link is the deliverable, and saying so is load-bearing.
+    //
+    // `view_url` has always been a field and the summary has always led with a
+    // markdown link, yet a Cowork transcript answered "Made a single-item MCQ on
+    // frog metamorphosis…" and gave the user nothing to click. Nothing in the
+    // result said the URL was for showing rather than for holding, so the model
+    // treated it as metadata and wrote prose. The one thing already proven to
+    // steer a model here is `message`: the generating path uses it to ask for a
+    // render_item call and gets one essentially every time.
+    const linkDirective =
+      `Give the user this link so they can open and use the item: ${hydration.view_url}` +
+      " — a description of the item is not a substitute for the link.";
+    const message = hydration.claim_message
+      ? `${linkDirective}\n\n${hydration.claim_message as string}`
+      : linkDirective;
     if (mode === "render") {
       // Widget-only, and deliberately not written by applyViewAndClaim: it must
       // not reach the chat-facing fields or get_item's raw output, or a model
@@ -1328,11 +1350,12 @@ async function handleItemResult(
         view_url: hydration.view_url,
         ...(hydration.claim_url ? { claim_url: hydration.claim_url } : {}),
         ...(hydration.claim_message ? { claim_message: hydration.claim_message } : {}),
+        message,
         summary,
         _meta: { graffiticode: hydration },
       };
     }
-    return { ...compact, ...hydration, summary };
+    return { ...compact, ...hydration, message, summary };
   }
 }
 

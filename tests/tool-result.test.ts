@@ -2,6 +2,11 @@ import assert from "node:assert/strict";
 import test from "node:test";
 import { formatToolResult } from "../src/tool-result.js";
 
+// The summary is now expected IN structuredContent as well as in the text block —
+// Claude Code and Cowork drop `content[0].text` for a tool with an outputSchema, so
+// a summary that lived only there reached those models not at all. What this test
+// exists to pin is unchanged and stated below: hydration (src / compiled data) must
+// appear in NEITHER.
 test("widget hydration stays out of structuredContent and chat text", () => {
   const response = formatToolResult({
     item_id: "item-1",
@@ -23,9 +28,17 @@ test("widget hydration stays out of structuredContent and chat text", () => {
     status: "ready",
     language: "L0166",
     name: "Example",
+    summary: "Example is ready — https://app.graffiticode.org/form/item-1",
   });
   const text = ((response.content as Array<{ text: string }>)[0]).text;
   assert.doesNotMatch(text, /secret language source|"answer"/);
+  // The point of the duplication: a client reading only one of the two still gets
+  // the link.
+  assert.match(JSON.stringify(response.structuredContent), /form\/item-1/);
+  assert.doesNotMatch(
+    JSON.stringify(response.structuredContent),
+    /secret language source|"answer"/
+  );
   assert.equal((response._meta as Record<string, unknown>).graffiticode !== undefined, true);
 });
 

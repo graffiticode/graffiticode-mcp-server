@@ -1,9 +1,21 @@
 /**
  * Convert an internal handler result into an MCP CallToolResult.
  *
- * `summary` becomes chat-facing text, `_meta` remains widget-only, and neither is
- * copied into structuredContent. Keeping this seam pure makes the privacy and
- * response-shape contract easy to test without starting the HTTP server.
+ * `summary` becomes chat-facing text AND stays in structuredContent; `_meta`
+ * remains widget-only and is never copied into either. Keeping this seam pure
+ * makes the privacy and response-shape contract easy to test without starting the
+ * HTTP server.
+ *
+ * The summary used to be moved OUT of structuredContent, on the reasoning that a
+ * field rendered as text need not also be a field. That assumed every client shows
+ * the text block. Claude Code and Cowork do not: given a tool with an
+ * `outputSchema`, they surface `structuredContent` and drop `content[0].text`,
+ * which is a reading the spec invites — it says a structured result SHOULD mirror
+ * itself in the text block, and ours carried something else entirely. So the item's
+ * content and its markdown link, both of which live only in the summary, reached
+ * those models not at all: what arrived was four identity fields and a bare
+ * `view_url`, and the answer the user got was "I made a thing" with nothing to
+ * click. Duplicating a few hundred bytes is the cheap side of that trade.
  *
  * `stripHydration` drops ONLY the widget-hydration payload from `_meta` — the
  * `graffiticode` key (src, compiled data, claim fields), which is useless to a host
@@ -23,7 +35,8 @@ export function formatToolResult(
   result: Record<string, unknown>,
   opts: { stripHydration?: boolean } = {},
 ): Record<string, unknown> {
-  const { _meta, summary, ...structuredContent } = result;
+  const { _meta, ...structuredContent } = result;
+  const { summary } = result;
   const response: Record<string, unknown> = {
     structuredContent,
     content: [

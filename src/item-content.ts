@@ -71,6 +71,8 @@ export type ItemContent =
 
 /** How many questions to show before saying "and N more". The rest is one line. */
 const QUESTIONS_SHOWN = 8;
+/** Options listed per question. Bounds a hottext passage's unit list. */
+const OPTIONS_SHOWN = 12;
 /** A spec document is the item; show enough to judge it, not the whole thing. */
 const PROSE_CAP = 4000;
 /** The generic JSON preview. Widget-only — see contentToMarkdown. */
@@ -225,6 +227,88 @@ function cellsToTable(
  * `value`, and Learnosity spells its answer key both `valid-response` and
  * `validResponse` depending on vintage).
  */
+/**
+ * The correct option ids for one compiled L0180 interaction.
+ *
+ * Mirrors `correctIds` in `@graffiticode/l0180-view` deliberately: a
+ * `match_correct` key carries `correctResponse`, a `map_response` key carries
+ * `mapping`, and neither carries the other. Reading only one of the two would
+ * silently mark every option wrong for half of all items.
+ */
+function l0180CorrectIds(validation: unknown): Set<string> {
+  if (!isRecord(validation)) return new Set();
+  if (Array.isArray(validation.correctResponse)) {
+    return new Set(validation.correctResponse.map(String));
+  }
+  const mapping = isRecord(validation.mapping) ? validation.mapping : {};
+  return new Set(
+    Object.keys(mapping).filter((id) => {
+      const entry = mapping[id];
+      return isRecord(entry) && entry.correct === true;
+    })
+  );
+}
+
+/**
+ * One interaction → one question line. A choice carries `options`; a hottext
+ * carries `units`, one per selectable word or sentence — which is why the list is
+ * capped: a passage's worth of units is a wall of text in a chat message, and the
+ * ✓ marks that matter are near the top of it either way.
+ */
+function l0180Question(
+  interaction: Record<string, unknown>,
+  validation: unknown
+): QuestionSummary {
+  const correct = l0180CorrectIds(validation);
+  const raw = Array.isArray(interaction.options)
+    ? interaction.options
+    : Array.isArray(interaction.units)
+      ? interaction.units
+      : [];
+  const options = raw
+    .filter(isRecord)
+    .map((o) => ({
+      label: String(o.text ?? o.label ?? "").trim(),
+      correct: correct.has(String(o.id)),
+    }))
+    .filter((o) => o.label)
+    .slice(0, OPTIONS_SHOWN);
+  return {
+    stimulus: String(interaction.prompt ?? "").trim() || "(question)",
+    options,
+  };
+}
+
+/**
+ * An L0180 item as a question list, or null when it carries nothing to show.
+ *
+ * `type: "item"` is the multi-part wrapper: its `parts` are interactions in their
+ * own right and its answer key is keyed by part id, so each part reads as one
+ * question. Anything else is a single interaction scored by the key directly.
+ */
+function l0180Questions(
+  interaction: Record<string, unknown>,
+  validation: unknown
+): ItemContent | null {
+  if (interaction.type === "item") {
+    const parts = Array.isArray(interaction.parts) ? interaction.parts.filter(isRecord) : [];
+    if (!parts.length) return null;
+    const keys = isRecord(validation) && isRecord(validation.parts) ? validation.parts : {};
+    return {
+      kind: "questions",
+      count: parts.length,
+      shown: parts
+        .slice(0, QUESTIONS_SHOWN)
+        .map((part) => l0180Question(part, keys[String(part.id)])),
+    };
+  }
+  const question = l0180Question(interaction, validation);
+  // A shape we recognised but that says nothing is worse than falling through to
+  // the branches below, which may still find something.
+  if (!question.options.length && question.stimulus === "(question)") return null;
+  return { kind: "questions", count: 1, shown: [question] };
+}
+
 export function describeItem(lang: string, sc: Record<string, unknown>): ItemContent {
   const unwrapped = unwrapData(sc.data);
   const data = isRecord(unwrapped) ? unwrapped : undefined;
@@ -260,6 +344,19 @@ export function describeItem(lang: string, sc: Record<string, unknown>): ItemCon
       });
       return { kind: "questions", count: questions.length, shown };
     }
+  }
+
+  // L0180 assessment items: `data = { interaction, validation }`.
+  //
+  // Matched on SHAPE rather than language id, like the spreadsheet branch below,
+  // so a future dialect compiling to the same form reads correctly with no entry
+  // here. Without this branch L0180 fell through to `preview`, and `preview` is
+  // deliberately empty in chat — so the single most-used assessment language
+  // produced a summary consisting of a title and a link, and a model relaying it
+  // could say nothing more specific than "I made a thing".
+  if (data && isRecord(data.interaction)) {
+    const questions = l0180Questions(data.interaction, data.validation);
+    if (questions) return questions;
   }
 
   // Spec doc: the item IS prose.
