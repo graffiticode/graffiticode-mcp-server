@@ -1110,10 +1110,13 @@ const GET_ITEM_POLL_DEADLINE_MS = 45_000; // under codex's ~60s tool-call cap
  * get_item keeps the long deadline: it is the programmatic path, its callers are
  * scripts and Codex rather than a UI, and nothing paints an error box on it.
  *
- * NOTE this constant is not the ceiling. The loop tests the deadline before
- * sleeping, so the last wait can start just under it: the real worst case is
- * this value + GET_ITEM_POLL_INTERVAL_MS + one upstream round-trip. Measured
- * 17.1s when this was 15s.
+ * NOTE this constant is nearly the ceiling, but not exactly. It USED to be far
+ * from it: the loop tested the deadline and then slept a full interval, so the
+ * last wait could start just under the deadline and end well past it — worst
+ * case this value + a whole poll interval + one upstream round-trip, measured at
+ * 17.1s when this was 15s. `napBeforeRetry` now clamps every sleep to the
+ * remaining budget, so the overshoot is at most the last upstream round-trip
+ * (~500ms) rather than a whole interval.
  *
  * It is 8s because the host's error was later reported appearing in UNDER 30s,
  * which only bounds the threshold from above — it could be well under 15s. The
@@ -1122,7 +1125,55 @@ const GET_ITEM_POLL_DEADLINE_MS = 45_000; // under codex's ~60s tool-call cap
  * fetching data still took 21.1s and still lost the render.
  */
 const RENDER_ITEM_POLL_DEADLINE_MS = 8_000;
+/**
+ * How long to wait between polls, per mode — and it is per mode for the same reason
+ * the deadline is.
+ *
+ * get_item keeps 2.5s: it has a 45s budget, so a slow interval costs it nothing but
+ * upstream calls it does not need to make.
+ *
+ * render_item has 8s TOTAL, and every sleep is budget it cannot spend on noticing the
+ * item is ready. Profiled 2026-09-04 on the simplest possible generation (L0000,
+ * "multiply 10 and 21", ELEVEN characters of code): the loop made 4 upstream checks
+ * of ~483ms separated by three 2.5s sleeps, and spent 7.5s of a 9.4s call asleep.
+ * At 1s it fits roughly twice as many checks in the same window, so readiness is
+ * seen within ~1s of happening instead of up to ~3s.
+ *
+ * Not lower than 1s: a check costs ~480ms upstream, so the loop's duty cycle is
+ * already ~1/3 at this interval. Below 1s it stops being a poll and becomes a
+ * spin against the console for the whole 8s.
+ */
+const RENDER_ITEM_POLL_INTERVAL_MS = 1_000;
 const GET_ITEM_POLL_INTERVAL_MS = 2_500;
+
+/**
+ * Below this much remaining budget, another check cannot pay for itself: an upstream
+ * poll costs ~480ms, and a check that lands after the deadline has its answer thrown
+ * away by the `remainingMs <= 0` branch — which is exactly what happened in the
+ * profiled run. It saw a READY item and reported "still generating" because it had
+ * no budget left to fetch data with. Stopping early instead returns the same answer
+ * without spending the call.
+ */
+const POLL_MIN_REMAINING_MS = 600;
+
+/**
+ * How long to sleep before the next poll — or null when another check cannot pay
+ * for itself before the deadline.
+ *
+ * Exported and pure because this is the arithmetic that was wrong: the old code
+ * tested `now < deadline` and then slept a FULL interval, which put the next check
+ * past the deadline, where the `remainingMs <= 0` branch throws its answer away.
+ * A ready item was reported as "still generating" that way. See the poll-budget
+ * tests.
+ */
+export function pollNapMs(
+  remainingMs: number,
+  intervalMs: number,
+  minRemainingMs: number = POLL_MIN_REMAINING_MS
+): number | null {
+  if (remainingMs < minRemainingMs) return null;
+  return Math.min(intervalMs, remainingMs);
+}
 /**
  * Worker-died guard. MUST stay above the console's generation ceiling, or it
  * reports a RUNNING generation as a failed one.
@@ -1186,6 +1237,26 @@ async function handleItemResult(
   const deadline =
     Date.now() +
     (mode === "render" ? RENDER_ITEM_POLL_DEADLINE_MS : GET_ITEM_POLL_DEADLINE_MS);
+  const pollIntervalMs =
+    mode === "render" ? RENDER_ITEM_POLL_INTERVAL_MS : GET_ITEM_POLL_INTERVAL_MS;
+
+  /**
+   * Wait before the next check, and say whether one is still worth making.
+   *
+   * The sleep is CLAMPED to the deadline. Every retry site used to test
+   * `Date.now() < deadline` and then sleep a full interval, which routinely
+   * overshoots: in the profiled run the third check ended 1.55s before the
+   * deadline, slept the full 2.5s, and made a fourth check 950ms PAST it — whose
+   * ready verdict the deadline branch then discarded. Sleeping only as long as
+   * the budget allows keeps the last check inside the window where its answer can
+   * still be used.
+   */
+  const napBeforeRetry = async (): Promise<boolean> => {
+    const nap = pollNapMs(deadline - Date.now(), pollIntervalMs);
+    if (nap === null) return false;
+    await sleep(nap);
+    return true;
+  };
 
   for (;;) {
     const item = await apiGetItemWithTask({ auth: ctx.auth, id: item_id });
@@ -1221,8 +1292,7 @@ async function handleItemResult(
           summary: buildFailedSummary(item.name, `L${item.lang}`, "Generation timed out"),
         };
       }
-      if (Date.now() < deadline) {
-        await sleep(GET_ITEM_POLL_INTERVAL_MS);
+      if (await napBeforeRetry()) {
         continue;
       }
       // Deadline reached but still generating — return so the model polls again.
@@ -1240,8 +1310,7 @@ async function handleItemResult(
     // Ready (status "ready" or legacy/sync item with no status). Needs a task.
     if (!item.task || !item.taskId) {
       // Status says ready/absent but the task isn't visible yet — brief lag.
-      if (Date.now() < deadline) {
-        await sleep(GET_ITEM_POLL_INTERVAL_MS);
+      if (await napBeforeRetry()) {
         continue;
       }
       throw new Error(`Task not found for item: ${item_id}`);
@@ -1275,8 +1344,7 @@ async function handleItemResult(
     // intermediate during create/update. Keep polling rather than returning a
     // "ready" item carrying a broken data blob; resolves once real data lands.
     if (isErrorDataPayload(data)) {
-      if (Date.now() < deadline) {
-        await sleep(GET_ITEM_POLL_INTERVAL_MS);
+      if (await napBeforeRetry()) {
         continue;
       }
       return {
