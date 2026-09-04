@@ -601,12 +601,23 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
       | undefined;
     const declaredExtensions = Object.keys(clientCaps?.extensions ?? {});
     const declaresUi = declaresUiExtension(server);
+    // The full client identity, not just the name. Two different Claude surfaces —
+    // the terminal CLI and Cowork — both connect as `claude-code`, and the widget
+    // decision hinges on telling them apart, so log every field the handshake
+    // actually gives us: `title` (a display name a GUI may send where a CLI does
+    // not) and the complete capability key set, not only `extensions`. All of it is
+    // client-declared product metadata, never user content.
+    const info = server.getClientVersion() as
+      | { name?: string; version?: string; title?: string }
+      | undefined;
+    const capKeys = Object.keys((clientCaps ?? {}) as Record<string, unknown>);
     console.log(
-      `[widget] tools/list host=${clientName ?? "?"} v=${server.getClientVersion()?.version ?? "?"} → ${
+      `[widget] tools/list host=${clientName ?? "?"} v=${info?.version ?? "?"} → ${
         widgetRouteFor(clientName, declaresUi) === "mcp-apps" ? "native widget (mcp-apps)"
           : widgetRouteFor(clientName, declaresUi) === "openai" ? "native widget (openai)"
           : "text-link (no widget)"
-      } | declares_ui_extension=${declaresUi} extensions=[${declaredExtensions.join(",")}]`
+      } | declares_ui_extension=${declaresUi} extensions=[${declaredExtensions.join(",")}]` +
+        ` title=${info?.title ?? "-"} caps=[${capKeys.join(",")}]`
     );
     return {
       tools: toolsForClient(clientName, declaresUi),
