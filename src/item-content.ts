@@ -342,6 +342,60 @@ function l0180Questions(
   return { kind: "questions", count: 1, shown: [question] };
 }
 
+/**
+ * L0182 survey activities: `data = { activity: { items: [...] } }`.
+ *
+ * Matched on SHAPE rather than language id, like the branches around it, so a future dialect
+ * compiling to the same form reads correctly with no entry here.
+ *
+ * Rendered as prose rather than a new ItemContent kind: a survey has no questions to summarize
+ * — its ideas come from a live pool at delivery and are not in the item at all — so what is
+ * worth saying is what the activity ASKS, which is a sentence.
+ */
+function l0182Survey(activity: Record<string, unknown>): ItemContent | null {
+  const items = activity.items;
+  if (!Array.isArray(items) || !items.length) return null;
+
+  const kinds = items.map((i) => (isRecord(i) ? String(i.type ?? "") : "")).filter(Boolean);
+  if (!kinds.length) return null;
+
+  const select = items.find((i) => isRecord(i) && i.type === "select") as
+    | Record<string, unknown>
+    | undefined;
+
+  const lines: string[] = [];
+  const title = typeof activity.title === "string" ? activity.title : null;
+  lines.push(
+    title
+      ? `Survey: "${title}" — ${kinds.length} item${kinds.length === 1 ? "" : "s"} (${kinds.join(" → ")}).`
+      : `Survey: ${kinds.length} item${kinds.length === 1 ? "" : "s"} (${kinds.join(" → ")}).`,
+  );
+
+  if (select) {
+    const sample = typeof select.sample === "number" ? select.sample : null;
+    const max = typeof select.maxChoices === "number" ? select.maxChoices : null;
+    if (sample !== null) {
+      lines.push(
+        max !== null
+          ? `Each participant sees ${sample} ideas from the pool and picks up to ${max}.`
+          : `Each participant sees ${sample} ideas from the pool.`,
+      );
+    }
+    if (typeof select.prompt === "string" && select.prompt) {
+      lines.push(`Asks: ${select.prompt}`);
+    }
+  }
+
+  const participants = Array.isArray(activity.participants)
+    ? activity.participants.map(String)
+    : null;
+  if (participants && participants.length) {
+    lines.push(`Open to ${participants.join(" and ")} participants.`);
+  }
+
+  return { kind: "prose", text: lines.join("\n").slice(0, PROSE_CAP) };
+}
+
 export function describeItem(lang: string, sc: Record<string, unknown>): ItemContent {
   const unwrapped = unwrapData(sc.data);
   const data = isRecord(unwrapped) ? unwrapped : undefined;
@@ -377,6 +431,12 @@ export function describeItem(lang: string, sc: Record<string, unknown>): ItemCon
       });
       return { kind: "questions", count: questions.length, shown };
     }
+  }
+
+  // L0182 survey activities: `data = { activity: { items } }`.
+  if (data && isRecord(data.activity)) {
+    const survey = l0182Survey(data.activity);
+    if (survey) return survey;
   }
 
   // L0180 assessment items: `data = { interaction, validation }`.

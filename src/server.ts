@@ -155,6 +155,14 @@ const PRIVACY_HTML = `<!DOCTYPE html>
   <li>Item metadata (creation and update timestamps, language, name)</li>
 </ul>
 
+<h3>Survey Responses</h3>
+<p>When you use the Service&rsquo;s survey tools (<code>open_survey</code>, <code>answer_survey</code>), you are taking part in a collective-intelligence survey alongside other participants. What you submit &mdash; the ideas you select, the order you rank them in, and any idea you contribute in your own words &mdash; is sent to the survey service that hosts the activity, and stored there as one participation.</p>
+<ul>
+  <li><strong>A contributed idea is shared content.</strong> Ideas you submit enter the shared pool for that survey and are shown to other participants, and may appear in the published ranking. Do not submit anything you would not want other participants to read.</li>
+  <li><strong>Each participation records that it came from an agent</strong>, together with the client kind, so responses gathered through this Service can be told apart from responses given by people directly. It does not record who operated the agent.</li>
+</ul>
+<p>The Service is a router here: it forwards your responses and returns what the survey service sends back. It does not store them itself, and <strong>it does not write your selections, your ranking, or your contributed text to its own analytics or logs</strong> &mdash; a survey call is recorded only as the fact that it happened, its outcome, and how long it took.</p>
+
 <h3>Free-plan Sessions</h3>
 <p>If you connect without credentials, items you create are namespaced to the session identifier your MCP client established. The Service can mint a one-time <em>claim link</em>, valid for 24 hours, that lets you transfer those items into a real Graffiticode account the first time you sign in. The claim link contains a signed token derived from the session identifier &mdash; it carries no personal data. If you never claim them, free-plan items remain associated only with that anonymous session.</p>
 
@@ -167,7 +175,8 @@ const PRIVACY_HTML = `<!DOCTYPE html>
   <li>We record the <strong>client kind</strong> (the name your MCP client reports, e.g. &ldquo;claude-ai&rdquo;), which identifies software, not you.</li>
   <li>When your client lists our tools or opens one of our built-in documentation resources, we record that it did so. The only address recorded is one of our own <code>graffiticode://</code> resources; anything else your client requests is not written to our analytics.</li>
         <li>When you search our language catalog, we record the <strong>length</strong> of your search term and how many languages matched — never the search text itself. A domain filter is recorded only when it matches one we publish; anything else is recorded as <code>(invalid)</code>.</li>
-        <li>We record the <strong>lifecycle status</strong> a call returned (<code>ready</code>, <code>generating</code>, <code>failed</code>) so we can tell a delivered item from one still being generated. It describes the state of your item, not its contents, and anything outside that published set is recorded as <code>(invalid)</code>.</li>
+        <li>For a survey call we record that it happened, whether it succeeded, and how long it took &mdash; never the ideas you selected, the order you put them in, or the text you contributed.</li>
+  <li>We record the <strong>lifecycle status</strong> a call returned (<code>ready</code>, <code>generating</code>, <code>failed</code>) so we can tell a delivered item from one still being generated. It describes the state of your item, not its contents, and anything outside that published set is recorded as <code>(invalid)</code>.</li>
 </ul>
 <p>One caveat, stated plainly: when a request fails we record a truncated backend error message so we can debug it. Error text is not intended to carry your content, but we cannot categorically rule out that a backend message quotes part of an input.</p>
 
@@ -358,7 +367,10 @@ const ABOUT_HTML = `<!DOCTYPE html>
   <li><code>render_item</code> &mdash; preferred way to retrieve and display a finished item; returns a compact result and renders it inline in Claude.</li>
   <li><code>get_item</code> &mdash; retrieve an item&rsquo;s raw code and data by id (for programmatic clients).</li>
   <li><code>get_spec</code> &mdash; get a platform-neutral English description of an item&rsquo;s content.</li>
+  <li><code>open_survey</code> &mdash; start or resume taking a collective-intelligence survey, as a participant.</li>
+  <li><code>answer_survey</code> &mdash; answer the current survey item and move to the next.</li>
 </ul>
+<p>The two survey tools are the one place an agent <em>uses</em> content rather than authoring it: an agent takes the same survey a person takes, through the same endpoints, into the same pool. Every participation records which it came from.</p>
 <p>All <code>create_item</code> and <code>update_item</code> requests are natural language &mdash; a language-specific backend handles code generation. Clients should not attempt to write Graffiticode DSL directly.</p>
 <p>Generation takes time, so <code>create_item</code> and <code>update_item</code> return immediately with a status of <code>generating</code>; call <code>render_item</code> to wait for and display the finished result.</p>
 <p>An item&rsquo;s <code>src</code> and <code>data</code> are private to its own language. To reuse one item&rsquo;s content in another language, call <code>get_spec</code> and pass the spec to <code>create_item</code> &mdash; never pass a raw item id or its code across languages.</p>
@@ -465,7 +477,17 @@ const MCP_DISCOVERY = {
   site: MCP_SERVER_URL,
   description:
     "Graffiticode is a universal MCP server of smart tools for AI agents and the people who use them. Each tool is one domain language wrapped by a specialized AI; call list_languages to discover what is available.",
-  tools: ["create_item", "update_item", "get_item", "render_item", "get_spec", "list_languages", "get_language_info"],
+  tools: [
+    "create_item",
+    "update_item",
+    "get_item",
+    "render_item",
+    "get_spec",
+    "list_languages",
+    "get_language_info",
+    "open_survey",
+    "answer_survey",
+  ],
   product_url: "https://graffiticode.org",
   console_url: "https://console.graffiticode.org",
   forum_url: "https://forum.graffiticode.org",
