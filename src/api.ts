@@ -869,6 +869,13 @@ export interface SurveyFrame {
   participants?: number;
 }
 
+/** One item of the activity, as the backend needs to see it. */
+export interface SurveyItemRef {
+  id: number;
+  type: string;
+  sample?: number;
+}
+
 export type SurveyAnswer =
   | { selected: string[] }
   | { ranked: string[] }
@@ -921,6 +928,7 @@ export const openSurvey = (options: {
   session?: string;
   participation?: string;
   participants?: string[];
+  items?: SurveyItemRef[];
   clientKind?: string;
 }): Promise<SurveyFrame> =>
   surveyCall(
@@ -929,6 +937,7 @@ export const openSurvey = (options: {
       session: options.session,
       participation: options.participation,
       participants: options.participants,
+      items: options.items,
     },
     options.clientKind,
   );
@@ -938,6 +947,7 @@ export const answerSurvey = (options: {
   session?: string;
   participation: string;
   participants?: string[];
+  items?: SurveyItemRef[];
   item?: number;
   answer: SurveyAnswer;
   clientKind?: string;
@@ -948,6 +958,7 @@ export const answerSurvey = (options: {
       session: options.session,
       participation: options.participation,
       participants: options.participants,
+      items: options.items,
       ...(options.item !== undefined ? { item: options.item } : {}),
       answer: options.answer,
     },
