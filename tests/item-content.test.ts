@@ -489,3 +489,65 @@ test("L0180 multi-part items count and key each part", () => {
   assert.match(md, /✓ Line 9/);
   assert.doesNotMatch(md, /✓ Line 4/);
 });
+
+// A label/value sheet — the shape a calculator takes. Row 1 is data, not captions.
+// Taken from a real L0179 item ("Simple Retirement Calculator", 2026-09-06) whose
+// first input row was silently promoted into the header.
+const CALCULATOR = {
+  language: "L0179",
+  data: {
+    title: "Simple Retirement Calculator",
+    interaction: {
+      type: "table",
+      cells: {
+        A1: { text: "Current Savings" }, B1: { text: "100000", format: "$#,##0" },
+        A2: { text: "Years Until Retirement" }, B2: { text: "30" },
+        A3: { text: "Annual Return" }, B3: { text: "0.07", format: "0%" },
+        A4: { text: "Projected Savings" }, B4: { text: "=B1*(1+B3)^B2" },
+      },
+    },
+  },
+};
+
+// A captioned sheet — row 1 IS the header, and must stay one.
+const CAPTIONED = {
+  language: "L0179",
+  data: {
+    interaction: {
+      type: "table",
+      cells: {
+        A1: { text: "Region" }, B1: { text: "Revenue" },
+        A2: { text: "North" }, B2: { text: "1200" },
+        A3: { text: "South" }, B3: { text: "900" },
+      },
+    },
+  },
+};
+
+test("a label/value sheet keeps its first row as data", () => {
+  const content = describeItem("L0179", CALCULATOR);
+  assert.equal(content.kind, "table");
+  const table = content as { headers: string[]; rows: string[][]; totalRows: number };
+  assert.deepEqual(table.headers, ["", ""], "no caption is invented from the data");
+  assert.equal(table.totalRows, 4, "all four rows survive");
+  assert.deepEqual(table.rows[0], ["Current Savings", "100000"]);
+  const md = contentToMarkdown(content);
+  assert.match(md, /Current Savings \| 100000/);
+  assert.match(md, /Projected Savings \| =B1/);
+});
+
+test("a captioned sheet still gets its header", () => {
+  const content = describeItem("L0179", CAPTIONED);
+  const table = content as { headers: string[]; rows: string[][]; totalRows: number };
+  assert.deepEqual(table.headers, ["Region", "Revenue"]);
+  assert.equal(table.totalRows, 2);
+  assert.deepEqual(table.rows[0], ["North", "1200"]);
+});
+
+test("the ready summary tells the model to show the contents AND the link", () => {
+  const summary = buildReadySummary("Simple Retirement Calculator", "L0179",
+    "https://app.graffiticode.org/form/abc", undefined, CALCULATOR);
+  // The sheet itself reaches a client that can render no widget.
+  assert.match(summary, /Current Savings \| 100000/);
+  assert.match(summary, /form\/abc/);
+});

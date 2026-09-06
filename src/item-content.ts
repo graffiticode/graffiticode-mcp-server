@@ -206,15 +206,48 @@ function cellsToTable(
   const orderedRows = [...byRow.keys()].sort((a, b) => a - b);
   const readRow = (r: number) => orderedCols.map((c) => byRow.get(r)?.get(c) ?? "");
 
-  const [headerRow, ...dataRows] = orderedRows;
+  // Row 1 is the header ONLY when it reads like one.
+  //
+  // Taking it unconditionally is right for a sheet laid out as a table with column
+  // captions, and wrong for the other common spreadsheet shape: a label/value form,
+  // where the rows are `Current Savings | 100000`. A user's retirement calculator
+  // came back with "Current Savings" as a column heading and its first input row
+  // silently promoted out of the data — the numbers were all there, one row short
+  // and captioned by an input name.
+  //
+  // The test is deliberately weak in the safe direction: a header is a row with
+  // some text in it and NO cell that is a number, a currency/percent figure, or a
+  // formula. Captions are words; values are not. A row of words that is really data
+  // still reads as a header, which is the status quo, while any row carrying a
+  // figure now keeps its place.
+  const first = readRow(orderedRows[0]);
+  const hasHeader = looksLikeHeaderRow(first);
+  const dataRowKeys = hasHeader ? orderedRows.slice(1) : orderedRows;
   return {
     kind: "table",
     sheetName,
-    headers: readRow(headerRow),
-    rows: dataRows.slice(0, MAX_TABLE_ROWS).map(readRow),
-    totalRows: dataRows.length,
+    // Markdown needs a header row to render a table at all, so a headerless sheet
+    // gets an empty one rather than a caption invented from its own data.
+    headers: hasHeader ? first : orderedCols.map(() => ""),
+    rows: dataRowKeys.slice(0, MAX_TABLE_ROWS).map(readRow),
+    totalRows: dataRowKeys.length,
     totalSheets,
   };
+}
+
+/** A number, currency amount, percentage, or formula — i.e. a value, not a caption. */
+function looksLikeValue(text: string): boolean {
+  const t = text.trim();
+  if (!t) return false;
+  if (t.startsWith("=")) return true;
+  return /^[-+(]?\s*[$£€]?\s*[\d,]+(\.\d+)?\s*%?\)?$/.test(t);
+}
+
+/** Does this row read as column captions rather than data? */
+function looksLikeHeaderRow(cells: string[]): boolean {
+  const filled = cells.filter((c) => c.trim() !== "");
+  if (!filled.length) return false;
+  return !filled.some(looksLikeValue);
 }
 
 /**
