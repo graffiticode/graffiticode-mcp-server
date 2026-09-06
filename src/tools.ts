@@ -1750,6 +1750,20 @@ const SURVEY_ANSWER_SHAPES: Record<string, string> = {
   contribute: '{"contribution": "<one idea in your own words>"}',
 };
 
+/**
+ * The activity's sequence, as the backend needs it.
+ *
+ * The proxy never sees the compiled activity, so a backend that does not already know the
+ * session cannot bound the cursor or size the sample without being told. A real service knows
+ * all of this and ignores the field.
+ */
+const itemRefs = (activity: any) =>
+  (activity.items || []).map((i: any) => ({
+    id: i.id,
+    type: i.type,
+    ...(i.sample !== undefined ? { sample: i.sample } : {}),
+  }));
+
 /** Read the compiled activity off an item, or say why this item cannot be taken. */
 async function loadActivity(ctx: ToolContext, itemId: string) {
   const item = await apiGetItemWithTask({ auth: ctx.auth, id: itemId });
@@ -1778,7 +1792,13 @@ async function loadActivity(ctx: ToolContext, itemId: string) {
  * the same instrument rather than exposing a separate agent API.
  */
 function surveyItemView(activity: any, frame: any) {
-  const authored = activity.items.find((i: any) => i.id === frame.item) || activity.items[0] || {};
+  // Clamp to the LAST item when the cursor matches nothing. Falling back to items[0] silently
+  // restarted the survey on an overshoot, which reads to a participant as the whole thing
+  // looping rather than as an error.
+  const authored =
+    activity.items.find((i: any) => i.id === frame.item) ||
+    activity.items[activity.items.length - 1] ||
+    {};
   return {
     id: authored.id ?? frame.item,
     type: authored.type,
@@ -1824,6 +1844,7 @@ async function handleOpenSurvey(
     session: activity.session,
     participation: args.participation_token,
     participants: activity.participants,
+    items: itemRefs(activity),
     clientKind: ctx.clientKind,
   });
   return surveyResult(args.item_id, activity, frame);
@@ -1844,6 +1865,7 @@ async function handleAnswerSurvey(
     session: activity.session,
     participation: args.participation_token,
     participants: activity.participants,
+    items: itemRefs(activity),
     answer: (args.answer || {}) as any,
     clientKind: ctx.clientKind,
   });
