@@ -551,3 +551,15 @@ test("the ready summary tells the model to show the contents AND the link", () =
   assert.match(summary, /Current Savings \| 100000/);
   assert.match(summary, /form\/abc/);
 });
+
+test("a failed item names how to retry, and when not to", () => {
+  const retryable = buildFailedSummary("Retirement Calculator", "L0179",
+    "The generator produced no code for this request.", "abc123");
+  assert.match(retryable, /update_item\("abc123"/, "names the tool and the item");
+  assert.match(retryable, /out of scope/, "and the case where retrying is wrong");
+  // Callers that have no item id still get the plain sentence, unchanged.
+  assert.equal(
+    buildFailedSummary("Quiz", "L0176", "boom"),
+    "**Quiz** (L0176) could not be generated — boom"
+  );
+});
