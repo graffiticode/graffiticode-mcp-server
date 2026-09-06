@@ -281,7 +281,7 @@ export function normalizeClientKind(v?: string): string | undefined {
  * once a year. Add new domains here when the catalog gains one — an unlisted
  * domain logs as `(invalid)` and shows up as a spike worth investigating.
  */
-const KNOWN_DOMAINS = new Set(["assessments", "sheets", "diagrams", "learnosity"]);
+const KNOWN_DOMAINS = new Set(["assessments", "sheets", "diagrams", "learnosity", "surveys"]);
 
 /**
  * A well-formed item handle, or the `(invalid)` sentinel. Never the input.

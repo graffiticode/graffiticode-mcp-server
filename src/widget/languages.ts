@@ -79,6 +79,15 @@ export const NATIVE_LANGUAGES: NativeLanguage[] = [
   { id: "L0177", pkg: "@graffiticode/l0177-view" },
   { id: "L0178", pkg: "@graffiticode/l0178-view" },
   { id: "L0180", pkg: "@graffiticode/l0180-view" },
+
+  // L0182 (surveys) is deliberately NOT here yet. `@graffiticode/l0182-view` exists in its own
+  // repo but has not been published, and the build imports every entry's `Form` and
+  // `style.css` from npm — so adding the row before the publish breaks `npm run build`, which
+  // is the same thing that held the five `-view` packages back on 2026-09-01.
+  //
+  // Add `{ id: "L0182", pkg: "@graffiticode/l0182-view" }` once it is on npm. Until then a
+  // survey renders as the content card, which reads correctly: `describeItem` has an L0182
+  // branch that summarizes the activity rather than falling through to an empty preview.
 ];
 
 /** Normalize `0166` / `l0166` / `L0166` to `L0166`. */
