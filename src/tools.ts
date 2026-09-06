@@ -975,14 +975,39 @@ export function buildGeneratingSummary(
   return `${title} is still generating — call \`${retrievalTool}("${itemId}")\` again to keep waiting.`;
 }
 
+/**
+ * A failure, and what to do about it.
+ *
+ * The generating summary names the exact tool to call and gets that call
+ * essentially every time; this one named nothing, and left the model to invent a
+ * recovery. On 2026-09-06 a Codex session guessed `update_item` — which is right,
+ * and retries in place keeping the item and its workspace — but "guessed right" is
+ * not a design, and giving up or starting a fresh item were equally available.
+ *
+ * The advice is CONDITIONAL because not every failure is retryable, and the caller
+ * has only the error prose to tell them apart: an empty generation says trying
+ * again usually succeeds, while an out-of-scope refusal says no language fits and
+ * retrying it just loops. Rather than branch on that prose here — which the console
+ * deliberately avoids, having given `out_of_scope` a machine-readable code for the
+ * purpose — the sentence hands the model both branches and the error text it needs
+ * to choose. Threading the console's error CODE through `generationError` would let
+ * this decide instead of advise; that is the better fix and is not done here.
+ */
 export function buildFailedSummary(
   name: string | null,
   language: string,
-  error: string
+  error: string,
+  itemId?: string
 ): string {
   const shown = displayName(name);
   const title = shown ? `**${shown}**` : "Your item";
-  return `${title} (${language}) could not be generated — ${error}`;
+  const head = `${title} (${language}) could not be generated — ${error}`;
+  if (!itemId) return head;
+  return (
+    `${head}\n\nIf that reads as a temporary failure, call ` +
+    `\`update_item("${itemId}", "<the same request>")\` to try again on this same item. ` +
+    `If it says the request is out of scope, tell the user what happened instead of retrying.`
+  );
 }
 
 // Conservative guard against the over-reaching inputs get_spec exists to replace: passing an item
@@ -1275,7 +1300,7 @@ async function handleItemResult(
         error,
         language: `L${item.lang}`,
         name: item.name,
-        summary: buildFailedSummary(item.name, `L${item.lang}`, error),
+        summary: buildFailedSummary(item.name, `L${item.lang}`, error, item.id),
       };
     }
 
@@ -1289,7 +1314,7 @@ async function handleItemResult(
           error: "Generation timed out",
           language: `L${item.lang}`,
           name: item.name,
-          summary: buildFailedSummary(item.name, `L${item.lang}`, "Generation timed out"),
+          summary: buildFailedSummary(item.name, `L${item.lang}`, "Generation timed out", item.id),
         };
       }
       if (await napBeforeRetry()) {
