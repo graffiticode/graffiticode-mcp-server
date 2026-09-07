@@ -15,7 +15,7 @@ import {
   MCP_ENDPOINT,
 } from "./api.js";
 import { normalizeClientKind } from "./events.js";
-import { contentToMarkdown, describeItem, normalizeLang } from "./item-content.js";
+import { contentToMarkdown, describeItem, normalizeLang, unwrapData } from "./item-content.js";
 import { widgetResourceUris } from "./widget/index.js";
 
 // --- Help Entry Structure (matches console HelpPanel) ---
@@ -1764,6 +1764,23 @@ const itemRefs = (activity: any) =>
     ...(i.sample !== undefined ? { sample: i.sample } : {}),
   }));
 
+/**
+ * The compiled activity carried by a task's stored data, or null if it carries none.
+ *
+ * Pure, and exported, because the shape is the whole subtlety: compiled data is stored as the
+ * `{ data, errors }` envelope the language server returns — L0182's compile.ts builds one — and
+ * getData() hands back what was stored, verbatim. Reading `.activity` off the ENVELOPE is
+ * undefined for every L0182 item ever authored, which surfaced as "is not a survey" for every
+ * survey, in a message that named the language as L0182 in the same breath. describeItem()
+ * already normalises this shape, and so does l0000-view before its Form sees it; this is the
+ * same normalisation for the agent client.
+ */
+export function activityOf(stored: unknown): any {
+  const data = unwrapData(stored) as any;
+  const activity = data?.activity;
+  return activity && Array.isArray(activity.items) ? activity : null;
+}
+
 /** Read the compiled activity off an item, or say why this item cannot be taken. */
 async function loadActivity(ctx: ToolContext, itemId: string) {
   const item = await apiGetItemWithTask({ auth: ctx.auth, id: itemId });
@@ -1774,9 +1791,16 @@ async function loadActivity(ctx: ToolContext, itemId: string) {
   if (!item.taskId) {
     throw new Error(`Item ${itemId} has no compiled content yet. Try again in a few seconds.`);
   }
-  const data = (await getData({ auth: ctx.auth, taskId: item.taskId })) as any;
-  const activity = data?.activity;
-  if (!activity || !Array.isArray(activity.items)) {
+  const stored = (await getData({ auth: ctx.auth, taskId: item.taskId })) as any;
+  const activity = activityOf(stored);
+  if (!activity) {
+    // A program that failed to compile stores errors and no value. Saying "not a survey" for
+    // that sends the author looking at the wrong thing entirely.
+    const errors = Array.isArray(stored?.errors) ? stored.errors : [];
+    if (errors.length > 0) {
+      const detail = errors.map((e: any) => e?.message ?? String(e)).join("; ");
+      throw new Error(`Item ${itemId} did not compile, so it cannot be taken: ${detail}`);
+    }
     throw new Error(
       `Item ${itemId} is not a survey. open_survey takes an L0182 collective-intelligence activity; this item is L${item.lang}.`,
     );

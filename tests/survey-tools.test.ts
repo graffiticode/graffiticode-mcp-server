@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { answerSurveyTool, openSurveyTool, tools } from "../src/tools.js";
+import { activityOf, answerSurveyTool, openSurveyTool, tools } from "../src/tools.js";
 import { describeItem } from "../src/item-content.js";
 
 type ToolRecord = Record<string, unknown> & { name: string };
@@ -71,4 +71,32 @@ test("describeItem summarizes a survey rather than dumping JSON", () => {
 test("describeItem leaves a non-survey item to the other branches", () => {
   const out = describeItem("L0182", { data: { activity: { items: [] } } });
   assert.notEqual(out.kind, "prose");
+});
+
+// The shape below is what `data(id)` actually returns for a real L0182 item — the compile
+// envelope, not the compiled value. Reading `.activity` off it directly is undefined, which
+// rejected every survey ever authored with "is not a survey ... this item is L0182". If this
+// test is ever "simplified" by dropping the envelope, it stops testing the bug.
+test("activityOf reads through the { data, errors } compile envelope", () => {
+  const activity = {
+    title: "You Can Choose",
+    participants: ["human", "agent"],
+    navigation: "linear",
+    submission: "individual",
+    items: [
+      { id: 0, type: "select", prompt: "What should we focus on next?", sample: 10 },
+      { id: 1, type: "rank" },
+    ],
+  };
+  assert.deepEqual(activityOf({ data: { activity }, errors: [] }), activity);
+  // A language that stores the compiled value bare must keep working too.
+  assert.deepEqual(activityOf({ activity }), activity);
+});
+
+test("activityOf returns null for data that carries no activity", () => {
+  assert.equal(activityOf({ data: { interaction: {} }, errors: [] }), null);
+  assert.equal(activityOf({ data: null, errors: [{ message: "boom" }] }), null);
+  assert.equal(activityOf(undefined), null);
+  // An `activity` that is not a list of items is not one this player can take.
+  assert.equal(activityOf({ data: { activity: { items: "nope" } } }), null);
 });
