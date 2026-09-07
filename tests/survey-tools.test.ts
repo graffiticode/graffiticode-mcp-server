@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
-import { activityOf, answerSurveyTool, openSurveyTool, tools } from "../src/tools.js";
+import { activityOf, answerSurveyTool, openSurveyTool, surveyResult, tools } from "../src/tools.js";
 import { describeItem } from "../src/item-content.js";
 
 type ToolRecord = Record<string, unknown> & { name: string };
@@ -99,4 +99,55 @@ test("activityOf returns null for data that carries no activity", () => {
   assert.equal(activityOf(undefined), null);
   // An `activity` that is not a list of items is not one this player can take.
   assert.equal(activityOf({ data: { activity: { items: "nope" } } }), null);
+});
+
+// The activity below is spec/template.gc — what the generator writes from, and the shape of
+// the survey this bug was found on. It ends with `results`, NOT `thanks`, which is legal and
+// common: `thanks` is optional. Asking `view.type === "thanks"` meant finished was never true
+// for it, so an agent obeying the "call answer_survey to move on" message looped on the last
+// item forever.
+const TEMPLATE = {
+  title: "You Can Choose",
+  items: [
+    { id: 0, type: "select", prompt: "What should we focus on next?", sample: 10 },
+    { id: 1, type: "rank" },
+    { id: 2, type: "contribute", optional: true },
+    { id: 3, type: "results" },
+  ],
+};
+
+test("a survey ending in results reports finished once there on the last item", () => {
+  const out = surveyResult("itm", TEMPLATE, { participation: "p-1", item: 3, results: [] });
+  assert.equal(out.finished, true);
+  assert.match(out.message, /over/);
+  // No answer shape is offered for an item that captures nothing and ends the run.
+  assert.equal(out.answer_shape, undefined);
+});
+
+test("a cursor past the last item is finished, not clamped into another turn", () => {
+  // surveyItemView clamps the VIEW back onto the last item, so the overshoot is only visible
+  // on the frame.
+  const out = surveyResult("itm", TEMPLATE, { participation: "p-1", item: 9 });
+  assert.equal(out.finished, true);
+});
+
+test("an earlier item is not finished, and still asks for its answer", () => {
+  for (const item of [0, 1, 2]) {
+    const out = surveyResult("itm", TEMPLATE, { participation: "p-1", item });
+    assert.equal(out.finished, undefined, `item ${item} reported finished`);
+    assert.ok(out.answer_shape, `item ${item} offered no answer shape`);
+  }
+});
+
+test("a results item that is not last leaves the survey running", () => {
+  // Landing on results mid-activity is not the end: a `thanks` still follows.
+  const activity = {
+    items: [
+      { id: 0, type: "select" },
+      { id: 1, type: "results" },
+      { id: 2, type: "thanks" },
+    ],
+  };
+  assert.equal(surveyResult("itm", activity, { participation: "p", item: 1 }).finished, undefined);
+  assert.equal(surveyResult("itm", activity, { participation: "p", item: 2 }).finished, true);
 });

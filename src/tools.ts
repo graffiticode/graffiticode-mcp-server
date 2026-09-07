@@ -1840,9 +1840,39 @@ function surveyItemView(activity: any, frame: any) {
   };
 }
 
-function surveyResult(itemId: string, activity: any, frame: any) {
+/**
+ * Has the participant run out of things to do?
+ *
+ * NOT `view.type === "thanks"`, which is what this used to ask. `thanks` is optional and
+ * spec/template.gc — the shape the generator writes from — ends with `results`, so a survey
+ * without one could never report finished: the cursor clamped to the last item and every
+ * answer_survey call returned that item again, telling the agent to "move on" to a screen that
+ * does not exist. An agent following the message literally loops there forever.
+ *
+ * The rule the Form has always used instead is positional: a last item that captures nothing
+ * gets no forward control, because there is nothing left to submit and nowhere left to go.
+ *
+ * The overshoot case counts too. surveyItemView deliberately clamps the view back onto the
+ * last authored item when the cursor matches none, so a frame whose cursor has run past the
+ * end is invisible by the time we see the view — it has to be read off the frame.
+ *
+ * L0182 enforces that a `thanks`, when present, is the last item (items.ts validateSequence),
+ * so this subsumes the old check rather than dropping a case.
+ */
+function surveyFinished(activity: any, frame: any, view: any): boolean {
+  const items = Array.isArray(activity?.items) ? activity.items : [];
+  if (items.length === 0) return true;
+  const lastId = items[items.length - 1]?.id;
+  if (typeof frame?.item === "number" && typeof lastId === "number" && frame.item > lastId) {
+    return true;
+  }
+  return view?.id === lastId && !SURVEY_ANSWER_SHAPES[view?.type as string];
+}
+
+/** Exported for tests: pure, given an activity and a frame. */
+export function surveyResult(itemId: string, activity: any, frame: any) {
   const view = surveyItemView(activity, frame);
-  const finished = view.type === "thanks";
+  const finished = surveyFinished(activity, frame, view);
   const shape = SURVEY_ANSWER_SHAPES[view.type as string];
   return {
     item_id: itemId,
