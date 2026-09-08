@@ -1,9 +1,7 @@
 import type { Tool } from "@modelcontextprotocol/sdk/types.js";
 import {
-  answerSurvey,
   getData,
   getItemWithTask as apiGetItemWithTask,
-  openSurvey,
   getSpec as apiGetSpec,
   startCodeGeneration,
   listLanguages as apiListLanguages,
@@ -15,7 +13,7 @@ import {
   MCP_ENDPOINT,
 } from "./api.js";
 import { normalizeClientKind } from "./events.js";
-import { contentToMarkdown, describeItem, normalizeLang, unwrapData } from "./item-content.js";
+import { contentToMarkdown, describeItem, normalizeLang } from "./item-content.js";
 import { widgetResourceUris } from "./widget/index.js";
 
 // --- Help Entry Structure (matches console HelpPanel) ---
@@ -81,8 +79,6 @@ Write those descriptions in ENGLISH. The generator is English-only and rejects a
 get_language_info returns an inline authoring_guide summary, supported_item_types, and example_prompts — these are usually sufficient to compose a good create_item request. For deeper reference (vocabulary cues, scope boundaries, detailed item-type docs) read the user_guide_resource URI via ReadResource.
 
 Division of labor: the generator is the router — it identifies which languages a request needs and composes any pipeline. Your job is to send it the highest-quality description. Item ids are opaque handles. To reuse an existing item's content in a new request (any language), do NOT pass its id or get_item output (src/data) — those are private to that item's own language. Converge the content in its own language first, then call get_spec(item_id) to get a platform-neutral English description, and pass THAT (plus your intent framing) as the create_item description. Never name upstream languages or wire pipelines yourself; describe what you want and let the generator compose.
-
-Taking a survey is the one workflow that is not authoring. When a user asks you to TAKE or PARTICIPATE IN a Graffiticode survey, or hands you a survey item id and asks for your view, call open_survey(item_id) and then answer_survey for each item it returns, passing back the participation_token every time — an MCP session does not persist between calls, so that token is the only way to continue the same run. Answer honestly, as a participant: your responses join the same pool as every human participant's, and are recorded as coming from an agent. Do NOT use these tools to inspect or author a survey; render_item and update_item do that.
 
 Workflow, common case: create_item(language, description) → render_item(item_id) → update_item(item_id, modification) → render_item(item_id) to iterate. Add list_languages / get_language_info at the front ONLY when the catalog below is insufficient (see above). render_item is the preferred user-facing retrieval tool: it keeps language-private code and compiled data out of the model transcript while still hydrating supported host widgets. Use get_item only when a caller explicitly needs the raw language-private src/data for programmatic work. To reuse content in a new request: get_spec(item_id) → create_item(language, spec + intent framing).
 
@@ -555,142 +551,6 @@ function withSecuritySchemes(tool: Record<string, unknown>): Record<string, unkn
 }
 
 // Export all tools as array (cast to allow _meta + securitySchemes extensions).
-/**
- * The shape both survey tools return: the item the participant is looking at now.
- *
- * `additionalProperties: false`, like every other item-shaped schema here, so a field the
- * proxy starts emitting fails the contract test rather than arriving undeclared.
- */
-const surveyItemSchema = {
-  type: "object",
-  properties: {
-    id: { type: "number" },
-    type: { type: "string" },
-    title: { type: "string" },
-    prompt: { type: "string" },
-    hint: { type: "string" },
-    button: { type: "string" },
-    min_choices: { type: "number" },
-    max_choices: { type: "number" },
-    optional: { type: "boolean" },
-    ideas: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: { id: { type: "string" }, text: { type: "string" }, score: { type: "number" } },
-        required: ["id", "text"],
-        additionalProperties: false,
-      },
-    },
-    selected: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: { id: { type: "string" }, text: { type: "string" }, score: { type: "number" } },
-        required: ["id", "text"],
-        additionalProperties: false,
-      },
-    },
-    results: {
-      type: "array",
-      items: {
-        type: "object",
-        properties: { id: { type: "string" }, text: { type: "string" }, score: { type: "number" } },
-        required: ["id", "text"],
-        additionalProperties: false,
-      },
-    },
-    participants: { type: "number" },
-  },
-  required: ["id", "type"],
-  additionalProperties: false,
-} as const;
-
-const surveyOutputSchema = {
-  type: "object",
-  properties: {
-    item_id: { type: "string" },
-    participation_token: { type: "string" },
-    item: surveyItemSchema,
-    answer_shape: { type: "string" },
-    finished: { type: "boolean" },
-    view_url: { type: "string" },
-    message: { type: "string" },
-  },
-  required: ["item_id", "participation_token", "item"],
-  additionalProperties: false,
-} as const;
-
-export const openSurveyTool = {
-  name: "open_survey",
-  description: `Start or resume taking a Graffiticode survey (an L0182 collective-intelligence activity).
-
-Returns the current item the participant is looking at — its prompt, and for a selection item the sample of ideas drawn for you — plus a participation_token. Pass that token back to answer_survey and to any later open_survey to resume the same run; without it you start a second, separate participation.
-
-Take the survey honestly, as a participant: choose the ideas you actually prefer. Your responses join the same pool as every human participant's, and are recorded as coming from an agent.
-
-Also returns view_url, which you can give to a person so they can take the same survey in a browser.`,
-  inputSchema: {
-    type: "object",
-    properties: {
-      item_id: {
-        type: "string",
-        description: "The L0182 item ID of the survey to take",
-      },
-      participation_token: {
-        type: "string",
-        description:
-          "Resume an existing run. Omit to start a new one. Sessions do not persist between tool calls, so this token is the only way to continue a survey you already started.",
-      },
-    },
-    required: ["item_id"],
-  },
-  outputSchema: surveyOutputSchema,
-  annotations: {
-    title: "Open Survey",
-    readOnlyHint: false,
-    destructiveHint: false,
-    // A participation is recorded in a shared pool that other people can see.
-    openWorldHint: true,
-  },
-} as const;
-
-export const answerSurveyTool = {
-  name: "answer_survey",
-  description: `Answer the current item of a Graffiticode survey and move to the next one.
-
-The answer's shape depends on the item type open_survey (or the previous answer_survey) returned, and is named in that response's answer_shape:
-- select     -> {"selected": ["<idea id>", ...]}  — respect the item's min_choices/max_choices
-- rank       -> {"ranked": ["<idea id>", ...]}    — your selections, most preferred first
-- contribute -> {"contribution": "<one idea>"}    — a single idea in your own words, or omit to skip when optional
-- start, results, thanks capture nothing: pass {} to move on.
-
-Returns the next item. When finished is true the survey is over.`,
-  inputSchema: {
-    type: "object",
-    properties: {
-      item_id: { type: "string", description: "The L0182 item ID of the survey" },
-      participation_token: {
-        type: "string",
-        description: "The token open_survey returned for this run",
-      },
-      answer: {
-        type: "object",
-        description:
-          "The answer for the current item, shaped by its type. Pass {} for an item that captures nothing.",
-      },
-    },
-    required: ["item_id", "participation_token", "answer"],
-  },
-  outputSchema: surveyOutputSchema,
-  annotations: {
-    title: "Answer Survey",
-    readOnlyHint: false,
-    destructiveHint: false,
-    openWorldHint: true,
-  },
-} as const;
-
 export const tools = [
   createItemTool,
   updateItemTool,
@@ -699,8 +559,6 @@ export const tools = [
   getSpecTool,
   listLanguagesTool,
   getLanguageInfoTool,
-  openSurveyTool,
-  answerSurveyTool,
 ].map((t) => withSecuritySchemes(t as Record<string, unknown>)) as unknown as Tool[];
 
 /**
@@ -1741,191 +1599,6 @@ export async function handleGetLanguageInfo(
 }
 
 // Tool handler router
-/* -------------------------------------------------------- survey participation */
-
-/** The kinds that capture something. Everything else just moves the cursor on. */
-const SURVEY_ANSWER_SHAPES: Record<string, string> = {
-  select: '{"selected": ["<idea id>", ...]}',
-  rank: '{"ranked": ["<idea id>", ...]}',
-  contribute: '{"contribution": "<one idea in your own words>"}',
-};
-
-/**
- * The activity's sequence, as the backend needs it.
- *
- * The proxy never sees the compiled activity, so a backend that does not already know the
- * session cannot bound the cursor or size the sample without being told. A real service knows
- * all of this and ignores the field.
- */
-const itemRefs = (activity: any) =>
-  (activity.items || []).map((i: any) => ({
-    id: i.id,
-    type: i.type,
-    ...(i.sample !== undefined ? { sample: i.sample } : {}),
-  }));
-
-/**
- * The compiled activity carried by a task's stored data, or null if it carries none.
- *
- * Pure, and exported, because the shape is the whole subtlety: compiled data is stored as the
- * `{ data, errors }` envelope the language server returns — L0182's compile.ts builds one — and
- * getData() hands back what was stored, verbatim. Reading `.activity` off the ENVELOPE is
- * undefined for every L0182 item ever authored, which surfaced as "is not a survey" for every
- * survey, in a message that named the language as L0182 in the same breath. describeItem()
- * already normalises this shape, and so does l0000-view before its Form sees it; this is the
- * same normalisation for the agent client.
- */
-export function activityOf(stored: unknown): any {
-  const data = unwrapData(stored) as any;
-  const activity = data?.activity;
-  return activity && Array.isArray(activity.items) ? activity : null;
-}
-
-/** Read the compiled activity off an item, or say why this item cannot be taken. */
-async function loadActivity(ctx: ToolContext, itemId: string) {
-  const item = await apiGetItemWithTask({ auth: ctx.auth, id: itemId });
-  if (!item) throw new Error(`No item found with ID ${itemId}`);
-  if (item.generationStatus === "generating") {
-    throw new Error(`Item ${itemId} is still being generated. Try again in a few seconds.`);
-  }
-  if (!item.taskId) {
-    throw new Error(`Item ${itemId} has no compiled content yet. Try again in a few seconds.`);
-  }
-  const stored = (await getData({ auth: ctx.auth, taskId: item.taskId })) as any;
-  const activity = activityOf(stored);
-  if (!activity) {
-    // A program that failed to compile stores errors and no value. Saying "not a survey" for
-    // that sends the author looking at the wrong thing entirely.
-    const errors = Array.isArray(stored?.errors) ? stored.errors : [];
-    if (errors.length > 0) {
-      const detail = errors.map((e: any) => e?.message ?? String(e)).join("; ");
-      throw new Error(`Item ${itemId} did not compile, so it cannot be taken: ${detail}`);
-    }
-    throw new Error(
-      `Item ${itemId} is not a survey. open_survey takes an L0182 collective-intelligence activity; this item is L${item.lang}.`,
-    );
-  }
-  return { item, activity };
-}
-
-/**
- * Merge the authored item with what the service returned for it.
- *
- * The prompt and hint come from the program, the ideas and the ranking from the frame — so an
- * agent reads exactly the sentence a person sees on screen, which is the point of narrating
- * the same instrument rather than exposing a separate agent API.
- */
-function surveyItemView(activity: any, frame: any) {
-  // Clamp to the LAST item when the cursor matches nothing. Falling back to items[0] silently
-  // restarted the survey on an overshoot, which reads to a participant as the whole thing
-  // looping rather than as an error.
-  const authored =
-    activity.items.find((i: any) => i.id === frame.item) ||
-    activity.items[activity.items.length - 1] ||
-    {};
-  return {
-    id: authored.id ?? frame.item,
-    type: authored.type,
-    ...(activity.title ? { title: activity.title } : {}),
-    ...(authored.prompt ? { prompt: authored.prompt } : {}),
-    ...(authored.hint ? { hint: authored.hint } : {}),
-    ...(authored.button ? { button: authored.button } : {}),
-    ...(authored.minChoices !== undefined ? { min_choices: authored.minChoices } : {}),
-    ...(authored.maxChoices !== undefined ? { max_choices: authored.maxChoices } : {}),
-    ...(authored.optional ? { optional: true } : {}),
-    ...(frame.ideas ? { ideas: frame.ideas } : {}),
-    ...(frame.selected ? { selected: frame.selected } : {}),
-    ...(frame.results ? { results: frame.results } : {}),
-    ...(typeof frame.participants === "number" ? { participants: frame.participants } : {}),
-  };
-}
-
-/**
- * Has the participant run out of things to do?
- *
- * NOT `view.type === "thanks"`, which is what this used to ask. `thanks` is optional and
- * spec/template.gc — the shape the generator writes from — ends with `results`, so a survey
- * without one could never report finished: the cursor clamped to the last item and every
- * answer_survey call returned that item again, telling the agent to "move on" to a screen that
- * does not exist. An agent following the message literally loops there forever.
- *
- * The rule the Form has always used instead is positional: a last item that captures nothing
- * gets no forward control, because there is nothing left to submit and nowhere left to go.
- *
- * The overshoot case counts too. surveyItemView deliberately clamps the view back onto the
- * last authored item when the cursor matches none, so a frame whose cursor has run past the
- * end is invisible by the time we see the view — it has to be read off the frame.
- *
- * L0182 enforces that a `thanks`, when present, is the last item (items.ts validateSequence),
- * so this subsumes the old check rather than dropping a case.
- */
-function surveyFinished(activity: any, frame: any, view: any): boolean {
-  const items = Array.isArray(activity?.items) ? activity.items : [];
-  if (items.length === 0) return true;
-  const lastId = items[items.length - 1]?.id;
-  if (typeof frame?.item === "number" && typeof lastId === "number" && frame.item > lastId) {
-    return true;
-  }
-  return view?.id === lastId && !SURVEY_ANSWER_SHAPES[view?.type as string];
-}
-
-/** Exported for tests: pure, given an activity and a frame. */
-export function surveyResult(itemId: string, activity: any, frame: any) {
-  const view = surveyItemView(activity, frame);
-  const finished = surveyFinished(activity, frame, view);
-  const shape = SURVEY_ANSWER_SHAPES[view.type as string];
-  return {
-    item_id: itemId,
-    participation_token: frame.participation,
-    item: view,
-    ...(shape ? { answer_shape: shape } : {}),
-    ...(finished ? { finished: true } : {}),
-    view_url: buildViewUrl(itemId),
-    message: finished
-      ? "The survey is over. Your responses have been recorded."
-      : shape
-        ? `Answer this item with answer_survey, passing answer as ${shape}, and the same participation_token.`
-        : "This item captures nothing. Call answer_survey with answer {} to move on.",
-  };
-}
-
-async function handleOpenSurvey(
-  ctx: ToolContext,
-  args: { item_id: string; participation_token?: string },
-) {
-  const { activity } = await loadActivity(ctx, args.item_id);
-  const frame = await openSurvey({
-    session: activity.session,
-    participation: args.participation_token,
-    participants: activity.participants,
-    items: itemRefs(activity),
-    clientKind: ctx.clientKind,
-  });
-  return surveyResult(args.item_id, activity, frame);
-}
-
-async function handleAnswerSurvey(
-  ctx: ToolContext,
-  args: { item_id: string; participation_token: string; answer: Record<string, unknown> },
-) {
-  const { activity } = await loadActivity(ctx, args.item_id);
-  if (!args.participation_token) {
-    throw new Error("answer_survey needs the participation_token that open_survey returned.");
-  }
-  // No cursor is sent. The service knows where this participation is, and an MCP session does
-  // not survive between tool calls — ChatGPT-class hosts mint a fresh one per call — so a
-  // cursor we tracked here would be a guess, and a wrong guess answers the wrong item.
-  const frame = await answerSurvey({
-    session: activity.session,
-    participation: args.participation_token,
-    participants: activity.participants,
-    items: itemRefs(activity),
-    answer: (args.answer || {}) as any,
-    clientKind: ctx.clientKind,
-  });
-  return surveyResult(args.item_id, activity, frame);
-}
-
 export async function handleToolCall(
   ctx: ToolContext,
   toolName: string,
@@ -1946,13 +1619,6 @@ export async function handleToolCall(
       return handleListLanguages(ctx, args as { domain?: string; search?: string });
     case "get_language_info":
       return handleGetLanguageInfo(ctx, args as { language: string });
-    case "open_survey":
-      return handleOpenSurvey(ctx, args as { item_id: string; participation_token?: string });
-    case "answer_survey":
-      return handleAnswerSurvey(
-        ctx,
-        args as { item_id: string; participation_token: string; answer: Record<string, unknown> },
-      );
     default:
       throw new Error(`Unknown tool: ${toolName}`);
   }

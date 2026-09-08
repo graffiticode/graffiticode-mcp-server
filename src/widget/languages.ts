@@ -87,7 +87,8 @@ export const NATIVE_LANGUAGES: NativeLanguage[] = [
   //
   // Add `{ id: "L0182", pkg: "@graffiticode/l0182-view" }` once it is on npm. Until then a
   // survey renders as the content card, which reads correctly: `describeItem` has an L0182
-  // branch that summarizes the activity rather than falling through to an empty preview.
+  // branch that lists the ideas and the response rather than falling through to an empty
+  // preview. That branch is the whole of what a caller sees, which is why it has its own test.
 ];
 
 /** Normalize `0166` / `l0166` / `L0166` to `L0166`. */

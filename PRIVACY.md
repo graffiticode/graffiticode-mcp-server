@@ -29,17 +29,6 @@ When you use the Service's content tools (`create_item`, `update_item`, `get_ite
 - Conversation history for iterative editing (stored per item)
 - Item metadata (creation and update timestamps, language, name)
 
-### Survey Responses
-
-When you use the Service's survey tools (`open_survey`, `answer_survey`), you are taking part in a collective-intelligence survey alongside other participants. What you submit — the ideas you select, the order you rank them in, and any idea you contribute in your own words — is sent to the survey service that hosts the activity, and stored there as one participation.
-
-Two consequences worth stating plainly:
-
-- **A contributed idea is shared content.** Ideas you submit enter the shared pool for that survey and are shown to other participants, and may appear in the published ranking. Do not submit anything you would not want other participants to read.
-- **Each participation records that it came from an agent**, together with the client kind, so responses gathered through this Service can be told apart from responses given by people directly. It does not record who operated the agent.
-
-The Service is a router here: it forwards your responses to the survey service and returns what that service sends back. It does not store them itself, and **it does not write your selections, your ranking, or your contributed text to its own analytics or logs** — a survey call is recorded only as the fact that it happened, its outcome, and how long it took.
-
 ### Free-plan Sessions
 
 If you connect without credentials, items you create are namespaced to the session identifier your MCP client established. The Service can mint a one-time _claim link_, valid for 24 hours, that lets you transfer those items into a real Graffiticode account the first time you sign in. The claim link contains a signed token derived from the session identifier — it carries no personal data. If you never claim them, free-plan items remain associated only with that anonymous session.
@@ -54,7 +43,6 @@ The Service emits coarse, privacy-preserving analytics events to measure engagem
 - We record the **client kind** (the name your MCP client reports, e.g. "claude-ai"), which identifies software, not you.
 - When your client lists our tools or opens one of our built-in documentation resources, we record that it did so. The only address recorded is one of our own `graffiticode://` resources; anything else your client requests is not written to our analytics.
 - When you search our language catalog, we record the **length** of your search term and how many languages matched — never the search text itself. A domain filter is recorded only when it matches one we publish; anything else is recorded as `(invalid)`.
-- For a survey call we record that it happened, whether it succeeded, and how long it took — never the ideas you selected, the order you put them in, or the text you contributed.
 - We record the **lifecycle status** a call returned (`ready`, `generating`, `failed`) so we can tell a delivered item from one still being generated. It describes the state of your item, not its contents, and anything outside that published set is recorded as `(invalid)`.
 
 One caveat, stated plainly: when a request fails we record a truncated backend error message so we can debug it. Error text is not intended to carry your content, but we cannot categorically rule out that a backend message quotes part of an input.

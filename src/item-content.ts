@@ -343,54 +343,68 @@ function l0180Questions(
 }
 
 /**
- * L0182 survey activities: `data = { activity: { items: [...] } }`.
+ * L0182 surveys: `data = { survey: { name, title?, ideas, minChoices, maxChoices }, response? }`.
  *
  * Matched on SHAPE rather than language id, like the branches around it, so a future dialect
  * compiling to the same form reads correctly with no entry here.
  *
- * Rendered as prose rather than a new ItemContent kind: a survey has no questions to summarize
- * — its ideas come from a live pool at delivery and are not in the item at all — so what is
- * worth saying is what the activity ASKS, which is a sentence.
+ * Rendered as prose rather than a new ItemContent kind: a survey is not a set of questions, so
+ * what is worth saying is what there is to choose between and what was chosen — a sentence,
+ * plus the ideas themselves, which unlike every earlier version of this language ARE in the
+ * item. (They used to be drawn from a live pool at delivery, which is why this branch once had
+ * nothing but item kinds to report.)
  */
-function l0182Survey(activity: Record<string, unknown>): ItemContent | null {
-  const items = activity.items;
-  if (!Array.isArray(items) || !items.length) return null;
+function l0182Survey(survey: Record<string, unknown>, response: unknown): ItemContent | null {
+  const ideas = survey.ideas;
+  if (!Array.isArray(ideas) || !ideas.length) return null;
 
-  const kinds = items.map((i) => (isRecord(i) ? String(i.type ?? "") : "")).filter(Boolean);
-  if (!kinds.length) return null;
-
-  const select = items.find((i) => isRecord(i) && i.type === "select") as
-    | Record<string, unknown>
-    | undefined;
-
-  const lines: string[] = [];
-  const title = typeof activity.title === "string" ? activity.title : null;
-  lines.push(
-    title
-      ? `Survey: "${title}" — ${kinds.length} item${kinds.length === 1 ? "" : "s"} (${kinds.join(" → ")}).`
-      : `Survey: ${kinds.length} item${kinds.length === 1 ? "" : "s"} (${kinds.join(" → ")}).`,
+  const texts = ideas.map((i) => (isRecord(i) && typeof i.text === "string" ? i.text : ""));
+  if (!texts.some(Boolean)) return null;
+  const byId = new Map(
+    ideas
+      .filter(isRecord)
+      .map((i) => [String(i.id ?? ""), typeof i.text === "string" ? i.text : ""] as const),
   );
 
-  if (select) {
-    const sample = typeof select.sample === "number" ? select.sample : null;
-    const max = typeof select.maxChoices === "number" ? select.maxChoices : null;
-    if (sample !== null) {
-      lines.push(
-        max !== null
-          ? `Each participant sees ${sample} ideas from the pool and picks up to ${max}.`
-          : `Each participant sees ${sample} ideas from the pool.`,
-      );
-    }
-    if (typeof select.prompt === "string" && select.prompt) {
-      lines.push(`Asks: ${select.prompt}`);
-    }
+  const title = typeof survey.title === "string" ? survey.title : null;
+  const name = typeof survey.name === "string" ? survey.name : null;
+  const label = title ? `"${title}"` : name ? `"${name}"` : null;
+
+  const lines: string[] = [
+    label
+      ? `Survey: ${label} — ${ideas.length} ideas to choose between.`
+      : `Survey: ${ideas.length} ideas to choose between.`,
+  ];
+
+  const min = typeof survey.minChoices === "number" ? survey.minChoices : null;
+  const max = typeof survey.maxChoices === "number" ? survey.maxChoices : null;
+  if (min !== null && max !== null) {
+    lines.push(
+      min === max
+        ? `Choose ${min} of ${ideas.length}, in priority order.`
+        : `Choose ${min}–${max} of ${ideas.length}, in priority order.`,
+    );
   }
 
-  const participants = Array.isArray(activity.participants)
-    ? activity.participants.map(String)
-    : null;
-  if (participants && participants.length) {
-    lines.push(`Open to ${participants.join(" and ")} participants.`);
+  // The ideas themselves, capped: a long pool would crowd out the response below it, and the
+  // point of this summary is what the item is about, not a full listing.
+  const shown = texts.filter(Boolean).slice(0, 10);
+  lines.push(...shown.map((t) => `- ${t}`));
+  if (texts.length > shown.length) lines.push(`…and ${texts.length - shown.length} more.`);
+
+  if (!isRecord(response)) {
+    lines.push("No response yet.");
+    return { kind: "prose", text: lines.join("\n").slice(0, PROSE_CAP) };
+  }
+
+  const selection = Array.isArray(response.selection) ? response.selection.map(String) : [];
+  lines.push(
+    selection.length
+      ? `Chosen, most important first: ${selection.map((id) => byId.get(id) ?? id).join("; ")}.`
+      : "Nothing chosen.",
+  );
+  if (typeof response.idea === "string" && response.idea) {
+    lines.push(`Contributed a new idea: ${response.idea}`);
   }
 
   return { kind: "prose", text: lines.join("\n").slice(0, PROSE_CAP) };
@@ -433,9 +447,9 @@ export function describeItem(lang: string, sc: Record<string, unknown>): ItemCon
     }
   }
 
-  // L0182 survey activities: `data = { activity: { items } }`.
-  if (data && isRecord(data.activity)) {
-    const survey = l0182Survey(data.activity);
+  // L0182 surveys: `data = { survey: { ideas, … }, response? }`.
+  if (data && isRecord(data.survey)) {
+    const survey = l0182Survey(data.survey, data.response);
     if (survey) return survey;
   }
 

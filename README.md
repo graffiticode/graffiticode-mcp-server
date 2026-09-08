@@ -22,8 +22,7 @@ The Graffiticode MCP server is a **thin router**. It exposes seven language-agno
 ┌──────────────────────────────────────────────────────────┐
 │  Graffiticode MCP Server (thin router)                   │
 │  Tools: create_item, update_item, render_item, get_item, │
-│         get_spec, list_languages, get_language_info,     │
-│         open_survey, answer_survey                       │
+│         get_spec, list_languages, get_language_info      │
 └──────────────────────────┬───────────────────────────────┘
                            │
                            ▼
@@ -191,49 +190,6 @@ Get a platform-neutral, plain-English description of an item's content.
 | `item_id` | string | Yes | The item ID to describe. |
 
 This is the **only sanctioned way to move content between languages**. To turn a spreadsheet into flashcards, call `get_spec` on the spreadsheet item, then pass that spec (plus your intent) to `create_item` for the flashcard language.
-
----
-
-### open_survey
-
-Start or resume taking a collective-intelligence survey (an L0182 activity), as a participant.
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `item_id` | string | Yes | The survey item to take. |
-| `participation_token` | string | No | Resume an existing run. Omit to start a new one. |
-
-Returns the current item — its prompt, and for a selection item the sample of ideas drawn for
-you — plus a `participation_token` and a `view_url` you can hand a person so they take the same
-survey in a browser.
-
-**Pass the token back on every subsequent call.** An MCP session does not survive between tool
-calls (ChatGPT-class hosts mint a fresh one each time), so the token is the only thing that
-continues a run. Without it you start a second, separate participation.
-
-### answer_survey
-
-Answer the current survey item and move to the next.
-
-| Name | Type | Required | Description |
-|------|------|----------|-------------|
-| `item_id` | string | Yes | The survey item being taken. |
-| `participation_token` | string | Yes | The token `open_survey` returned. |
-| `answer` | object | Yes | Shaped by the current item's type. |
-
-The shape is named in the previous response's `answer_shape`:
-
-| Item type | Answer |
-|-----------|--------|
-| `select` | `{"selected": ["<idea id>", ...]}` |
-| `rank` | `{"ranked": ["<idea id>", ...]}` |
-| `contribute` | `{"contribution": "<one idea>"}` |
-| `start`, `results`, `thanks` | `{}` — they capture nothing |
-
-These two are the only tools that **use** content rather than authoring it. An agent takes the
-same instrument a person takes, through the same endpoints, into the same pool; the
-participation records which class it came from, assigned from the request rather than claimed
-by the caller. Nothing here enforces one response per participant.
 
 ---
 
