@@ -386,9 +386,11 @@ function l0182Survey(survey: Record<string, unknown>, response: unknown): ItemCo
     );
   }
 
-  // The ideas themselves, capped: a long pool would crowd out the response below it, and the
-  // point of this summary is what the item is about, not a full listing.
-  const shown = texts.filter(Boolean).slice(0, 10);
+  // The ideas themselves. The cap is generous rather than tidy: an agent is instructed to TAKE
+  // a survey it is given, and it chooses by naming an idea's exact text — so an idea elided here
+  // is one it cannot pick. Bounded all the same, because PROSE_CAP truncates from the end and
+  // would otherwise eat the response below.
+  const shown = texts.filter(Boolean).slice(0, 30);
   lines.push(...shown.map((t) => `- ${t}`));
   if (texts.length > shown.length) lines.push(`…and ${texts.length - shown.length} more.`);
 

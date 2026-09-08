@@ -70,11 +70,18 @@ test("falls back to the survey's name when it has no title", () => {
   assert.match(prose({ survey: untitled }), /"you-can-choose" — 3 ideas/);
 });
 
-test("caps a long set rather than listing all of it", () => {
+test("lists a set of 25 in full, because an agent picks by naming an idea's text", () => {
   const ideas = Array.from({ length: 25 }, (_, i) => ({ id: `i${i}`, text: `idea ${i}` }));
   const text = prose({ survey: { ...SURVEY, ideas, maxChoices: 5 } });
-  assert.match(text, /…and 15 more\./);
-  assert.ok(!text.includes("idea 10"), "listed past the cap");
+  assert.ok(!text.includes("more."), "elided an idea the agent is expected to choose from");
+  assert.match(text, /- idea 24/);
+});
+
+test("caps a set large enough to crowd out the response", () => {
+  const ideas = Array.from({ length: 40 }, (_, i) => ({ id: `i${i}`, text: `idea ${i}` }));
+  const text = prose({ survey: { ...SURVEY, ideas, maxChoices: 5 } });
+  assert.match(text, /…and 10 more\./);
+  assert.ok(!text.includes("idea 30"), "listed past the cap");
 });
 
 test("an id the set does not contain is shown rather than dropped", () => {
