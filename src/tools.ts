@@ -629,6 +629,27 @@ export function widgetRouteFor(
   return "none";
 }
 
+/**
+ * Will this client actually MOUNT the widget it is served?
+ *
+ * Not the same question as `widgetRouteFor`, which decides what `_meta` to send.
+ * This one decides whether a slow tool call is DANGEROUS, and only a client that
+ * paints a widget can abandon one and show its own error in its place.
+ *
+ * Codex is the case that separates them. It matches the OpenAI name pattern, so it
+ * is served `openai/outputTemplate` — and it is a TERMINAL, with no surface to
+ * mount anything in. Its only limit is its own ~60s tool-call cap, which get_item
+ * has run under at 45s all along.
+ *
+ * Conservative in the unknown direction: a ChatGPT app surface mounts via
+ * Skybridge and has never been observed connecting, so it keeps the short leash.
+ * Only clients positively identified as non-mounting get the long one.
+ */
+export function mountsInlineWidget(clientName?: string): boolean {
+  if (/codex/i.test(clientName ?? "")) return false;
+  return isWidgetHost(clientName) || isOpenAIClient(clientName);
+}
+
 /** Back-compat predicate: "does this client get a widget at all". */
 export function shouldAdvertiseWidget(
   clientName?: string,
@@ -1280,11 +1301,26 @@ async function handleItemResult(
   // Poll messages name the SAME retrieval tool the caller used, so the model
   // keeps calling the right one (render_item stays compact; get_item stays raw).
   const retrievalTool = mode === "render" ? "render_item" : "get_item";
+  // render_item's short deadline is protection against a WIDGET HOST abandoning the
+  // call and painting its own error where the widget belongs. A client that mounts
+  // nothing cannot do that, and for it the short deadline is pure cost: it returns
+  // "still generating" every 8s, so a 30s generation costs the model four tool calls
+  // and a 165s one costs twenty. In a chat transcript that reads as thrashing, which
+  // is what a user reported on 2026-09-09.
+  //
+  // So the leash is chosen by whether the caller can actually mount a widget, not by
+  // which tool was called. A non-mounting client gets get_item's 45s — already the
+  // proven value under Codex's ~60s tool-call cap — and one call covers most
+  // generations instead of four.
+  const bounded = mode === "render" && mountsInlineWidget(ctx.clientKind);
   const deadline =
-    Date.now() +
-    (mode === "render" ? RENDER_ITEM_POLL_DEADLINE_MS : GET_ITEM_POLL_DEADLINE_MS);
-  const pollIntervalMs =
-    mode === "render" ? RENDER_ITEM_POLL_INTERVAL_MS : GET_ITEM_POLL_INTERVAL_MS;
+    Date.now() + (bounded ? RENDER_ITEM_POLL_DEADLINE_MS : GET_ITEM_POLL_DEADLINE_MS);
+  // The interval follows the deadline, not the mode: 1s over a 45s budget would be
+  // ~30 upstream checks for one call, where the tight interval exists to notice
+  // readiness inside a budget that is nearly over.
+  const pollIntervalMs = bounded
+    ? RENDER_ITEM_POLL_INTERVAL_MS
+    : GET_ITEM_POLL_INTERVAL_MS;
 
   /**
    * Wait before the next check, and say whether one is still worth making.
@@ -1369,7 +1405,7 @@ async function handleItemResult(
     // item IS ready, so the model's next call skips the wait entirely and spends
     // its whole budget here.
     const remainingMs = deadline - Date.now();
-    if (mode === "render" && remainingMs <= 0) {
+    if (bounded && remainingMs <= 0) {
       return {
         item_id: item.id,
         status: "generating",
@@ -1382,7 +1418,7 @@ async function handleItemResult(
     const data = await getData({
       auth: ctx.auth,
       taskId: item.taskId,
-      ...(mode === "render" ? { timeoutMs: remainingMs } : {}),
+      ...(bounded ? { timeoutMs: remainingMs } : {}),
     });
 
     // The item reports ready and its task is visible, but the rendered data
