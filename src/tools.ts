@@ -990,6 +990,25 @@ export function buildReadySummary(
  * render answered the user with a pretty-printed JSON blob. Four of an OpenAI
  * reviewer's renders hit the poll deadline on 2026-08-29 and got exactly that.
  */
+/**
+ * "(39s, ~2,040 tokens written)" — the one progress phrase, shared by the summary
+ * and by the `message` that steers the model, so the two cannot drift.
+ *
+ * Empty when there is nothing honest to say, so a caller never renders "(0s)".
+ */
+export function progressFragment(elapsedS?: number, writtenChars?: number): string {
+  const parts: string[] = [];
+  if (elapsedS !== undefined && elapsedS > 0) parts.push(`${elapsedS}s`);
+  if (writtenChars !== undefined && writtenChars > 0) {
+    parts.push(`~${Math.round(writtenChars / 4).toLocaleString()} tokens written`);
+  } else if (elapsedS !== undefined && elapsedS >= 15) {
+    // Nothing written after a quarter minute is worth naming rather than reporting
+    // as zero: the model is still planning, which is not the same as stuck.
+    parts.push("still planning");
+  }
+  return parts.length ? ` (${parts.join(", ")})` : "";
+}
+
 export function buildGeneratingSummary(
   name: string | null,
   retrievalTool: string,
@@ -1018,16 +1037,7 @@ export function buildGeneratingSummary(
   // Reported as tokens at ~4 chars each because that is the unit anyone asks in,
   // and marked "~" because the console can only publish characters — Anthropic
   // reports output_tokens once, at the end of a turn.
-  const parts: string[] = [];
-  if (elapsedS !== undefined && elapsedS > 0) parts.push(`${elapsedS}s`);
-  if (writtenChars !== undefined && writtenChars > 0) {
-    parts.push(`~${Math.round(writtenChars / 4).toLocaleString()} tokens written`);
-  } else if (elapsedS !== undefined && elapsedS >= 15) {
-    // Nothing written after a quarter minute is the case worth naming rather than
-    // reporting as zero: the model is still planning, which is not the same as stuck.
-    parts.push("still planning");
-  }
-  const took = parts.length ? ` (${parts.join(", ")})` : "";
+  const took = progressFragment(elapsedS, writtenChars);
   return `${title} is still generating${took} — call \`${retrievalTool}("${itemId}")\` again to keep waiting.`;
 }
 
@@ -1428,7 +1438,14 @@ async function handleItemResult(
         status: "generating",
         language: `L${item.lang}`,
         name: item.name,
-        message: `Still generating. Call ${retrievalTool}(item_id) again to keep waiting.`,
+        message:
+          `Still generating${progressFragment(elapsedS(), pendingChars)}. ` +
+          // Ask for the progress to be SHOWN. Without this the model receives the
+          // line and silently calls the tool again, so the user sees only their
+          // client's in-flight spinner — reported on 2026-09-09 as "a bouncing dots
+          // animation" with no sign of movement. The ready path already works this
+          // way ("Show the user this item's contents…"), and it works because it asks.
+          `Tell the user that progress, then call ${retrievalTool}(item_id) again to keep waiting.`,
         summary: buildGeneratingSummary(item.name, retrievalTool, item.id, elapsedS(), pendingChars),
       };
     }
@@ -1455,7 +1472,14 @@ async function handleItemResult(
         status: "generating",
         language: `L${item.lang}`,
         name: item.name,
-        message: `Still generating. Call ${retrievalTool}(item_id) again to keep waiting.`,
+        message:
+          `Still generating${progressFragment(elapsedS(), pendingChars)}. ` +
+          // Ask for the progress to be SHOWN. Without this the model receives the
+          // line and silently calls the tool again, so the user sees only their
+          // client's in-flight spinner — reported on 2026-09-09 as "a bouncing dots
+          // animation" with no sign of movement. The ready path already works this
+          // way ("Show the user this item's contents…"), and it works because it asks.
+          `Tell the user that progress, then call ${retrievalTool}(item_id) again to keep waiting.`,
         summary: buildGeneratingSummary(item.name, retrievalTool, item.id, elapsedS(), pendingChars),
       };
     }
@@ -1478,7 +1502,14 @@ async function handleItemResult(
         status: "generating",
         language: `L${item.lang}`,
         name: item.name,
-        message: `Still generating. Call ${retrievalTool}(item_id) again to keep waiting.`,
+        message:
+          `Still generating${progressFragment(elapsedS(), pendingChars)}. ` +
+          // Ask for the progress to be SHOWN. Without this the model receives the
+          // line and silently calls the tool again, so the user sees only their
+          // client's in-flight spinner — reported on 2026-09-09 as "a bouncing dots
+          // animation" with no sign of movement. The ready path already works this
+          // way ("Show the user this item's contents…"), and it works because it asks.
+          `Tell the user that progress, then call ${retrievalTool}(item_id) again to keep waiting.`,
         summary: buildGeneratingSummary(item.name, retrievalTool, item.id, elapsedS(), pendingChars),
       };
     }
