@@ -198,6 +198,15 @@ const itemStatusProperties = {
   // one of these schemas is `additionalProperties: false` — an undeclared field is
   // a validation failure, not a silent extra.
   summary: { type: "string" },
+  // Live progress for a still-generating item, e.g. "43s, ~2,736 tokens written".
+  //
+  // A separate FIELD and not only prose inside `summary`, because a widget host
+  // renders neither the summary nor the text block — ChatGPT mounts the widget and
+  // shows its own card, so on 2026-09-09 a user watching there saw a static
+  // "Generating… / Your item is being created." while the counter was working
+  // perfectly for terminal clients reading the text. The widget needs something it
+  // can display, not prose it would have to parse.
+  progress: { type: "string" },
 } as const;
 
 const renderItemOutputSchema = {
@@ -1475,6 +1484,9 @@ async function handleItemResult(
           // way ("Show the user this item's contents…"), and it works because it asks.
           `Tell the user that progress, then call ${retrievalTool}(item_id) again to keep waiting.`,
         summary: buildGeneratingSummary(item.name, retrievalTool, item.id, elapsedS(), pendingChars),
+        // Without the leading space the fragment carries: the widget places it
+        // itself, and an empty string means "nothing honest to say yet".
+        progress: progressFragment(elapsedS(), pendingChars).replace(/^ \(|\)$/g, ""),
       };
     }
 
@@ -1509,6 +1521,9 @@ async function handleItemResult(
           // way ("Show the user this item's contents…"), and it works because it asks.
           `Tell the user that progress, then call ${retrievalTool}(item_id) again to keep waiting.`,
         summary: buildGeneratingSummary(item.name, retrievalTool, item.id, elapsedS(), pendingChars),
+        // Without the leading space the fragment carries: the widget places it
+        // itself, and an empty string means "nothing honest to say yet".
+        progress: progressFragment(elapsedS(), pendingChars).replace(/^ \(|\)$/g, ""),
       };
     }
     const data = await getData({
@@ -1539,6 +1554,9 @@ async function handleItemResult(
           // way ("Show the user this item's contents…"), and it works because it asks.
           `Tell the user that progress, then call ${retrievalTool}(item_id) again to keep waiting.`,
         summary: buildGeneratingSummary(item.name, retrievalTool, item.id, elapsedS(), pendingChars),
+        // Without the leading space the fragment carries: the widget places it
+        // itself, and an empty string means "nothing honest to say yet".
+        progress: progressFragment(elapsedS(), pendingChars).replace(/^ \(|\)$/g, ""),
       };
     }
 
