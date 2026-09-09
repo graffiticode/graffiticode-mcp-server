@@ -13,6 +13,7 @@ import {
   buildGeneratingSummary,
   buildFailedSummary,
   buildLinkDirective,
+  mountsInlineWidget,
 } from "../src/tools.js";
 
 // A Learnosity-shaped payload, spelled the way the compiler emits it: questions
@@ -576,4 +577,18 @@ test("the ready directive asks for the contents AND the link", () => {
   assert.match(d, /not a substitute for the link\.$/);
   // The original wording steered models to drop the content. It must not come back.
   assert.doesNotMatch(d, /a description of the item is not a substitute/);
+});
+
+test("only a client that mounts a widget gets the short render leash", () => {
+  // Mounts: Claude hosts natively, a ChatGPT app surface via Skybridge.
+  assert.equal(mountsInlineWidget("claude-ai"), true);
+  assert.equal(mountsInlineWidget("claude-code"), true);
+  assert.equal(mountsInlineWidget("chatgpt"), true);
+  // Codex matches the OpenAI name pattern but is a TERMINAL — nothing to mount,
+  // so nothing can abandon a slow call and paint an error over the widget.
+  assert.equal(mountsInlineWidget("codex-mcp-client"), false);
+  assert.equal(mountsInlineWidget("openai-mcp (Codex)"), false);
+  // Unknown clients are served no widget at all.
+  assert.equal(mountsInlineWidget("some-cli"), false);
+  assert.equal(mountsInlineWidget(undefined), false);
 });
