@@ -686,19 +686,38 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
     // progressToken); otherwise fall back to a debug log notification, which
     // needs no token and still resets the timer. Fast tools return before the
     // first tick, so this is a no-op for them.
+    //
+    // The message says how long it has been running, because "Generating…" repeated
+    // six times is indistinguishable from a hung call — which is what a user
+    // reported seeing on 2026-09-09, describing the render_item cycle as thrashing.
+    // Elapsed seconds is the one honest thing this layer knows: it polls a job it
+    // does not stream, so it has no token count, no stage and no percentage. Saying
+    // "20s" is true; a progress bar would be invented.
+    //
+    // Every observed client sends a progressToken — claude-code and both Codex
+    // names, 49 of 49 calls in the last six hours — so the fallback below is for a
+    // client we have not met.
     const progressToken = request.params._meta?.progressToken;
+    const startedAt = Date.now();
     let heartbeatTicks = 0;
     const heartbeat = setInterval(() => {
       heartbeatTicks += 1;
+      const elapsedS = Math.round((Date.now() - startedAt) / 1000);
+      const text = `Generating… ${elapsedS}s`;
       const note: ServerNotification =
         progressToken !== undefined
           ? {
               method: "notifications/progress",
-              params: { progressToken, progress: heartbeatTicks, message: "Generating…" },
+              // `progress` counts SECONDS rather than ticks. A client that renders a
+              // bar needs a monotonic number it can scale; seconds is one, and it
+              // stays meaningful if the interval ever changes. No `total` is sent —
+              // we genuinely do not know how long a generation will take, and a made
+              // up total is worse than none.
+              params: { progressToken, progress: elapsedS, message: text },
             }
           : {
               method: "notifications/message",
-              params: { level: "debug", data: "Generating…" },
+              params: { level: "debug", data: text },
             };
       extra.sendNotification(note).catch(() => {});
     }, 10_000);
