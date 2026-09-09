@@ -994,7 +994,8 @@ export function buildGeneratingSummary(
   name: string | null,
   retrievalTool: string,
   itemId: string,
-  elapsedS?: number
+  elapsedS?: number,
+  writtenChars?: number
 ): string {
   const shown = displayName(name);
   const title = shown ? `**${shown}**` : "Your item";
@@ -1009,7 +1010,24 @@ export function buildGeneratingSummary(
   // Without it, three identical "still generating" lines in a transcript cannot be
   // told from a hung call; with it they read as 12s, 24s, 36s, which is the actual
   // question a person is asking when they watch this cycle.
-  const took = elapsedS !== undefined && elapsedS > 0 ? ` (${elapsedS}s so far)` : "";
+  // Elapsed says the job is ALIVE; written says it is PRODUCING. Both are needed,
+  // because the three states that actually occur here look identical without them:
+  // writing steadily, thinking with nothing emitted (an L0179 run spent 5.5 minutes
+  // that way), and hung.
+  //
+  // Reported as tokens at ~4 chars each because that is the unit anyone asks in,
+  // and marked "~" because the console can only publish characters — Anthropic
+  // reports output_tokens once, at the end of a turn.
+  const parts: string[] = [];
+  if (elapsedS !== undefined && elapsedS > 0) parts.push(`${elapsedS}s`);
+  if (writtenChars !== undefined && writtenChars > 0) {
+    parts.push(`~${Math.round(writtenChars / 4).toLocaleString()} tokens written`);
+  } else if (elapsedS !== undefined && elapsedS >= 15) {
+    // Nothing written after a quarter minute is the case worth naming rather than
+    // reporting as zero: the model is still planning, which is not the same as stuck.
+    parts.push("still planning");
+  }
+  const took = parts.length ? ` (${parts.join(", ")})` : "";
   return `${title} is still generating${took} — call \`${retrievalTool}("${itemId}")\` again to keep waiting.`;
 }
 
@@ -1330,6 +1348,7 @@ async function handleItemResult(
   // cleared on any terminal status, so it survives across the several render_item
   // calls a slow generation costs, which is exactly the span a user is watching.
   let pendingStartedAt = 0;
+  let pendingChars = 0;
   const elapsedS = (): number | undefined => {
     if (!pendingStartedAt) return undefined;
     return Math.round((Date.now() - pendingStartedAt) / 1000);
@@ -1387,6 +1406,7 @@ async function handleItemResult(
     if (status === "generating") {
       const startedAt = item.generationStartedAt ? Number(item.generationStartedAt) : 0;
       pendingStartedAt = startedAt;
+      pendingChars = typeof item.generationChars === "number" ? item.generationChars : 0;
       const stale = startedAt > 0 && Date.now() - startedAt > GENERATION_STALE_MS;
       if (stale) {
         return {
@@ -1409,7 +1429,7 @@ async function handleItemResult(
         language: `L${item.lang}`,
         name: item.name,
         message: `Still generating. Call ${retrievalTool}(item_id) again to keep waiting.`,
-        summary: buildGeneratingSummary(item.name, retrievalTool, item.id, elapsedS()),
+        summary: buildGeneratingSummary(item.name, retrievalTool, item.id, elapsedS(), pendingChars),
       };
     }
 
@@ -1436,7 +1456,7 @@ async function handleItemResult(
         language: `L${item.lang}`,
         name: item.name,
         message: `Still generating. Call ${retrievalTool}(item_id) again to keep waiting.`,
-        summary: buildGeneratingSummary(item.name, retrievalTool, item.id, elapsedS()),
+        summary: buildGeneratingSummary(item.name, retrievalTool, item.id, elapsedS(), pendingChars),
       };
     }
     const data = await getData({
@@ -1459,7 +1479,7 @@ async function handleItemResult(
         language: `L${item.lang}`,
         name: item.name,
         message: `Still generating. Call ${retrievalTool}(item_id) again to keep waiting.`,
-        summary: buildGeneratingSummary(item.name, retrievalTool, item.id, elapsedS()),
+        summary: buildGeneratingSummary(item.name, retrievalTool, item.id, elapsedS(), pendingChars),
       };
     }
 

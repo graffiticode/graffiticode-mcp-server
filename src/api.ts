@@ -351,6 +351,10 @@ export interface Item {
   generationStatus?: "generating" | "ready" | "failed" | null;
   generationError?: string | null;
   generationStartedAt?: string | null;
+  // Characters a RUNNING generation has emitted so far, published by the console
+  // every ~2s. Null once terminal. Characters rather than tokens because that is
+  // what streams — Anthropic reports output_tokens only at the end of a turn.
+  generationChars?: number | null;
   // Free-plan only, minted by the console from the item's EFFECTIVE workspace.
   // `workspace` is presented on later requests; `claimToken` builds claim links.
   // Never populated for authenticated callers.
@@ -490,6 +494,7 @@ export async function getItemWithTask(options: {
         generationStatus
         generationError
         generationStartedAt
+        generationChars
         task {
           id
           lang

@@ -594,11 +594,23 @@ test("only a client that mounts a widget gets the short render leash", () => {
   assert.equal(mountsInlineWidget(undefined), false);
 });
 
-test("a still-generating result says how long it has been running", () => {
-  const withTime = buildGeneratingSummary("Retirement Calculator", "render_item", "abc", 34);
-  assert.match(withTime, /still generating \(34s so far\)/);
-  assert.match(withTime, /render_item\("abc"\)/, "and still names the retry");
-  // Unknown start time must not print "(0s so far)" or "(NaNs so far)".
+test("a still-generating result says how long, and how much is written", () => {
+  // Writing: elapsed AND volume, so a big program is legible as progress.
+  const writing = buildGeneratingSummary("Retirement Calculator", "render_item", "abc", 34, 13600);
+  assert.match(writing, /still generating \(34s, ~3,400 tokens written\)/);
+  assert.match(writing, /render_item\("abc"\)/, "and still names the retry");
+
+  // Thinking: nothing written after a quarter minute is named, not reported as 0.
+  // An L0179 run really did spend 5.5 minutes emitting zero characters.
+  assert.match(
+    buildGeneratingSummary("X", "render_item", "abc", 34),
+    /still generating \(34s, still planning\)/
+  );
+
+  // Early: too soon to call it planning, so just the clock.
+  assert.match(buildGeneratingSummary("X", "render_item", "abc", 5), /still generating \(5s\)/);
+
+  // Unknown start time must not print "(0s)" or "(NaNs)".
   assert.match(buildGeneratingSummary("X", "render_item", "abc"), /still generating —/);
   assert.match(buildGeneratingSummary("X", "render_item", "abc", 0), /still generating —/);
 });
