@@ -286,8 +286,23 @@ export function startRenderer(host: HostAdapter): void {
     const card = el("div", "card");
     if (status === "generating") {
       card.appendChild(el("div", "card-title", "Generating…"));
+      // Show the live figure when there is one. A widget host renders THIS card and
+      // not the tool result's text, so a counter that only reached `summary` was
+      // invisible here — a user watching ChatGPT on 2026-09-09 saw a static "Your
+      // item is being created." while the same generation reported
+      // "43s, ~2,736 tokens written" to a terminal client.
+      //
+      // Falls back to the static line rather than showing an empty card: early in a
+      // generation there is genuinely nothing to report, and "0s" would be worse
+      // than a sentence.
+      const progress = typeof sc.progress === "string" ? sc.progress.trim() : "";
       card.appendChild(
-        el("div", "card-text", sc.operation === "update" ? "Your item is being updated." : "Your item is being created.")
+        el(
+          "div",
+          "card-text",
+          progress ||
+            (sc.operation === "update" ? "Your item is being updated." : "Your item is being created.")
+        )
       );
     } else {
       card.appendChild(el("div", "card-title", "Generation failed"));
