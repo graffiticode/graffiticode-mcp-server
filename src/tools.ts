@@ -980,6 +980,23 @@ export function buildGeneratingSummary(
 }
 
 /**
+ * What `message` asks the model to do with a ready item.
+ *
+ * Exported and separate so the copy is pinned by a test. It was rewritten once and
+ * the edit was lost before it reached a commit — the header fix beside it shipped,
+ * this did not, and production kept telling models to hand over a bare link for
+ * three more days. A test would have caught that; a description of the change did
+ * not.
+ */
+export function buildLinkDirective(viewUrl: string): string {
+  return (
+    "Show the user this item's contents from `summary` below, then give them this " +
+    `link so they can open and use it: ${viewUrl}` +
+    " — show both; a description alone is not a substitute for the link."
+  );
+}
+
+/**
  * A failure, and what to do about it.
  *
  * The generating summary names the exact tool to call and gets that call
@@ -1425,9 +1442,19 @@ async function handleItemResult(
     // treated it as metadata and wrote prose. The one thing already proven to
     // steer a model here is `message`: the generating path uses it to ask for a
     // render_item call and gets one essentially every time.
-    const linkDirective =
-      `Give the user this link so they can open and use the item: ${hydration.view_url}` +
-      " — a description of the item is not a substitute for the link.";
+    //
+    // It worked too well in one direction. On 2026-09-06 a user built a retirement
+    // calculator through Codex and saw a bare URL; the summary in that same result
+    // held the whole sheet as a markdown table, and the model dropped it, because
+    // "a description is no substitute for the link" reads — to something choosing
+    // what to show — as "the link is the deliverable and the description is not".
+    // For a TERMINAL client, which can mount no widget, that summary is not a
+    // preview of the product, it IS the product.
+    //
+    // So it asks for both and says what each is for, and the clause that prevents
+    // the original prose-instead-of-link failure is kept as the LAST word, where it
+    // forbids replacing the link rather than replacing the content.
+    const linkDirective = buildLinkDirective(hydration.view_url as string);
     const message = hydration.claim_message
       ? `${linkDirective}\n\n${hydration.claim_message as string}`
       : linkDirective;

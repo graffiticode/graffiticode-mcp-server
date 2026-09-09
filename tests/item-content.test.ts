@@ -12,6 +12,7 @@ import {
   buildReadySummary,
   buildGeneratingSummary,
   buildFailedSummary,
+  buildLinkDirective,
 } from "../src/tools.js";
 
 // A Learnosity-shaped payload, spelled the way the compiler emits it: questions
@@ -562,4 +563,17 @@ test("a failed item names how to retry, and when not to", () => {
     buildFailedSummary("Quiz", "L0176", "boom"),
     "**Quiz** (L0176) could not be generated — boom"
   );
+});
+
+test("the ready directive asks for the contents AND the link", () => {
+  const d = buildLinkDirective("https://app.graffiticode.org/form/abc");
+  // The content must be asked for FIRST — a terminal client can mount no widget,
+  // so the summary is the product, not a preview of it.
+  assert.match(d, /Show the user this item's contents/);
+  assert.ok(d.indexOf("contents") < d.indexOf("form/abc"), "contents before the link");
+  assert.match(d, /form\/abc/);
+  // And the clause that stops prose REPLACING the link survives, as the last word.
+  assert.match(d, /not a substitute for the link\.$/);
+  // The original wording steered models to drop the content. It must not come back.
+  assert.doesNotMatch(d, /a description of the item is not a substitute/);
 });
