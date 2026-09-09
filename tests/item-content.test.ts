@@ -14,6 +14,7 @@ import {
   buildFailedSummary,
   buildLinkDirective,
   mountsInlineWidget,
+  buildGeneratingSummary,
 } from "../src/tools.js";
 
 // A Learnosity-shaped payload, spelled the way the compiler emits it: questions
@@ -591,4 +592,13 @@ test("only a client that mounts a widget gets the short render leash", () => {
   // Unknown clients are served no widget at all.
   assert.equal(mountsInlineWidget("some-cli"), false);
   assert.equal(mountsInlineWidget(undefined), false);
+});
+
+test("a still-generating result says how long it has been running", () => {
+  const withTime = buildGeneratingSummary("Retirement Calculator", "render_item", "abc", 34);
+  assert.match(withTime, /still generating \(34s so far\)/);
+  assert.match(withTime, /render_item\("abc"\)/, "and still names the retry");
+  // Unknown start time must not print "(0s so far)" or "(NaNs so far)".
+  assert.match(buildGeneratingSummary("X", "render_item", "abc"), /still generating —/);
+  assert.match(buildGeneratingSummary("X", "render_item", "abc", 0), /still generating —/);
 });

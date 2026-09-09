@@ -993,11 +993,24 @@ export function buildReadySummary(
 export function buildGeneratingSummary(
   name: string | null,
   retrievalTool: string,
-  itemId: string
+  itemId: string,
+  elapsedS?: number
 ): string {
   const shown = displayName(name);
   const title = shown ? `**${shown}**` : "Your item";
-  return `${title} is still generating — call \`${retrievalTool}("${itemId}")\` again to keep waiting.`;
+  // Elapsed time goes in the TOOL RESULT, not only in the progress notification.
+  //
+  // The in-call heartbeat sends notifications/progress with a message, and every
+  // observed client asks for one — but a user on 2026-09-09 reported their chat
+  // showing only "rendering item…", i.e. the tool NAME. The notification is
+  // delivered and not rendered, so anything put in it (a token counter included)
+  // is invisible to them. The result text is the one thing the client displays.
+  //
+  // Without it, three identical "still generating" lines in a transcript cannot be
+  // told from a hung call; with it they read as 12s, 24s, 36s, which is the actual
+  // question a person is asking when they watch this cycle.
+  const took = elapsedS !== undefined && elapsedS > 0 ? ` (${elapsedS}s so far)` : "";
+  return `${title} is still generating${took} — call \`${retrievalTool}("${itemId}")\` again to keep waiting.`;
 }
 
 /**
@@ -1312,6 +1325,16 @@ async function handleItemResult(
   // which tool was called. A non-mounting client gets get_item's 45s — already the
   // proven value under Codex's ~60s tool-call cap — and one call covers most
   // generations instead of four.
+  // How long the GENERATION has been running — not how long this call has waited.
+  // `generationStartedAt` is stamped by the console when the job is queued and
+  // cleared on any terminal status, so it survives across the several render_item
+  // calls a slow generation costs, which is exactly the span a user is watching.
+  let pendingStartedAt = 0;
+  const elapsedS = (): number | undefined => {
+    if (!pendingStartedAt) return undefined;
+    return Math.round((Date.now() - pendingStartedAt) / 1000);
+  };
+
   const bounded = mode === "render" && mountsInlineWidget(ctx.clientKind);
   const deadline =
     Date.now() + (bounded ? RENDER_ITEM_POLL_DEADLINE_MS : GET_ITEM_POLL_DEADLINE_MS);
@@ -1363,6 +1386,7 @@ async function handleItemResult(
 
     if (status === "generating") {
       const startedAt = item.generationStartedAt ? Number(item.generationStartedAt) : 0;
+      pendingStartedAt = startedAt;
       const stale = startedAt > 0 && Date.now() - startedAt > GENERATION_STALE_MS;
       if (stale) {
         return {
@@ -1385,7 +1409,7 @@ async function handleItemResult(
         language: `L${item.lang}`,
         name: item.name,
         message: `Still generating. Call ${retrievalTool}(item_id) again to keep waiting.`,
-        summary: buildGeneratingSummary(item.name, retrievalTool, item.id),
+        summary: buildGeneratingSummary(item.name, retrievalTool, item.id, elapsedS()),
       };
     }
 
@@ -1412,7 +1436,7 @@ async function handleItemResult(
         language: `L${item.lang}`,
         name: item.name,
         message: `Still generating. Call ${retrievalTool}(item_id) again to keep waiting.`,
-        summary: buildGeneratingSummary(item.name, retrievalTool, item.id),
+        summary: buildGeneratingSummary(item.name, retrievalTool, item.id, elapsedS()),
       };
     }
     const data = await getData({
@@ -1435,7 +1459,7 @@ async function handleItemResult(
         language: `L${item.lang}`,
         name: item.name,
         message: `Still generating. Call ${retrievalTool}(item_id) again to keep waiting.`,
-        summary: buildGeneratingSummary(item.name, retrievalTool, item.id),
+        summary: buildGeneratingSummary(item.name, retrievalTool, item.id, elapsedS()),
       };
     }
 
