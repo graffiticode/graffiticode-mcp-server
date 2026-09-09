@@ -638,27 +638,6 @@ export function widgetRouteFor(
   return "none";
 }
 
-/**
- * Will this client actually MOUNT the widget it is served?
- *
- * Not the same question as `widgetRouteFor`, which decides what `_meta` to send.
- * This one decides whether a slow tool call is DANGEROUS, and only a client that
- * paints a widget can abandon one and show its own error in its place.
- *
- * Codex is the case that separates them. It matches the OpenAI name pattern, so it
- * is served `openai/outputTemplate` — and it is a TERMINAL, with no surface to
- * mount anything in. Its only limit is its own ~60s tool-call cap, which get_item
- * has run under at 45s all along.
- *
- * Conservative in the unknown direction: a ChatGPT app surface mounts via
- * Skybridge and has never been observed connecting, so it keeps the short leash.
- * Only clients positively identified as non-mounting get the long one.
- */
-export function mountsInlineWidget(clientName?: string): boolean {
-  if (/codex/i.test(clientName ?? "")) return false;
-  return isWidgetHost(clientName) || isOpenAIClient(clientName);
-}
-
 /** Back-compat predicate: "does this client get a widget at all". */
 export function shouldAdvertiseWidget(
   clientName?: string,
@@ -1396,7 +1375,18 @@ async function handleItemResult(
     return Math.round((Date.now() - pendingStartedAt) / 1000);
   };
 
-  const bounded = mode === "render" && mountsInlineWidget(ctx.clientKind);
+  // The 8s leash is for the host that was actually SEEN abandoning a call: a Claude
+  // widget host, at 33.2s, painting "Unable to reach Graffiticode" where the widget
+  // belonged. It stays on that client.
+  //
+  // ChatGPT also mounts a widget, but nothing has ever been observed abandoning
+  // there, and the short leash has a cost that IS observed: every render_item call
+  // mounts its own widget section, so an 8s leash stacks ~8 "Render item" cards down
+  // a chat for a 60s generation. A user reported exactly that on 2026-09-09.
+  //
+  // So ChatGPT takes the terminal's 15s: half the observed Claude threshold, and
+  // half as many stacked cards. Fewer, each now carrying a live progress line.
+  const bounded = mode === "render" && isWidgetHost(ctx.clientKind);
   const deadline =
     Date.now() +
     (bounded

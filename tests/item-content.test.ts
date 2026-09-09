@@ -13,7 +13,6 @@ import {
   buildGeneratingSummary,
   buildFailedSummary,
   buildLinkDirective,
-  mountsInlineWidget,
   buildGeneratingSummary,
   progressFragment,
 } from "../src/tools.js";
@@ -581,19 +580,7 @@ test("the ready directive asks for the contents AND the link", () => {
   assert.doesNotMatch(d, /a description of the item is not a substitute/);
 });
 
-test("only a client that mounts a widget gets the short render leash", () => {
-  // Mounts: Claude hosts natively, a ChatGPT app surface via Skybridge.
-  assert.equal(mountsInlineWidget("claude-ai"), true);
-  assert.equal(mountsInlineWidget("claude-code"), true);
-  assert.equal(mountsInlineWidget("chatgpt"), true);
-  // Codex matches the OpenAI name pattern but is a TERMINAL — nothing to mount,
-  // so nothing can abandon a slow call and paint an error over the widget.
-  assert.equal(mountsInlineWidget("codex-mcp-client"), false);
-  assert.equal(mountsInlineWidget("openai-mcp (Codex)"), false);
-  // Unknown clients are served no widget at all.
-  assert.equal(mountsInlineWidget("some-cli"), false);
-  assert.equal(mountsInlineWidget(undefined), false);
-});
+
 
 test("a still-generating result says how long, and how much is written", () => {
   // Writing: elapsed AND volume, so a big program is legible as progress.
