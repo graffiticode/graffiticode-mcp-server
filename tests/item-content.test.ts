@@ -15,6 +15,7 @@ import {
   buildLinkDirective,
   mountsInlineWidget,
   buildGeneratingSummary,
+  progressFragment,
 } from "../src/tools.js";
 
 // A Learnosity-shaped payload, spelled the way the compiler emits it: questions
@@ -613,4 +614,18 @@ test("a still-generating result says how long, and how much is written", () => {
   // Unknown start time must not print "(0s)" or "(NaNs)".
   assert.match(buildGeneratingSummary("X", "render_item", "abc"), /still generating —/);
   assert.match(buildGeneratingSummary("X", "render_item", "abc", 0), /still generating —/);
+});
+
+test("the progress phrase is shared, and empty when there is nothing to say", () => {
+  assert.equal(progressFragment(39, 8160), " (39s, ~2,040 tokens written)");
+  assert.equal(progressFragment(34), " (34s, still planning)");
+  assert.equal(progressFragment(5), " (5s)");
+  // Nothing honest to say → nothing rendered, so no "(0s)" or "(NaNs)".
+  assert.equal(progressFragment(), "");
+  assert.equal(progressFragment(0), "");
+  // The summary is built from this same phrase, so the two cannot drift.
+  assert.match(
+    buildGeneratingSummary("X", "render_item", "abc", 39, 8160),
+    /still generating \(39s, ~2,040 tokens written\)/
+  );
 });
