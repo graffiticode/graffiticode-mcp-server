@@ -1234,6 +1234,15 @@ const GET_ITEM_POLL_DEADLINE_MS = 45_000; // under codex's ~60s tool-call cap
  */
 const RENDER_ITEM_POLL_DEADLINE_MS = 8_000;
 /**
+ * The leash for a client that mounts NO widget, and therefore cannot abandon a slow
+ * call and paint an error over one.
+ *
+ * Longer than a widget host's 8s because nothing is at risk, and far shorter than
+ * get_item's 45s because for this caller a return is the only chance to say
+ * anything: the progress line only reaches a person when the call comes back.
+ */
+const TERMINAL_POLL_DEADLINE_MS = 15_000;
+/**
  * How long to wait between polls, per mode — and it is per mode for the same reason
  * the deadline is.
  *
@@ -1350,9 +1359,23 @@ async function handleItemResult(
   // is what a user reported on 2026-09-09.
   //
   // So the leash is chosen by whether the caller can actually mount a widget, not by
-  // which tool was called. A non-mounting client gets get_item's 45s — already the
-  // proven value under Codex's ~60s tool-call cap — and one call covers most
-  // generations instead of four.
+  // which tool was called.
+  //
+  // A non-mounting client got get_item's 45s at first, on the reasoning that one
+  // call should cover a whole generation. That was right while a return said nothing
+  // useful — but it is now the opposite of what the caller wants. Every return
+  // carries real progress ("39s, ~2,040 tokens written") and asks for it to be
+  // shown, so a RETURN is the only moment anything can appear on screen. At 45s the
+  // user watches an in-flight spinner for three quarters of a minute between words;
+  // they described it as "a bouncing dots animation".
+  //
+  // 15s is the compromise: a 60s generation reports four times instead of once,
+  // where the original 8s reported eight times and said nothing each time. The churn
+  // that started this was never the call COUNT — it was calls that carried no
+  // information.
+  //
+  // Still well under Codex's ~60s tool-call cap, and get_item keeps 45s: its callers
+  // are scripts, which want the answer rather than a narration of the wait.
   // How long the GENERATION has been running — not how long this call has waited.
   // `generationStartedAt` is stamped by the console when the job is queued and
   // cleared on any terminal status, so it survives across the several render_item
@@ -1366,7 +1389,12 @@ async function handleItemResult(
 
   const bounded = mode === "render" && mountsInlineWidget(ctx.clientKind);
   const deadline =
-    Date.now() + (bounded ? RENDER_ITEM_POLL_DEADLINE_MS : GET_ITEM_POLL_DEADLINE_MS);
+    Date.now() +
+    (bounded
+      ? RENDER_ITEM_POLL_DEADLINE_MS
+      : mode === "render"
+        ? TERMINAL_POLL_DEADLINE_MS
+        : GET_ITEM_POLL_DEADLINE_MS);
   // The interval follows the deadline, not the mode: 1s over a 45s budget would be
   // ~30 upstream checks for one call, where the tight interval exists to notice
   // readiness inside a budget that is nearly over.
