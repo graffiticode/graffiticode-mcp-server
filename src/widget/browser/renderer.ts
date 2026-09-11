@@ -124,6 +124,8 @@ export function startRenderer(host: HostAdapter): void {
     if (status === "failed") return showStatus(sc, "failed");
 
     const lang = normalizeLang(sc.language);
+    // Set only when a native mount was attempted and failed; renderCard shows it.
+    let mountError: string | undefined;
     if (__NATIVE__.includes(lang) && sc.data !== undefined) {
       try {
         const mountPoint = await mountNative(lang, sc.data);
@@ -143,18 +145,20 @@ export function startRenderer(host: HostAdapter): void {
         // card it would have shown anyway.
         setTimeout(() => {
           if (mountPoint.childNodes.length > 0) return;
-          console.warn(`[widget] native mount for ${lang} drew nothing — using the card`);
-          renderCard(sc);
+          const why = `${lang} mounted but produced no output within ${EMPTY_MOUNT_GRACE_MS}ms`;
+          console.warn(`[widget] ${why} — using the card`);
+          renderCard(sc, why);
           reportHeight();
         }, EMPTY_MOUNT_GRACE_MS);
         return;
       } catch (err) {
         // A native mount failure must not leave a blank frame — fall through to
         // the content card, which needs no bundle.
+        mountError = `${lang} failed to mount: ${err instanceof Error ? err.message : String(err)}`;
         console.error("[widget] native mount failed:", err);
       }
     }
-    renderCard(sc);
+    renderCard(sc, mountError);
     reportHeight();
   }
 
@@ -173,13 +177,32 @@ export function startRenderer(host: HostAdapter): void {
 
   // --- Fallback content card (non-native languages) -------------------------
 
-  function renderCard(sc: Record<string, unknown>): void {
+  function renderCard(sc: Record<string, unknown>, diagnostic?: string): void {
     const lang = normalizeLang(sc.language);
     const card = el("div", "card");
     card.appendChild(el("div", "card-title", (sc.name as string) || "Your item is ready"));
 
     const body = cardBody(lang, sc);
     if (body) card.appendChild(body);
+
+    // When we fell back from a native render, SAY SO, on screen.
+    //
+    // Both fallback paths used to write to console.error/console.warn and then
+    // render this card silently. Nobody watching a chat has a console open, and
+    // the result is indistinguishable from a language that was never native —
+    // which is how a broken renderer sat unnoticed: an L0173 chart drew on
+    // mobile and fell back to the card on desktop, and the only difference
+    // visible to anyone was that one had a chart in it.
+    //
+    // The message is deliberately plain about what happened and unalarming about
+    // the consequence — the item is fine, the inline preview is not. The
+    // technical detail rides along in `title` so hovering gives the cause
+    // without putting a stack trace in a chat window.
+    if (diagnostic) {
+      const note = el("div", "card-note", "Interactive preview unavailable — open it to use the item.");
+      note.title = diagnostic;
+      card.appendChild(note);
+    }
 
     root.className = "";
     root.replaceChildren(card);
