@@ -1,5 +1,6 @@
 import assert from "node:assert/strict";
 import test from "node:test";
+import { readFileSync } from "node:fs";
 import {
   contentToMarkdown,
   describeItem,
@@ -13,6 +14,7 @@ import {
   buildGeneratingSummary,
   buildFailedSummary,
   buildLinkDirective,
+  clientMountsWidget,
   buildGeneratingSummary,
   progressFragment,
 } from "../src/tools.js";
@@ -614,5 +616,60 @@ test("the progress phrase is shared, and empty when there is nothing to say", ()
   assert.match(
     buildGeneratingSummary("X", "render_item", "abc", 39, 8160),
     /still generating \(39s, ~2,040 tokens written\)/
+  );
+});
+
+test("a widget host is told NOT to reproduce the contents it already rendered", () => {
+  // Observed 2026-09-11: a 5x5 sheet rendered as an interactive grid in the chat
+  // and the model printed a second, static markdown copy of the same numbers
+  // directly underneath, because `message` asked it to show the contents from
+  // `summary` regardless of whether the host had already drawn them.
+  const d = buildLinkDirective("https://app.graffiticode.org/form/abc", true);
+  assert.match(d, /already rendered above/i);
+  assert.match(d, /do NOT reproduce/i);
+  // The link is still mandatory — that clause is what stopped the ORIGINAL
+  // failure, where a model wrote prose and handed over nothing to click.
+  assert.match(d, /https:\/\/app\.graffiticode\.org\/form\/abc/);
+  assert.match(d, /not a substitute/i);
+});
+
+test("a client that mounts nothing is still told to show the contents", () => {
+  // For a terminal client the summary is not a preview of the product, it IS the
+  // product. Suppressing it there is the regression this pairing exists to avoid.
+  const d = buildLinkDirective("https://app.graffiticode.org/form/abc", false);
+  assert.match(d, /Show the user this item's contents/);
+  assert.doesNotMatch(d, /already rendered/i);
+});
+
+test("clientMountsWidget answers for the hosts actually seen in production", () => {
+  // Both halves of the test are load-bearing, and each over-matches alone:
+  // claude-code passes the name whitelist and mounts nothing; web-sandbox
+  // declares the extension and is deliberately given text.
+  assert.equal(clientMountsWidget("Anthropic/ClaudeAI", true), true);
+  assert.equal(clientMountsWidget("openai-mcp", true), true);
+  assert.equal(clientMountsWidget("codex-mcp-client", true), true);
+  assert.equal(clientMountsWidget("codex-mcp-client", false), true, "openai mounts without declaring");
+  assert.equal(clientMountsWidget("claude-code", false), false, "terminal: summary IS the product");
+  assert.equal(clientMountsWidget("web-sandbox", true), false, "declares but is not given a widget");
+  assert.equal(clientMountsWidget(undefined, undefined), false);
+});
+
+test("the call site actually passes the mount flag", () => {
+  // A source-level check, and deliberately so. The helpers above are pure and
+  // well covered, but removing the ARGUMENT at the one call site leaves all of
+  // them green — verified — so nothing else here would notice the feature being
+  // silently disabled.
+  //
+  // That is not a hypothetical: buildLinkDirective's own comment records being
+  // "rewritten once and the edit was lost before it reached a commit", with
+  // production handing models a bare link for three more days. There is no
+  // handler-level harness to assert the behaviour end to end (it would need the
+  // auth and API layers mocked), so this pins the wiring until there is one.
+  const src = readFileSync(new URL("../src/tools.ts", import.meta.url), "utf-8");
+  const call = /buildLinkDirective\(\s*hydration\.view_url as string,\s*clientMountsWidget\(/;
+  assert.match(
+    src,
+    call,
+    "handleItemResult must pass clientMountsWidget(...) to buildLinkDirective",
   );
 });

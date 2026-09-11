@@ -59,6 +59,11 @@ const STYLES = `
   .card-text { margin-top: 6px; font-size: 14px; color: #6b7280; }
   body.dark .card-text { color: #9ca3af; }
   .card-body { margin-top: 12px; }
+  /* Shown when a native render was attempted and fell back to this card. Muted and
+     italic: it explains a degraded preview, not a broken item, and the item itself
+     is fine. The cause rides in the element's title attribute rather than on screen. */
+  .card-note { margin-top: 10px; font-size: 12px; font-style: italic; color: #9ca3af; cursor: help; }
+  body.dark .card-note { color: #6b7280; }
   .native-content { min-width: 0; }
   .card-pre { margin-top: 10px; padding: 10px; font-size: 12px; white-space: pre-wrap; overflow-x: auto;
     background: #fff; border: 1px solid #e5e7eb; border-radius: 8px; max-height: 320px; overflow-y: auto; }

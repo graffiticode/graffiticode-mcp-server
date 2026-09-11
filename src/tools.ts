@@ -633,7 +633,22 @@ export function widgetRouteFor(
   clientName?: string,
   declaresUiExtension?: boolean
 ): WidgetRoute {
-  if (declaresUiExtension === true && isWidgetHost(clientName)) return "mcp-apps";
+  // The mcp-apps route is open to any RECOGNISED family that DECLARED the
+  // extension — Claude or OpenAI — rather than to Claude names alone.
+  //
+  // Observed, and the reason this changed: Codex connects as `codex-mcp-client`
+  // declaring `[io.modelcontextprotocol/ui, openai/form]`. It was routed to
+  // "openai" purely on its name, handed the Skybridge contract, and rendered
+  // nothing; the log line records it reading the widget resource and the user
+  // getting a link.
+  //
+  // The allow-list is NOT dropped, and that is deliberate: `web-sandbox`-style
+  // clients declare the extension too, and tools-contract.test.ts pins that they
+  // still get text. Declaring is necessary here, not sufficient — the first
+  // version of this change made it sufficient and that test caught it.
+  if (declaresUiExtension === true && (isWidgetHost(clientName) || isOpenAIClient(clientName))) {
+    return "mcp-apps";
+  }
   if (isOpenAIClient(clientName)) return "openai";
   return "none";
 }
@@ -761,7 +776,13 @@ export function toolsForClient(clientName?: string, declaresUiExtension?: boolea
       ui: { resourceUri: uiUri },
       "ui/resourceUri": uiUri,
     };
-    if (route === "openai") {
+    // Emitted for ANY OpenAI client, not only those routed to "openai". Codex
+    // declares the MCP Apps extension AND `openai/form`, so it now takes the
+    // mcp-apps route — but which key dialect it reads to find the widget is a
+    // separate question from which protocol it speaks to mount it, and it costs
+    // nothing to answer both. Both key sets point at the same resource; as the
+    // note above says, the keys differ and the artifact does not.
+    if (isOpenAIClient(clientName)) {
       ui["openai/outputTemplate"] = uiUri;
       // Shown in ChatGPT while the call runs and after it returns. Generation is
       // asynchronous and routinely outlives one render_item poll, so the invoking
@@ -781,6 +802,11 @@ export interface ToolContext {
   // reconnect wording and the `client=` bucket on the claim URL, and is
   // forwarded to the console's workspace registry.
   clientKind?: string;
+  // Whether the client declared `capabilities.extensions["io.modelcontextprotocol/ui"]`
+  // during initialize. With clientKind it answers "does this caller mount a
+  // widget", which the name alone cannot: `claude-code` passes the Claude
+  // whitelist and mounts nothing.
+  declaresUi?: boolean;
   // Coarse country from the CDN edge (CF-IPCountry), never an IP. Forwarded to
   // the console because MCP→console is a server-to-server call with no edge in
   // front of it: only this hop knows where the agent actually connected from.
@@ -1038,12 +1064,41 @@ export function buildGeneratingSummary(
  * three more days. A test would have caught that; a description of the change did
  * not.
  */
-export function buildLinkDirective(viewUrl: string): string {
+export function buildLinkDirective(viewUrl: string, mountsWidget = false): string {
+  // A client that MOUNTED the item has already shown it. Asking the model to
+  // "show the contents from summary" then produces the item twice: once as the
+  // live widget and once as a markdown transcription of it underneath. Observed
+  // on 2026-09-11 — a 5x5 sheet rendered as an interactive grid with a second,
+  // static copy of the same numbers printed below it.
+  //
+  // The clause that prevents the ORIGINAL failure is kept either way, as the last
+  // word: a model that decides prose is enough must still hand over the link.
+  if (mountsWidget) {
+    return (
+      "The item is already rendered above — do NOT reproduce its contents; " +
+      "summarise in one line at most. Give them this link so they can open and " +
+      `use it: ${viewUrl}` +
+      " — the link is required; a description alone is not a substitute for it."
+    );
+  }
   return (
     "Show the user this item's contents from `summary` below, then give them this " +
     `link so they can open and use it: ${viewUrl}` +
     " — show both; a description alone is not a substitute for the link."
   );
+}
+
+/**
+ * Does this caller mount a widget, and therefore already show the item?
+ *
+ * Both halves are needed. The name alone over-matches — `claude-code` passes the
+ * Claude whitelist and mounts nothing — and the declaration alone over-matches
+ * too, since `web-sandbox`-style clients declare the extension and are
+ * deliberately given text. This is `widgetRouteFor` asked as a yes/no, so the two
+ * cannot drift apart.
+ */
+export function clientMountsWidget(clientKind?: string, declaresUi?: boolean): boolean {
+  return widgetRouteFor(clientKind, declaresUi) !== "none";
 }
 
 /**
@@ -1601,7 +1656,10 @@ async function handleItemResult(
     // So it asks for both and says what each is for, and the clause that prevents
     // the original prose-instead-of-link failure is kept as the LAST word, where it
     // forbids replacing the link rather than replacing the content.
-    const linkDirective = buildLinkDirective(hydration.view_url as string);
+    const linkDirective = buildLinkDirective(
+      hydration.view_url as string,
+      clientMountsWidget(ctx.clientKind, ctx.declaresUi),
+    );
     const message = hydration.claim_message
       ? `${linkDirective}\n\n${hydration.claim_message as string}`
       : linkDirective;

@@ -154,7 +154,75 @@ class SkybridgeHost implements HostAdapter {
   }
 }
 
+/**
+ * An adapter that tries BOTH transports and keeps whichever delivers.
+ *
+ * `window.openai ? Skybridge : ExtApps` was a one-shot guess, and it is wrong for
+ * any host that exposes `window.openai` while speaking MCP Apps. Codex is exactly
+ * that: it declares `[io.modelcontextprotocol/ui, openai/form]`. Committing to
+ * Skybridge there means read() finds no `toolOutput` — not now, not ever — and the
+ * watch loop spins for four minutes against a global the host never populates.
+ * Nothing renders and nothing says why. That is the blank card.
+ *
+ * A guess is the wrong shape for this. The host knows which protocol it speaks and
+ * answers when spoken to, so ask both and let the answer decide: whichever
+ * delivers a tool result first wins, and the loser is dropped. Feature detection
+ * still picks the ORDER — `window.openai` first when present — so the common case
+ * costs nothing.
+ */
+export class RacingHost implements HostAdapter {
+  private candidates: HostAdapter[];
+  private winner?: HostAdapter;
+  private toolCb?: (r: ToolResult) => void;
+  private themeCb?: (t: string | undefined) => void;
+
+  /** `candidates` is injectable so the race itself can be tested with fakes. */
+  constructor(candidates?: HostAdapter[]) {
+    this.candidates = candidates ?? (windowOpenai()
+      ? [new SkybridgeHost(), new ExtAppsHost()]
+      : [new ExtAppsHost(), new SkybridgeHost()]);
+  }
+
+  onToolResult(cb: (r: ToolResult) => void): void {
+    this.toolCb = cb;
+    for (const c of this.candidates) {
+      c.onToolResult((r) => {
+        // First delivery settles it. Later deliveries from the winner still flow;
+        // the loser is ignored rather than torn down, since an adapter has no
+        // disconnect and a stray late callback must not re-render from the
+        // transport we did not choose.
+        if (!this.winner) this.winner = c;
+        if (this.winner === c) this.toolCb?.(r);
+      });
+    }
+  }
+
+  onTheme(cb: (t: string | undefined) => void): void {
+    this.themeCb = cb;
+    for (const c of this.candidates) c.onTheme((t) => this.themeCb?.(t));
+  }
+
+  async connect(): Promise<void> {
+    // Settle as soon as EITHER connects; a transport the host does not speak may
+    // never resolve, so waiting for both would wait forever.
+    const attempts = this.candidates.map((c) =>
+      c.connect().catch(() => { /* a transport this host does not speak */ }),
+    );
+    await Promise.race(attempts);
+  }
+
+  openLink(url: string): void {
+    (this.winner ?? this.candidates[0]).openLink(url);
+  }
+
+  notifyHeight(px: number): void {
+    // Height goes to every candidate: the winner may not be settled yet, and a
+    // host ignores sizing for a transport it does not speak.
+    for (const c of this.candidates) c.notifyHeight(px);
+  }
+}
+
 /** Pick the adapter for the host we're running in. */
 export function createHost(): HostAdapter {
-  return windowOpenai() ? new SkybridgeHost() : new ExtAppsHost();
+  return new RacingHost();
 }
