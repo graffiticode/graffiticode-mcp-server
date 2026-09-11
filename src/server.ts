@@ -742,8 +742,18 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
         logSessionStarted({ ...identity, tool: name, lang }, sessionMeta);
       }
 
+      // Whether this client actually MOUNTS a widget decides what `message` asks
+      // the model to do with the item — reproduce its contents, or not. The name
+      // alone cannot answer it: `claude-code` passes the Claude whitelist and
+      // mounts nothing, and for that client the summary is not a preview of the
+      // product, it IS the product.
       const call = await withUpstreamTiming(() => handleToolCall(
-        { auth, clientKind, geoCountry: sessionMeta.geoCountry },
+        {
+          auth,
+          clientKind,
+          declaresUi: declaresUiExtension(server),
+          geoCountry: sessionMeta.geoCountry,
+        },
         name,
         args as Record<string, unknown>
       ) as Promise<Record<string, unknown>>);

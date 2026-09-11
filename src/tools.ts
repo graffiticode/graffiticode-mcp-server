@@ -802,6 +802,11 @@ export interface ToolContext {
   // reconnect wording and the `client=` bucket on the claim URL, and is
   // forwarded to the console's workspace registry.
   clientKind?: string;
+  // Whether the client declared `capabilities.extensions["io.modelcontextprotocol/ui"]`
+  // during initialize. With clientKind it answers "does this caller mount a
+  // widget", which the name alone cannot: `claude-code` passes the Claude
+  // whitelist and mounts nothing.
+  declaresUi?: boolean;
   // Coarse country from the CDN edge (CF-IPCountry), never an IP. Forwarded to
   // the console because MCP→console is a server-to-server call with no edge in
   // front of it: only this hop knows where the agent actually connected from.
@@ -1059,12 +1064,41 @@ export function buildGeneratingSummary(
  * three more days. A test would have caught that; a description of the change did
  * not.
  */
-export function buildLinkDirective(viewUrl: string): string {
+export function buildLinkDirective(viewUrl: string, mountsWidget = false): string {
+  // A client that MOUNTED the item has already shown it. Asking the model to
+  // "show the contents from summary" then produces the item twice: once as the
+  // live widget and once as a markdown transcription of it underneath. Observed
+  // on 2026-09-11 — a 5x5 sheet rendered as an interactive grid with a second,
+  // static copy of the same numbers printed below it.
+  //
+  // The clause that prevents the ORIGINAL failure is kept either way, as the last
+  // word: a model that decides prose is enough must still hand over the link.
+  if (mountsWidget) {
+    return (
+      "The item is already rendered above — do NOT reproduce its contents; " +
+      "summarise in one line at most. Give them this link so they can open and " +
+      `use it: ${viewUrl}` +
+      " — the link is required; a description alone is not a substitute for it."
+    );
+  }
   return (
     "Show the user this item's contents from `summary` below, then give them this " +
     `link so they can open and use it: ${viewUrl}` +
     " — show both; a description alone is not a substitute for the link."
   );
+}
+
+/**
+ * Does this caller mount a widget, and therefore already show the item?
+ *
+ * Both halves are needed. The name alone over-matches — `claude-code` passes the
+ * Claude whitelist and mounts nothing — and the declaration alone over-matches
+ * too, since `web-sandbox`-style clients declare the extension and are
+ * deliberately given text. This is `widgetRouteFor` asked as a yes/no, so the two
+ * cannot drift apart.
+ */
+export function clientMountsWidget(clientKind?: string, declaresUi?: boolean): boolean {
+  return widgetRouteFor(clientKind, declaresUi) !== "none";
 }
 
 /**
@@ -1622,7 +1656,10 @@ async function handleItemResult(
     // So it asks for both and says what each is for, and the clause that prevents
     // the original prose-instead-of-link failure is kept as the LAST word, where it
     // forbids replacing the link rather than replacing the content.
-    const linkDirective = buildLinkDirective(hydration.view_url as string);
+    const linkDirective = buildLinkDirective(
+      hydration.view_url as string,
+      clientMountsWidget(ctx.clientKind, ctx.declaresUi),
+    );
     const message = hydration.claim_message
       ? `${linkDirective}\n\n${hydration.claim_message as string}`
       : linkDirective;
