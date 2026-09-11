@@ -80,6 +80,13 @@ export const NATIVE_LANGUAGES: NativeLanguage[] = [
   { id: "L0178", pkg: "@graffiticode/l0178-view" },
   { id: "L0180", pkg: "@graffiticode/l0180-view" },
 
+  // L0014 authors TransLaTeX rule sets. It is INTERNAL: the catalog does not list it, so
+  // nothing routes a request to it. It is here for an item rendered by id, where the
+  // content card would show nothing useful. Its Form is a read-only report of the rule set's
+  // test corpus (pass / fail / captured per case) and never calls `apply`, so mounting it
+  // is the whole bar. `tests/l0014-widget-mount.test.ts` pins that against the built bundle.
+  { id: "L0014", pkg: "@graffiticode/l0014-view" },
+
   // L0182 (surveys) is deliberately NOT here yet. `@graffiticode/l0182-view` exists in its own
   // repo but has not been published, and the build imports every entry's `Form` and
   // `style.css` from npm — so adding the row before the publish breaks `npm run build`, which
