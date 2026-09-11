@@ -633,7 +633,22 @@ export function widgetRouteFor(
   clientName?: string,
   declaresUiExtension?: boolean
 ): WidgetRoute {
-  if (declaresUiExtension === true && isWidgetHost(clientName)) return "mcp-apps";
+  // The mcp-apps route is open to any RECOGNISED family that DECLARED the
+  // extension — Claude or OpenAI — rather than to Claude names alone.
+  //
+  // Observed, and the reason this changed: Codex connects as `codex-mcp-client`
+  // declaring `[io.modelcontextprotocol/ui, openai/form]`. It was routed to
+  // "openai" purely on its name, handed the Skybridge contract, and rendered
+  // nothing; the log line records it reading the widget resource and the user
+  // getting a link.
+  //
+  // The allow-list is NOT dropped, and that is deliberate: `web-sandbox`-style
+  // clients declare the extension too, and tools-contract.test.ts pins that they
+  // still get text. Declaring is necessary here, not sufficient — the first
+  // version of this change made it sufficient and that test caught it.
+  if (declaresUiExtension === true && (isWidgetHost(clientName) || isOpenAIClient(clientName))) {
+    return "mcp-apps";
+  }
   if (isOpenAIClient(clientName)) return "openai";
   return "none";
 }
@@ -761,7 +776,13 @@ export function toolsForClient(clientName?: string, declaresUiExtension?: boolea
       ui: { resourceUri: uiUri },
       "ui/resourceUri": uiUri,
     };
-    if (route === "openai") {
+    // Emitted for ANY OpenAI client, not only those routed to "openai". Codex
+    // declares the MCP Apps extension AND `openai/form`, so it now takes the
+    // mcp-apps route — but which key dialect it reads to find the widget is a
+    // separate question from which protocol it speaks to mount it, and it costs
+    // nothing to answer both. Both key sets point at the same resource; as the
+    // note above says, the keys differ and the artifact does not.
+    if (isOpenAIClient(clientName)) {
       ui["openai/outputTemplate"] = uiUri;
       // Shown in ChatGPT while the call runs and after it returns. Generation is
       // asynchronous and routinely outlives one render_item poll, so the invoking
