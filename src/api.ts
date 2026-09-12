@@ -258,12 +258,21 @@ export async function startCodeGeneration(options: {
   prompt: string;
   modification: string;
   currentSrc?: string | null;
+  /**
+   * What `currentSrc` COMPILES TO, serialized — the values an edit acts on when
+   * the program does not carry them itself.
+   *
+   * REQUIRES the console to declare `currentData` on the startCodeGeneration
+   * mutation. A variable the schema doesn't accept fails GraphQL validation
+   * outright, so the console must deploy first — same rule as `clientKind`.
+   */
+  currentData?: string | null;
 }): Promise<GenerationJobResult> {
-  const { auth, itemId, siblingOf, lang, name, client, clientKind, geoCountry, prompt, modification, currentSrc } = options;
+  const { auth, itemId, siblingOf, lang, name, client, clientKind, geoCountry, prompt, modification, currentSrc, currentData } = options;
 
   const mutation = `
-    mutation StartCodeGeneration($itemId: String, $siblingOf: String, $lang: String!, $name: String, $client: String, $clientKind: String, $geoCountry: String, $prompt: String!, $modification: String!, $currentSrc: String) {
-      startCodeGeneration(itemId: $itemId, siblingOf: $siblingOf, lang: $lang, name: $name, client: $client, clientKind: $clientKind, geoCountry: $geoCountry, prompt: $prompt, modification: $modification, currentSrc: $currentSrc) {
+    mutation StartCodeGeneration($itemId: String, $siblingOf: String, $lang: String!, $name: String, $client: String, $clientKind: String, $geoCountry: String, $prompt: String!, $modification: String!, $currentSrc: String, $currentData: String) {
+      startCodeGeneration(itemId: $itemId, siblingOf: $siblingOf, lang: $lang, name: $name, client: $client, clientKind: $clientKind, geoCountry: $geoCountry, prompt: $prompt, modification: $modification, currentSrc: $currentSrc, currentData: $currentData) {
         itemId
         status
         workspaceNamespace
@@ -274,7 +283,7 @@ export async function startCodeGeneration(options: {
   const result = await graphqlRequest<{ startCodeGeneration: GenerationJobResult }>(
     auth,
     mutation,
-    { itemId, siblingOf, lang, name, client, clientKind, geoCountry, prompt, modification, currentSrc }
+    { itemId, siblingOf, lang, name, client, clientKind, geoCountry, prompt, modification, currentSrc, currentData }
   );
 
   captureWorkspaceNamespace(auth, result.startCodeGeneration);

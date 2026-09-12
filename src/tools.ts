@@ -1194,6 +1194,40 @@ export async function handleCreateItem(
   return buildGeneratingResponse(job.itemId, langId, name ?? null, "create");
 }
 
+/**
+ * How much of an item's compiled record travels with an update.
+ *
+ * The console renders at most 6KB of it into the prompt, so a cap a little above
+ * that loses nothing it would have used, while keeping a large compiled item (a
+ * Learnosity record runs to tens of KB) out of every edit request. The context
+ * worth carrying is the kind the SOURCE cannot express, and that kind is small.
+ */
+const MAX_CURRENT_DATA_CHARS = 8000;
+
+/** Time budget for the extra fetch. An edit must not wait long on a decoration. */
+const CURRENT_DATA_TIMEOUT_MS = 5_000;
+
+/**
+ * The item's compiled record, serialized, or null — never a throw.
+ *
+ * Every failure mode lands on null and the update proceeds exactly as it did
+ * before this existed: no task to read, a slow or failed fetch, an error
+ * envelope (the same 404-during-generation blob isErrorDataPayload guards
+ * elsewhere), or a record too large to be worth sending.
+ */
+async function currentDataFor(ctx: ToolContext, taskId: string | undefined | null): Promise<string | null> {
+  if (!taskId) return null;
+  try {
+    const data = await getData({ auth: ctx.auth, taskId, timeoutMs: CURRENT_DATA_TIMEOUT_MS });
+    if (data == null || isErrorDataPayload(data)) return null;
+    const serialized = JSON.stringify(data);
+    if (!serialized || serialized.length > MAX_CURRENT_DATA_CHARS) return null;
+    return serialized;
+  } catch {
+    return null;
+  }
+}
+
 export async function handleUpdateItem(
   ctx: ToolContext,
   args: { item_id: string; modification: string }
@@ -1214,6 +1248,23 @@ export async function handleUpdateItem(
   const existingHelp = parseHelp(existingItem.help);
   const contextualPrompt = buildContextualPrompt(existingHelp, modification);
 
+  // WHAT THE ITEM COMPILES TO, sent alongside its source.
+  //
+  // The source is not always enough to edit against. A dialect may keep the
+  // values an edit acts on outside the program: L0182 names a survey and nothing
+  // else, its ideas being fetched by the compiler, so a generator editing that
+  // program has never seen an idea. Asking it to record three of them by name
+  // then has nothing anchoring the strings, and it invents near-misses that fail
+  // to compile ("address climate change" for "mitigate climate change") or, worse,
+  // drops one and compiles — a real record of an answer nobody gave. Measured
+  // 2026-09-11 over 12 answers with the data model absent: 1 correct, 7 refused
+  // by the compiler, 3 silently short.
+  //
+  // Best-effort in every direction. It decorates the prompt, so nothing here may
+  // cost the generation: a failed fetch, an error envelope or an oversized record
+  // simply means generating the way this path always did.
+  const currentData = await currentDataFor(ctx, existingItem.taskId);
+
   // Start async generation against the existing item and return immediately.
   // The worker appends the help entry and persists the new taskId on completion.
   const job = await startCodeGeneration({
@@ -1230,6 +1281,7 @@ export async function handleUpdateItem(
     prompt: contextualPrompt,
     modification,
     currentSrc,
+    currentData,
   });
 
   return buildGeneratingResponse(job.itemId, existingItem.lang, existingItem.name, "update");
