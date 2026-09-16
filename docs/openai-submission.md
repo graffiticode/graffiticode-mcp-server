@@ -125,11 +125,16 @@ as the Challenge Base URL — confirm in-portal before assuming.
 - [ ] Full **5+3 run on ChatGPT web AND mobile** (desktop = extra coverage); fresh plugin
       connection + fresh conversation.
 - [ ] **A person has watched the widget mount in ChatGPT web AND mobile**, on all three
-      starter prompts. Partly satisfied: on 2026-09-11 an L0173 chart was seen drawing in the
+      starter prompts. Partly satisfied. On 2026-09-11 an L0173 chart was seen drawing in the
       **ChatGPT mobile app** — the first confirmed OpenAI-host render. The same item fell back
       to the content card in ChatGPT desktop; root-caused 2026-09-15 as a delivery race in the
-      Skybridge watch loop (§10) and fixed, but **not yet re-confirmed on desktop by a
-      person**. Since the reviewer tests both surfaces, this gate is not met until it is.
+      Skybridge watch loop (§10) and fixed. **On 2026-09-16 at 02:45 UTC a person watched an
+      L0173 chart render quickly in Codex on the CURRENT build** — the `resources/read` line
+      names `ae93cbff`, so this is the first confirmed render of the fixed widget in a real
+      host, on the same Skybridge path ChatGPT uses. Not yet confirmed in ChatGPT itself, whose
+      cloud side was still reading the 09-11 build ninety seconds earlier (§11). Since the
+      reviewer tests both surfaces, this gate is not met until ChatGPT is seen on a current
+      build.
       jsdom is not a substitute — it cannot render L0173 at all (ECharts needs a canvas it
       lacks). **Record the widget hash that client read** (§11) — a render proves nothing about
       the current build unless the `[widget] resources/read` line names it.
@@ -291,8 +296,10 @@ Also changed, and material to a reviewer:
 **Still open before resubmitting:**
 
 1. **ChatGPT desktop fell back to the content card** on 2026-09-11 while ChatGPT mobile drew
-   the same L0173 chart. **Root-caused 2026-09-15 and fixed**, but unconfirmed on a real
-   desktop client.
+   the same L0173 chart. **Root-caused 2026-09-15, fixed, and confirmed rendering 2026-09-16
+   at 02:45 UTC** — a chart drew quickly in Codex on `ae93cbff`, the fixed build, verified by
+   the `resources/read` line rather than by the render alone. ChatGPT itself has still not been
+   seen on a current build.
 
    The cause was a delivery race, not a host capability. Skybridge carries a tool result on
    two globals — `toolOutput` (structuredContent) and `toolResponseMetadata` (`_meta`) — and
@@ -362,6 +369,20 @@ rendered correctly — on `63bb0b17`, a build that predates BOTH the 09-11 trans
 **14:21 UTC**, on the minute (observed 09-11 through 09-15). It does take the current URI. But
 four consecutive scans saw `2c1856e8` while interactive sessions kept reading `63bb0b17`, so
 whatever the scan refreshes, it is not what a user's client mounts.
+
+**The split, caught in one window.** On 2026-09-16, ninety seconds apart in the same Codex
+session, two components of the same product loaded two different builds:
+
+| Time (UTC) | Client | Build |
+|---|---|---|
+| 02:44:52 | `openai-mcp (Codex)` — OpenAI's cloud side | `63bb0b17` (2026-09-11) |
+| 02:45:38 | `codex-mcp-client` — the local Codex client | `ae93cbff` (current) |
+
+The local client is the one a restart refreshes; the cloud side keeps its own snapshot and does
+not. That is why restarting an app can leave the rendered widget unchanged, and it is the
+likeliest explanation of the 09-11 "desktop renders, mobile doesn't" split — two caches, not two
+behaviours. **The chart that rendered at 02:45:56 was the first confirmed render of a current
+build in any OpenAI host.**
 
 **What this changes:**
 
