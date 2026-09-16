@@ -67,7 +67,7 @@ class ExtAppsHost implements HostAdapter {
 }
 
 /** ChatGPT Apps host, wrapping window.openai (Skybridge). */
-class SkybridgeHost implements HostAdapter {
+export class SkybridgeHost implements HostAdapter {
   private toolCb?: (r: ToolResult) => void;
   private ro?: ResizeObserver;
 
@@ -116,7 +116,23 @@ class SkybridgeHost implements HostAdapter {
       if (!r) return false;
       // Cheap identity check: only re-deliver when the payload actually differs,
       // so a stable result doesn't re-render the panel every tick.
-      const key = JSON.stringify(r.structuredContent);
+      //
+      // The key covers `meta` as well as `structuredContent`, and that is the
+      // whole point rather than thoroughness. The two arrive on SEPARATE globals
+      // — `toolOutput` and `toolResponseMetadata` — and nothing promises they are
+      // populated in the same tick. `render_item`'s structuredContent is compact
+      // by design; the src/data a native mount needs lives ONLY in the metadata.
+      // So a host that sets the output first delivers a payload with no render
+      // data, the renderer correctly falls back to the content card, and then —
+      // keyed on structuredContent alone — every later tick that DOES carry the
+      // metadata is suppressed as a duplicate. The card is permanent, no mount is
+      // attempted, and the logs show no bundle fetch to explain it.
+      //
+      // That is the ChatGPT desktop/mobile split observed 2026-09-11: the same
+      // chart, the same client name, the same advertised metadata, drawn on
+      // mobile and a card on desktop. It was never a host capability difference —
+      // it is a race, and mobile happened to win it.
+      const key = JSON.stringify([r.structuredContent, r.meta]);
       if (key === last) return true;
       last = key;
       this.toolCb?.(r);
@@ -135,6 +151,11 @@ class SkybridgeHost implements HostAdapter {
       deliver();
       if (++ticks > 120) clearInterval(timer); // ~4 minutes at 2s
     }, 2000);
+    // No-op in a browser, where setInterval returns a number. Under Node — which
+    // is where this class is TESTED — the handle keeps the event loop alive, so a
+    // test that exercises the watch loop would hang for the full four minutes
+    // after its assertions have passed.
+    (timer as unknown as { unref?: () => void }).unref?.();
   }
 
   openLink(url: string): void {
