@@ -58,6 +58,14 @@ export interface ConceptWebContent {
   instructions?: string;
   concepts: string[];
   links: { from: string; to: string; label?: string }[];
+  /**
+   * The draggable options, when the web is an ASSESSMENT rather than a finished
+   * diagram. These are what the learner sees in the tray, so they are safe to
+   * describe; which one belongs in which node is the answer key and is not.
+   */
+  tray?: string[];
+  /** How many nodes the learner has to fill. Only set alongside `tray`. */
+  blanks?: number;
 }
 
 export type ItemContent =
@@ -522,13 +530,42 @@ export function describeItem(lang: string, sc: Record<string, unknown>): ItemCon
         to: String(e.to ?? ""),
         label: typeof e.text === "string" && e.text ? e.text : undefined,
       }));
+    const topic = (typeof web.topic === "string" && web.topic) || anchor || undefined;
+    const instructions = typeof web.instructions === "string" ? web.instructions : undefined;
     if (connections.length || links.length) {
+      return { kind: "conceptweb", topic, instructions, concepts: connections, links };
+    }
+
+    // An ASSESSMENT web describes itself entirely differently, and the code above
+    // reads it as empty. Its node `text` fields are blank ON PURPOSE — that is the
+    // blank the learner fills — the expected answers live in `assess.expected`, and
+    // the draggable options live in `concepts`. So every string the extractor looked
+    // at was "", the early return never fired, and `render_item` returned a title and
+    // a link and nothing else. The widget hides that (it mounts the real component),
+    // which is why it survived: it only shows on a client that has nothing but text.
+    //
+    // The tray is described and the mapping is not. The tray is what the learner is
+    // shown; which concept belongs in which node is the answer key, and summaries of
+    // other assessment languages don't print those either.
+    const tray = Array.isArray(web.concepts)
+      ? web.concepts
+          .map((c) => (isRecord(c) ? String(c.value ?? c.text ?? "") : String(c ?? "")))
+          .filter(Boolean)
+      : [];
+    const assessed = Array.isArray(web.connections)
+      ? web.connections.filter((c) => isRecord(c) && isRecord(c.assess)).length
+      : 0;
+    const anchorAssessed = isRecord(web.anchor) && isRecord(web.anchor.assess) ? 1 : 0;
+    const blanks = assessed + anchorAssessed;
+    if (tray.length || blanks) {
       return {
         kind: "conceptweb",
-        topic: (typeof web.topic === "string" && web.topic) || anchor || undefined,
-        instructions: typeof web.instructions === "string" ? web.instructions : undefined,
-        concepts: connections,
+        topic,
+        instructions,
+        concepts: [],
         links,
+        tray: tray.length ? tray : undefined,
+        blanks: blanks || undefined,
       };
     }
   }
@@ -629,11 +666,20 @@ export function contentToMarkdown(content: ItemContent): string {
       return lines.join("\n");
     }
     case "conceptweb": {
-      const { topic, instructions, concepts, links } = content;
+      const { topic, instructions, concepts, links, tray, blanks } = content;
       const lines: string[] = [];
       if (topic) lines.push(`**${topic}** — concept web`, "");
       if (instructions) lines.push(instructions, "");
       if (concepts.length) lines.push(`Concepts: ${concepts.join(", ")}`, "");
+      if (blanks) {
+        lines.push(
+          `${blanks} ${blanks === 1 ? "node" : "nodes"} to fill` +
+            (tray ? `, from a tray of ${tray.length}: ${tray.join(", ")}` : ""),
+          "",
+        );
+      } else if (tray) {
+        lines.push(`Concepts to place: ${tray.join(", ")}`, "");
+      }
       for (const l of links) {
         lines.push(`- ${l.from} → ${l.to}${l.label ? ` — ${l.label}` : ""}`);
       }
