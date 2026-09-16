@@ -786,3 +786,113 @@ test("L0181 flashcard decks summarise as front → back pairs, never JSON", () =
   assert.match(md, /What happens during evaporation\? → Liquid water changes into water vapor\./);
   assert.doesNotMatch(md, /"cards"/);
 });
+
+/**
+ * A multi-question quiz is an ACTIVITY, and nothing read that shape.
+ *
+ * "Make a 5-question quiz" compiles to `data.activity.items[]`, each entry carrying
+ * its own interaction and validation. Only the SINGLE-item shape (`data.interaction`)
+ * was handled, so a quiz fell through every branch to `preview` — which chat
+ * suppresses — and the catalog's general assessment language answered with a title
+ * and a link. The single-item branch is what hid it: a one-question item read fine,
+ * so the language looked covered.
+ *
+ * This is the same failure as the concept web above and as the Learnosity answer key
+ * below: the extractor knew one shape of a thing that has two, and the miss is
+ * silent — an empty summary looks like a language that has nothing to say.
+ */
+const WATER_CYCLE_QUIZ = {
+  data: {
+    activity: {
+      navigation: "nonlinear",
+      submission: "simultaneous",
+      items: [
+        {
+          id: 0,
+          interaction: {
+            type: "choice",
+            prompt: "What is the water cycle primarily powered by?",
+            options: [
+              { id: "A", text: "The Sun" },
+              { id: "B", text: "The Moon" },
+              { id: "C", text: "Wind" },
+              { id: "D", text: "Ocean currents" },
+            ],
+          },
+          validation: { responseProcessing: "map_response", points: 1, mapping: { A: { correct: true, points: 1 } } },
+        },
+        {
+          id: 1,
+          interaction: {
+            type: "choice",
+            prompt: "What is the process by which water changes from a liquid to a gas called?",
+            options: [
+              { id: "A", text: "Condensation" },
+              { id: "B", text: "Evaporation" },
+              { id: "C", text: "Precipitation" },
+              { id: "D", text: "Collection" },
+            ],
+          },
+          validation: { responseProcessing: "map_response", points: 1, mapping: { B: { correct: true, points: 1 } } },
+        },
+      ],
+    },
+  },
+  errors: [],
+};
+
+test("a multi-question quiz reports every question, not a title and a link", () => {
+  const md = contentToMarkdown(describeItem("L0180", { data: WATER_CYCLE_QUIZ }));
+  assert.notEqual(md, "", "a terminal client, and ChatGPT without a widget, would see nothing");
+  assert.match(md, /\*\*2 questions\*\*/);
+  assert.match(md, /What is the water cycle primarily powered by\?/);
+  assert.match(md, /What is the process by which water changes/);
+});
+
+test("the quiz summary marks the correct option", () => {
+  const md = contentToMarkdown(describeItem("L0180", { data: WATER_CYCLE_QUIZ }));
+  assert.match(md, /- ✓ The Sun/);
+  assert.match(md, /- ✓ Evaporation/);
+  assert.doesNotMatch(md, /✓ The Moon/);
+});
+
+/**
+ * The Learnosity answer key moved and nothing noticed.
+ *
+ * `describeItem` looked for `valid-response` / `validResponse` at the top of each
+ * question. Current payloads nest it as `validation.valid_response`, so `correct`
+ * was false for every option and the ✓ never appeared — while the code that renders
+ * it calls the mark "the single most useful thing in the summary for anyone
+ * verifying that the item is correct", and starter prompt 3 of the ChatGPT listing
+ * literally promises "answers marked".
+ *
+ * A missing ✓ is indistinguishable from a question with no right answer, which is
+ * why this went unseen through a submission and a rejection.
+ */
+test("a Learnosity item marks its correct option from nested validation", () => {
+  const md = contentToMarkdown(
+    describeItem("L0176", {
+      data: {
+        data: {
+          type: "questions",
+          request: {
+            questions: [
+              {
+                type: "mcq",
+                stimulus: "What is the primary process by which water moves from the ocean to the atmosphere?",
+                options: [
+                  { label: "Evaporation", value: "0" },
+                  { label: "Condensation", value: "1" },
+                ],
+                validation: { scoring_type: "exactMatch", valid_response: { score: 1, value: ["0"] } },
+              },
+            ],
+          },
+        },
+        errors: [],
+      },
+    })
+  );
+  assert.match(md, /- ✓ Evaporation/);
+  assert.doesNotMatch(md, /✓ Condensation/);
+});
