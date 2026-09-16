@@ -12,11 +12,19 @@ the portal is a field nobody can review.
 
 ---
 
-## v2 — submitted 2026-08-18
+## v2 — submitted 2026-08-18, **REJECTED 2026-08-30**
 
 > ⚠️ **Fields below are AS PROPOSED, not yet read back from the portal.** They were drafted
 > and tested on 2026-08-18 and submitted the same day. Confirm against the live listing and
 > correct any drift, then delete this warning.
+>
+> ⛔ **v2.0.0 was rejected on 2026-08-30** — "one or more test cases did not produce correct
+> results." The copy was not the stated reason; the test cases were. See §10 of
+> `openai-submission.md` for the findings and their status. **v2.0.0's version-level changes
+> never shipped** — the approved version is still v1.0.0. Which copy users actually see is
+> UNCONFIRMED: category and listing text were editable post-approval without a review cycle, so
+> some v2 copy may be live on top of the v1.0.0 version. Read the portal back and record the
+> answer here; that is the one question this file exists to answer and currently cannot.
 
 **Category:** `Productivity` *(was: Developer Tools)*
 
@@ -45,12 +53,54 @@ Shorter fallback if the field tightens (35): `Quizzes, sheets, diagrams, and mor
 
 | # | Prompt | Chars | Language | Verified output |
 |---|---|---|---|---|
-| 1 | `Create an invoice with line items, quantity, unit price, a line total for each row, and a grand total.` | 102 | L0166 | per-row `=B2*C2`, `=SUM(D2:D4)` grand total, `$#,##0.00` formatting |
+| 1 | `Create an invoice with line items, quantity, unit price, a line total for each row, and a grand total.` | 102 | ~~L0166~~ → **L0179** | per-row `=B2*C2`, `=SUM(D2:D4)` grand total. **No currency formatting** — see re-verification below |
 | 2 | `Create a concept web explaining how rain forms.` | 47 | L0169 | 5 assessed nodes + populated 6-concept drag tray |
 | 3 | `Create a Learnosity water cycle assessment: one multiple-choice and one fill-in-the-blank, answers marked.` | 106 | L0176 | MCQ with correct option marked + `clozetext` with `{{response}}`, signed payload |
 
 Every prompt above was executed against production before submission — see the
-"Prompt verification" section.
+"Prompt verification" section. **The prompt TEXT is unchanged and still correct; what went
+stale was the language behind prompt 1** — see the re-verification immediately below.
+
+### Re-verification — 2026-09-15
+
+Re-run against production (`mcp.graffiticode.org`) because L0166 was deprecated on 2026-08-26,
+eight days after v2 was submitted, and has since left the catalog entirely. **All three prompts
+pass.** Both halves were checked, because a storefront prompt can fail at either:
+
+**Routing** — `npm run eval:routing -- --only starter`, 3 runs per prompt, all 3/3:
+
+| # | Routes to | Discovery calls |
+|---|---|---|
+| 1 | L0179 | 0, 0, 0 |
+| 2 | L0169 | 0, 0, 0 |
+| 3 | L0176 | 1, 1, 1 |
+
+The three prompts are now permanent cases in `scripts/eval-routing.ts`, tagged `starter`. They
+are the only cases in that file whose exact wording is chosen outside this repo, and a
+deprecation is exactly what breaks them silently — so re-run `--only starter` before any
+resubmission and whenever a language they touch changes. Caveat: the eval drives
+`claude-opus-4-8` against our real agent-facing surface, not ChatGPT's model. It measures our
+instructions and catalog, which is the half we control; it is a proxy for the reviewer's client,
+not a substitute.
+
+**Generation** — created and inspected via `create_item` → `get_item`:
+
+| # | Language | create→ready | Result |
+|---|---|---|---|
+| 1 | L0179 | 13.0s | `=B2*C2` per row, `=SUM(D2:D4)` grand total, bold header + total row, right-aligned numeric columns |
+| 2 | L0169 | 9.7s | anchor + 5 connections, all `assess`ed, node text EMPTY, 6-concept tray populated — a real drag task, not a pre-filled diagram |
+| 3 | L0176 | 7.4s | `mcq` with correct option marked (`score 1`, value `"0"`), `clozetext` with `{{response}}` and expected `"condensation"`, signed Learnosity request payload |
+
+**One recorded expectation was wrong and is now corrected:** prompt 1's v2 record claimed
+`$#,##0.00` currency formatting. L0179 produces none — the cells carry raw numbers. The v2
+record described L0166's output and was never re-checked after the supersession. Either accept
+the unformatted invoice, or change the prompt to ask for currency formatting and re-verify.
+
+**A routing risk worth knowing:** `list_languages(search: "invoice")` returns **nothing**. The
+prompt routes correctly because the catalog is inlined in `SERVER_INSTRUCTIONS` and a model
+reads "invoice" as a spreadsheet job — not because search finds it. A client that searches
+first sees an empty catalog. Same shape as the generic-quiz gap; the keyword index lives in the
+console.
 
 ### Why these changed from v1
 

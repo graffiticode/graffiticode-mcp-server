@@ -45,6 +45,14 @@ const SKILLS_REPO = process.env.GRAFFITICODE_SKILLS_PATH ?? "../graffiticode-ski
 
 const catalogOnly = process.argv.includes("--catalog-only");
 
+// `--only <substr>` runs just the cases whose tag, `why`, or prompt contains <substr>.
+// `--only starter` is the pre-resubmission check: the three ChatGPT storefront prompts,
+// which are the only cases whose exact wording is chosen by someone outside this repo.
+const onlyArg = (() => {
+  const i = process.argv.indexOf("--only");
+  return i >= 0 ? process.argv[i + 1] : undefined;
+})();
+
 const gcKey = process.env.GRAFFITICODE_API_KEY;
 if (!gcKey) {
   console.error("Set GRAFFITICODE_API_KEY to run this eval.");
@@ -164,6 +172,8 @@ interface Case {
    */
   expectNot?: string[];
   why?: string;
+  /** Free-form label for `--only`. */
+  tag?: string;
 }
 
 const CASES: Case[] = [
@@ -218,6 +228,32 @@ const CASES: Case[] = [
   { prompt: "A spreadsheet problem where students compute column totals with SUM.", expect: "L0179" },
   { prompt: "A concept web where students link the causes of the Great Depression.", expect: "L0169" },
   { prompt: "A bar chart of quarterly revenue for four regions.", expect: "L0173" },
+  // The three ChatGPT directory starter prompts, VERBATIM. They belong here because a
+  // storefront prompt has to route on its own words: the person typing it copied it off a
+  // card and knows nothing about the catalog, so a prompt that only works when an operator
+  // names the language is a prompt that fails in front of the person deciding whether to
+  // install. Re-run with `--only starter` before any listing resubmission, and whenever a
+  // language they touch is deprecated.
+  //
+  // Prompt 1 is the one that moved: it was recorded against L0166, which left the catalog
+  // entirely when L0179 superseded it. Note that `list_languages(search: "invoice")` returns
+  // NOTHING — this prompt routes on the inlined catalog reading "invoice" as a spreadsheet,
+  // not on search, which is why it is asserted rather than assumed.
+  {
+    tag: "starter",
+    prompt:
+      "Create an invoice with line items, quantity, unit price, a line total for each row, " +
+      "and a grand total.",
+    expect: "L0179",
+  },
+  { tag: "starter", prompt: "Create a concept web explaining how rain forms.", expect: "L0169" },
+  {
+    tag: "starter",
+    prompt:
+      "Create a Learnosity water cycle assessment: one multiple-choice and one " +
+      "fill-in-the-blank, answers marked.",
+    expect: "L0176",
+  },
 ];
 
 function loadSkill(name: string): string {
@@ -365,9 +401,23 @@ async function routingEval() {
     loadSkill("learnosity"),
   ].join("");
 
-  console.log(`\n=== Routing eval (${MODEL}, ${RUNS_PER_CASE} runs/case) ===`);
+  const cases = onlyArg
+    ? CASES.filter((c) =>
+        `${c.tag ?? ""} ${c.why ?? ""} ${c.prompt}`.toLowerCase().includes(onlyArg.toLowerCase()),
+      )
+    : CASES;
+  if (onlyArg && cases.length === 0) {
+    console.error(`--only ${onlyArg} matched no cases.`);
+    process.exit(2);
+  }
 
-  for (const c of CASES) {
+  console.log(
+    `\n=== Routing eval (${MODEL}, ${RUNS_PER_CASE} runs/case` +
+      (onlyArg ? `, --only ${onlyArg}: ${cases.length} of ${CASES.length} cases` : "") +
+      ") ===",
+  );
+
+  for (const c of cases) {
     const outcomes = await Promise.all(
       Array.from({ length: RUNS_PER_CASE }, () => routeOnce(client, c.prompt, system)),
     );
