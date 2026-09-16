@@ -131,7 +131,8 @@ as the Challenge Base URL — confirm in-portal before assuming.
       Skybridge watch loop (§10) and fixed, but **not yet re-confirmed on desktop by a
       person**. Since the reviewer tests both surfaces, this gate is not met until it is.
       jsdom is not a substitute — it cannot render L0173 at all (ECharts needs a canvas it
-      lacks).
+      lacks). **Record the widget hash that client read** (§11) — a render proves nothing about
+      the current build unless the `[widget] resources/read` line names it.
 - [ ] A **"Generating…" card is expected now, and is not a defect.** It carries a live
       progress line (elapsed + tokens written) and is replaced in place when the item is
       ready. What must NOT appear is a stack of them: `render_item` gives ChatGPT the
@@ -328,3 +329,70 @@ Also changed, and material to a reviewer:
    widget covers this; on a terminal client it does not.
 5. The v3 copy gaps in `openai-listing-copy.md` (L0177/L0178 invisible; the `learnosity`
    indexing experiment).
+
+---
+
+## 11. Widget builds and client caching — the stale-widget trap
+
+**Nothing about widget code can be concluded from what a client renders until you know which
+build that client loaded.** Established 2026-09-15/16 over an evening of testing, at the cost
+of two wrong diagnoses.
+
+The widget resource URI is content-hashed (`widgetResourceUris()`), so every build gets its own
+URI. That defends against a host caching the CONTENT under a stable URI. It does not defend
+against a host caching **the URI itself** — and the URI is delivered in `tools/list`, which
+OpenAI clients cache aggressively:
+
+| Time (UTC) | Client | Widget URI it read |
+|---|---|---|
+| 00:22:45 | — | revision `00187-nx4` begins serving `ae93cbff` |
+| 00:23–00:24 | `openai-mcp` (ChatGPT) | **no `tools/list`, no `resources/read`** — ran entirely from cache |
+| 00:27:16 | `codex-mcp-client` | `2c1856e8` |
+| 00:31:11 | diagnostic probe | `ae93cbff` ← still the only client that has ever read it |
+| 00:42–00:44 | `openai-mcp` (ChatGPT) | no reads; two L0173 renders showed a link, one L0169 mounted |
+| 00:50:13 | `codex-mcp-client` | fresh `tools/list` |
+| 00:51:23 | `openai-mcp (Codex)` | `63bb0b17` — **70 seconds after that fresh list**, and a build already in use on 09-11 at 18:24 |
+
+So a client can re-list tools and still read a URI we stopped advertising hours earlier. A
+user-initiated reconnect did not force a re-scan; restarting the app produced sessions that
+rendered correctly — on `63bb0b17`, a build that predates BOTH the 09-11 transport fix and the
+09-15 late-metadata fix. **A render that works is not evidence the current code works.**
+
+**There is a daily scan.** OpenAI reads `tools/list` and the widget resource every day at
+**14:21 UTC**, on the minute (observed 09-11 through 09-15). It does take the current URI. But
+four consecutive scans saw `2c1856e8` while interactive sessions kept reading `63bb0b17`, so
+whatever the scan refreshes, it is not what a user's client mounts.
+
+**What this changes:**
+
+1. **Always read the `[widget] resources/read` log line before drawing a conclusion.** It is
+   the only place the loaded build is recorded. Two clients with the same name and version can
+   be running different builds — which is sufficient, by itself, to produce a "desktop renders,
+   mobile doesn't" split with no code difference anywhere. The 09-11 desktop/mobile finding was
+   read as a code bug twice before this was understood.
+2. **A widget change is not shipped when it deploys.** It is shipped when a host reads the new
+   URI. Deploy widget changes well ahead of any review window and confirm with a log line.
+3. **For the review itself this is good news**: the daily scan takes the current build, and a
+   reviewer connecting fresh gets whatever `tools/list` says at that moment. The trap is one we
+   set for ourselves in testing.
+4. **Open:** nothing we control is known to force an interactive client to refresh — not a
+   deploy, not a reconnect, not the daily scan.
+
+To check what any client is loading:
+
+```bash
+gcloud logging read 'resource.labels.service_name="mcp-service" AND textPayload:"resources/read"' \
+  --project graffiticode-app --freshness=2h --format="value(timestamp,textPayload)"
+```
+
+### Codex flips routes between launches
+
+Same binary, minutes apart, on 2026-09-16:
+
+- 00:49:21 — `codex-mcp-client v0.154.0-alpha.6.2`, `declares_ui_extension=false`, `extensions=[]` → **`openai`** route (Skybridge)
+- 00:49:57 — `codex-mcp-client v0.154.0-alpha.6.2`, `declares_ui_extension=true`, `extensions=[io.modelcontextprotocol/ui, openai/elicitation, openai/form]` → **`mcp-apps`** route
+
+Version 0.153.4 declared the extension consistently earlier the same evening. **Any rule keyed
+on that declaration is non-deterministic per launch**, so both routes have to work for the same
+client — which is the argument for the `RacingHost` transport (`365e406`) being the real fix and
+the routing rule being close to cosmetic.
