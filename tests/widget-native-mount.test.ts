@@ -116,3 +116,61 @@ test("L0180 shows the distractor rationale for a wrong answer", async () => {
   assert.match(item.text(), /Not quite — 0 \/ 1 point/);
   assert.match(item.text(), /Oxygen is released by plants/);
 });
+
+/**
+ * L0181's deck holds the flip and the position in React state, so a widget that mounts but
+ * never re-renders shows the first front forever. Fixture is the real deck from a ChatGPT render.
+ */
+const L0181_DATA = {
+  data: {
+    theme: "light",
+    instructions: "Flip each card to check your answer before the quiz.",
+    title: "Water Cycle Quiz Review",
+    cards: [
+      { id: 0, front: "What happens during evaporation?", back: "Liquid water heats up and changes into water vapor." },
+      { id: 1, front: "What happens during condensation?", back: "Water vapor cools in the air and forms tiny droplets." },
+    ],
+  },
+  errors: [],
+};
+
+test("L0181 mounts, reveals the back, and advances to the next card", async () => {
+  const dom = new JSDOM(`<!doctype html><html><body><div id="root"></div></body></html>`, {
+    url: "https://mcp.graffiticode.org/",
+    pretendToBeVisual: true,
+  });
+  const g = globalThis as unknown as Record<string, unknown>;
+  g.window = dom.window;
+  g.document = dom.window.document;
+  Object.defineProperty(globalThis, "navigator", { value: dom.window.navigator, configurable: true });
+  g.HTMLElement = dom.window.HTMLElement;
+  g.Element = dom.window.Element;
+  g.Node = dom.window.Node;
+  g.MutationObserver = dom.window.MutationObserver;
+  g.requestAnimationFrame = (cb: () => void) => setTimeout(cb, 0);
+  g.cancelAnimationFrame = (id: number) => clearTimeout(id);
+
+  const mod = (await import("../dist/widget/lang/L0181.mjs")) as {
+    mount: (el: unknown, data: unknown) => void;
+  };
+  const root = dom.window.document.getElementById("root")!;
+  mod.mount(root, L0181_DATA);
+  const settle = () => new Promise((r) => setTimeout(r, 50));
+  const click = async (selector: string) => {
+    const target = [...root.querySelectorAll(selector)].find((n) => !(n as HTMLButtonElement).disabled);
+    assert.ok(target, `no clickable ${selector}`);
+    target.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    await settle();
+  };
+  await settle();
+
+  const text = () => root.textContent ?? "";
+  assert.match(text(), /What happens during (evaporation|condensation)\?/);
+  const front = /evaporation/.test(text()) ? "evaporation" : "condensation";
+
+  await click('[aria-label="Reveal the answer"]');
+  assert.match(text(), front === "evaporation" ? /Liquid water heats up/ : /Water vapor cools/);
+
+  await click('[aria-label="Next card"]');
+  assert.match(text(), front === "evaporation" ? /during condensation\?/ : /during evaporation\?/);
+});

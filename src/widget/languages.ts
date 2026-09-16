@@ -79,6 +79,10 @@ export const NATIVE_LANGUAGES: NativeLanguage[] = [
   { id: "L0177", pkg: "@graffiticode/l0177-view" },
   { id: "L0178", pkg: "@graffiticode/l0178-view" },
   { id: "L0180", pkg: "@graffiticode/l0180-view" },
+  // L0181 flashcards (replaces L0159's). Before this entry a deck rendered as its raw JSON in
+  // ChatGPT while the quiz it was studied from rendered natively. Flip/advance is pinned by
+  // `tests/widget-native-mount.test.ts`.
+  { id: "L0181", pkg: "@graffiticode/l0181-view" },
 
   // L0014 authors TransLaTeX rule sets. It is INTERNAL: the catalog does not list it, so
   // nothing routes a request to it. It is here for an item rendered by id, where the

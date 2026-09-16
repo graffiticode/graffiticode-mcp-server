@@ -420,6 +420,28 @@ function l0182Survey(survey: Record<string, unknown>, response: unknown): ItemCo
   return { kind: "prose", text: lines.join("\n").slice(0, PROSE_CAP) };
 }
 
+/**
+ * L0181 flashcard decks: `data = { title?, instructions?, cards: [{ id, front, back }] }`.
+ *
+ * Matched on SHAPE, like the branches around it. Without this a deck fell through to `preview`,
+ * so the widget card showed its JSON and chat showed nothing but a title and a link.
+ */
+function flashcardDeck(data: Record<string, unknown>): ItemContent | null {
+  const cards = Array.isArray(data.cards) ? data.cards.filter(isRecord) : [];
+  const pairs = cards
+    .map((c) => [typeof c.front === "string" ? c.front : "", typeof c.back === "string" ? c.back : ""])
+    .filter(([front, back]) => front || back);
+  if (!pairs.length) return null;
+
+  const title = typeof data.title === "string" && data.title ? `"${data.title}"` : null;
+  const lines: string[] = [
+    title ? `Flashcards: ${title} — ${pairs.length} cards.` : `Flashcards: ${pairs.length} cards.`,
+  ];
+  if (typeof data.instructions === "string" && data.instructions) lines.push(data.instructions);
+  lines.push(...pairs.map(([front, back]) => `- ${front} → ${back}`));
+  return { kind: "prose", text: lines.join("\n").slice(0, PROSE_CAP) };
+}
+
 export function describeItem(lang: string, sc: Record<string, unknown>): ItemContent {
   const unwrapped = unwrapData(sc.data);
   const data = isRecord(unwrapped) ? unwrapped : undefined;
@@ -461,6 +483,12 @@ export function describeItem(lang: string, sc: Record<string, unknown>): ItemCon
   if (data && isRecord(data.survey)) {
     const survey = l0182Survey(data.survey, data.response);
     if (survey) return survey;
+  }
+
+  // L0181 flashcard decks: `data = { cards: [{ front, back }], … }`.
+  if (data && Array.isArray(data.cards)) {
+    const deck = flashcardDeck(data);
+    if (deck) return deck;
   }
 
   // L0180 assessment items: `data = { interaction, validation }`.

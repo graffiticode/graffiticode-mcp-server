@@ -759,3 +759,30 @@ test("a finished concept web still reads as one, with its labelled edges", () =>
   assert.match(md, /Sunlight → Photosynthesis — provides energy/);
   assert.doesNotMatch(md, /nodes to fill/, "nothing here is blank");
 });
+
+/**
+ * L0181 decks fell through to `preview`: the widget card showed raw JSON and chat showed a
+ * title and a link. The fixture is the real compiled payload from a ChatGPT render.
+ */
+test("L0181 flashcard decks summarise as front → back pairs, never JSON", () => {
+  const content = describeItem("L0181", {
+    data: {
+      data: {
+        theme: "light",
+        instructions: "Flip each card to check your answer before the quiz.",
+        title: "Water Cycle Quiz Review",
+        cards: [
+          { id: 0, front: "What happens during evaporation?", back: "Liquid water changes into water vapor." },
+          { id: 1, front: "What happens during condensation?", back: "Water vapor cools and forms droplets." },
+        ],
+      },
+      errors: [],
+    },
+  });
+
+  assert.equal(content.kind, "prose");
+  const md = contentToMarkdown(content);
+  assert.match(md, /"Water Cycle Quiz Review" — 2 cards/);
+  assert.match(md, /What happens during evaporation\? → Liquid water changes into water vapor\./);
+  assert.doesNotMatch(md, /"cards"/);
+});
