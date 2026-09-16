@@ -191,15 +191,15 @@ const CASES: Case[] = [
     expectReachable: "L0180",
     why: "generic quiz",
   },
-  // Cloze is deliberately still a no-call case. L0180 covers choice interactions ONLY — its
-  // own routingHint says text entry is not built and tells a model to say no dialect covers it
-  // rather than substituting a choice item. So declining remains correct here, and L0180 is in
-  // expectNot to catch a model that reaches for it anyway. Promote this to expectReachable
-  // when text entry ships.
+  // Cloze was a no-call case while L0180 covered choice interactions ONLY, with a note to
+  // "promote this to expectReachable when text entry ships". It has shipped: L0180's
+  // routingHint now documents fill-in-the-blank (text-entry), dropdown cloze (inline-choice)
+  // and word-bank cloze (gap-match). Declining is no longer correct, and the eval asserting
+  // that it is would have blocked the language the catalog now advertises.
   {
     prompt: "Write a cloze fill-in-the-blank item about mitosis.",
-    expectNot: [...LEARNOSITY, "L0180"],
-    why: "question type is not the discriminator, and no dialect does cloze yet",
+    expectReachable: "L0180",
+    why: "text entry shipped; cloze is L0180's now",
   },
   // Learnosity is named — it must still win.
   // Each names Learnosity AND specifies the content — so routing is the only open question. (An
@@ -220,7 +220,13 @@ const CASES: Case[] = [
   },
   // The specialists must still be reachable.
   { prompt: "Grade 5 ELA reading item on citing evidence from an informational passage.", expect: "L0175" },
-  { prompt: "Flashcards for Spanish vocabulary — 10 common food words with their English translations.", expect: "L0159" },
+  // L0181, not L0159. L0159 was the flashcard answer when it was the only card language;
+  // it has since been narrowed to match and memory (concentration) GAMES and marked
+  // `hidden`, so it is withheld from the catalog and cannot be routed to at all — this
+  // case asserted an outcome the catalog had made impossible. L0181 is the flashcard
+  // language and says so: "Route here for 'flashcards' ... Flashcards ONLY: matching games
+  // and memory (concentration) card games are L0159."
+  { prompt: "Flashcards for Spanish vocabulary — 10 common food words with their English translations.", expect: "L0181" },
   // L0179, not L0166: L0166 is the legacy spreadsheet dialect and ships a when_to_use that
   // says so on the wire ("Deprecated in favor of L0179 — prefer L0179 for all new spreadsheet
   // content"). A model that picks L0179 here is obeying that hint, so expecting L0166 asserted
