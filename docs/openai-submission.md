@@ -4,11 +4,39 @@ Operational checklist and reviewer materials for submitting the Graffiticode MCP
 server to OpenAI's app directory (Apps SDK, `platform.openai.com/plugins`) as a
 **With MCP → app-plus-skills** submission.
 
+**Status (2026-09-15).** v1.0.0 was **approved 2026-08-14**. v2.0.0 was **rejected
+2026-08-30** — "one or more test cases did not produce correct results." No resubmission has
+been filed. What changed since the rejection is recorded in §10; read it before reusing any
+checklist below, because two things the reviewer sees are different now (ChatGPT gets a
+widget, and the expected tool-call path is shorter).
+
 - **Publisher:** Artcompiler (business identity verification).
 - **MCP endpoint:** `https://mcp.graffiticode.org/mcp` (Streamable HTTP).
-- **UI:** none on ChatGPT by design — ChatGPT (web/desktop/mobile) and every non-Claude
-  client get a compact text result plus an "Open in Graffiticode" link. No widget, no UI
-  screenshots. (Claude keeps a native inline widget; that is a separate host.)
+- **UI: OpenAI clients now get the native inline widget** (2026-08-31 `dd8f67e`, corrected
+  2026-09-11 `365e406`). `render_item` and `get_item` carry it; `create_item`/`update_item` do
+  not (they return `generating`). **Which route an OpenAI client takes depends on what it
+  declares, not on its name alone** (`widgetRouteFor` in `src/tools.ts`):
+  - declares `io.modelcontextprotocol/ui` → **`mcp-apps`**, the same ext-apps contract Claude
+    gets. Codex v0.153.4 declares `[io.modelcontextprotocol/ui, openai/form]` and lands here.
+  - does not declare it → **`openai`**, `_meta["openai/outputTemplate"]` and the Skybridge
+    contract, admitted on the name allow-list `/openai|chatgpt|codex/i`.
+
+  Declaring is **necessary but not sufficient**: `web-sandbox`-style clients declare the
+  extension too and still get text, pinned by `tools-contract.test.ts`. Note the route is
+  nearly cosmetic — the OpenAI key set is additive rather than route-exclusive, so the metadata
+  every observed client receives is byte-identical before and after that change. What actually
+  fixed Codex's blank card was the **transport**: `createHost` used to guess
+  (`window.openai ? Skybridge : ExtApps`), commit to the guess, and spin forever against a
+  global the host never populates. `RacingHost` now asks both and keeps whichever answers
+  first. A mount that draws nothing falls back to the content card, and the fallback now says
+  so on screen (`f5759be`) instead of only in a console nobody has open.
+
+  **The submission therefore has a UI surface**: the portal imports it at Scan Tools, and UI
+  screenshots are in scope. CSP declares `resourceDomains` only (`widgetCsp()` in
+  `src/widget/index.ts`) — no `frameDomains` (the OpenAI review flag), no `connectDomains`.
+  **Which route ChatGPT's consumer app takes is still unobserved** — production has only ever
+  logged `codex-mcp-client` and `openai-mcp`. Check the `[widget] tools/list` log line during
+  the review window and record it here.
 - **Legal:** privacy `https://mcp.graffiticode.org/privacy`, terms
   `https://mcp.graffiticode.org/terms`, support `support@graffiticode.org`.
 - **Listing copy:** [`openai-listing-copy.md`](./openai-listing-copy.md) is the canonical,
@@ -61,7 +89,11 @@ Checklist for the ZIP:
 - [ ] The **exact file tree** matches what was tested locally.
 - [ ] Language IDs inside skill copy are not stale (the catalog is dynamic — see §4).
 
-## 3. Domain verification
+## 3. Domain verification — **DONE**
+
+> **Completed for v1 (approved 2026-08-14). `mcp.graffiticode.org` stays verified across
+> versions — do not go chasing this again.** The procedure is kept only in case the host
+> changes or the portal asks for re-verification.
 
 OpenAI fetches the token from the **root of the registered host**
 (`https://mcp.graffiticode.org/.well-known/openai-apps-challenge`; the `/mcp` path is
@@ -91,7 +123,21 @@ as the Challenge Base URL — confirm in-portal before assuming.
       transport keeps session state in-memory; multi-instance routing could 404 mid-session).
 - [ ] `/health` reachable externally through Cloudflare.
 - [ ] Full **5+3 run on ChatGPT web AND mobile** (desktop = extra coverage); fresh plugin
-      connection + fresh conversation; **no "Generating…" widget** appears.
+      connection + fresh conversation.
+- [ ] **A person has watched the widget mount in ChatGPT web AND mobile**, on all three
+      starter prompts. Partly satisfied: on 2026-09-11 an L0173 chart was seen drawing in the
+      **ChatGPT mobile app** — the first confirmed OpenAI-host render. The same item **fell
+      back to the content card in ChatGPT desktop**, with the same client name, the same
+      advertised metadata and the same bundle fetched 200 in both. The transport fix
+      (`365e406`) explains and fixes **Codex's** blank card; it does not explain the desktop
+      fallback, which is still open (§10). Since the reviewer tests both surfaces, this gate
+      is not met until desktop is seen rendering. jsdom is not a substitute — it cannot render
+      L0173 at all (ECharts needs a canvas it lacks).
+- [ ] A **"Generating…" card is expected now, and is not a defect.** It carries a live
+      progress line (elapsed + tokens written) and is replaced in place when the item is
+      ready. What must NOT appear is a stack of them: `render_item` gives ChatGPT the
+      terminal's 15s leash rather than Claude's 8s for exactly this reason (`src/tools.ts`,
+      `TERMINAL_POLL_DEADLINE_MS`). Count the cards on a slow generation.
 - [ ] Claude regression smoke (native widget still renders).
 - [ ] If OAuth: connect end-to-end using the **exact redirect URI ChatGPT registers**.
 
@@ -99,12 +145,30 @@ as the Challenge Base URL — confirm in-portal before assuming.
 
 ## 6. Test cases — exactly 5 positive + 3 negative (OpenAI requires this count)
 
-Expected creation path: **`list_languages → get_language_info → create_item →
-render_item`**. Generation is asynchronous: **the first `render_item` may return
-`generating`** — that is expected. Reviewer instruction: *if `render_item` returns
-`generating`, wait and call `render_item(item_id)` again; typical completion is 60–110s, allow
-up to ~3 minutes.* A finished result is a compact text summary plus an "Open in Graffiticode"
-link (no inline UI on ChatGPT).
+Expected creation path: **`create_item → render_item`**. This changed on 2026-09-01
+(commit `7a88c67`): `SERVER_INSTRUCTIONS` now carries the language catalog inline and tells the
+model to call `create_item` DIRECTLY for a clear request, because `list_languages` +
+`get_language_info` cost ~14s before any work starts. Discovery calls are still correct for an
+unclear request — `npm run eval:routing` measures them per case (`[disc 0,0,0]` means every run
+routed without one). **Do not describe the old four-call path to a reviewer**; they would read
+its absence as a failure.
+
+Generation is asynchronous: **the first `render_item` may return `generating`** — that is
+expected. Reviewer instruction: *if `render_item` returns `generating`, wait and call
+`render_item(item_id)` again; it returns progress (elapsed seconds and tokens written) each
+time.* Timing measured against production on 2026-09-15, create→ready: **13.0s (L0179 invoice),
+9.7s (L0169 concept web), 7.4s (L0176 Learnosity pair)**. Larger items are much slower — a
+15,000-token L0179 sheet took 149s on 2026-08-31 — so keep the "allow up to ~3 minutes"
+instruction; just do not tell a reviewer 60–110s is typical, because for storefront-sized
+content it is not.
+
+A finished result is a compact text summary (with the item's contents and an "Open in
+Graffiticode" markdown link, in both `content` and `structuredContent`) **plus the inline
+widget on ChatGPT** — see the UI note at the top of this file. Since 2026-09-11 (`5271031`)
+that summary's link directive is **host-aware**: a client that mounts the widget is told the
+item is already rendered and not to reproduce it, because ChatGPT was printing the sheet twice
+— once as the live grid, once as a markdown table the model transcribed because it had been
+asked to. A terminal client still gets the "show the contents AND the link" directive.
 
 ### Positive (must succeed)
 
@@ -181,11 +245,66 @@ access/refresh tokens through the auth service.
 3. Configure OAuth + reviewer creds **only if** submitting with OAuth.
 4. Domain-verify (§3).
 5. **Scan Tools** → confirm **7 tools**, correct input/output schemas, annotations, and
-   `securitySchemes`; confirm **no linked ChatGPT UI**. Provide the **smallest CSP the portal
-   permits**. Inspect the imported snapshot.
+   `securitySchemes`. Confirm the portal imports the **widget on `render_item` and `get_item`**
+   (`openai/outputTemplate`) and on nothing else. Provide the **smallest CSP the portal
+   permits** — ours declares `resourceDomains` only; if the portal offers `frameDomains`, leave
+   it EMPTY. Inspect the imported snapshot: the resource URI is content-hashed, so a stale hash
+   in the snapshot means the portal cached a previous build.
 6. Upload the **skill bundle** (§2).
 7. Add listing copy, starter prompts, the exact **5+3** tests (§6), availability, release
-   notes. Submit **without UI screenshots**.
+   notes. **UI screenshots are now in scope** — capture them from ChatGPT, not Claude, and only
+   from a render a person has actually watched mount.
 8. **Freeze metadata** after the final successful Scan Tools (schema/annotation/description/
    security-scheme changes force a version resubmission).
 9. On approval, click **Publish** (apps do not auto-list).
+
+---
+
+## 10. What changed since the v2.0.0 rejection (2026-08-30)
+
+The rejection said only "one or more test cases did not produce correct results." The
+reviewer's 2026-08-29 17:42–18:02 UTC session (they ran `openai-mcp` and `openai-mcp (Codex)`
+in alternating pairs) gave three findings. Their status:
+
+| Finding | Status |
+|---|---|
+| A concept-web request rerouted L0169 → L0166 (deprecated), because the scope gate classified on `get_spec` output pasted under the instruction rather than on the instruction | **Fixed** 2026-08-31 — the classifier splits the ask from source material |
+| Of the 5 positive test cases, **only 2 and 4 left any server trace**. Test 1 (flashcards) and test 3 (generic quiz) never reached us — consistent with the generic-quiz routing gap | **Mitigated, not proven.** L0180 (ungated general assessment) registered 2026-09-01, and `eval:routing` now asserts the quiz cases *reach* a language (`expectReachable`) instead of only that they avoid Learnosity — the old assertion was satisfied by calling nothing, so it was green precisely while the gap was open. Logs still cannot distinguish "reviewer skipped" from "ChatGPT declined to call us" |
+| Starter prompt 1 was recorded against L0166, deprecated 2026-08-26 — eight days AFTER the v2 submission | **Fixed** 2026-09-15 — re-verified against L0179; see `openai-listing-copy.md` |
+
+Also changed, and material to a reviewer:
+
+- **ChatGPT now gets the widget** (2026-08-31) — see the UI note at the top.
+- **Tool results are self-sufficient in `structuredContent`** (2026-09-04) — Claude Code and
+  Cowork drop `content[0].text` for any tool with an `outputSchema`, so `summary` is carried in
+  both; the item's contents and its link live there.
+- **Progress is reported** (2026-09-09) — elapsed seconds and tokens written, in the tool
+  result and on the widget's Generating card.
+- **Codex renders** (2026-09-11, `45e7138`) — the host transport is raced instead of guessed,
+  the mcp-apps route opens to a declaring OpenAI client, a failed native mount says so on
+  screen, and widget hosts are no longer told to reprint the item they just drew.
+- **Latency** — the 149s outlier traced to `claude-sonnet-5` running adaptive thinking with
+  `thinking` omitted; `CODEGEN_EFFORT` exists as an env passthrough but was measured and
+  **rejected** (real quality cost, no latency win above noise). Do not set it for a review
+  window.
+
+**Still open before resubmitting:**
+
+1. **ChatGPT desktop fell back to the content card** on 2026-09-11 while ChatGPT mobile drew
+   the same L0173 chart — same client name, same metadata, bundle 200 in both. The transport
+   race fixed Codex; this one has no explanation on record. It is the highest-value thing to
+   reproduce before resubmitting, because the reviewer runs both surfaces and a card where a
+   chart belongs is exactly "did not produce correct results". The fallback note (`f5759be`)
+   and the element `title` now distinguish "threw" from "mounted and drew nothing" — read
+   them on the next desktop repro rather than starting from logs.
+2. **A person has still not watched all three starter prompts render** on either OpenAI
+   surface — one chart on mobile is the whole of the evidence. §5 gate.
+3. **`list_languages(search: "invoice")` returns nothing**, as does any word the catalog's
+   keywords miss. Starter prompt 1 routes correctly anyway (3/3 on the inlined catalog), but a
+   reviewer who searches before creating gets an empty result. The keyword index lives in the
+   console, not this repo.
+4. **L0169's `render_item` summary is empty** — a concept web returns a link and a title and no
+   description of its contents, where L0179 and L0176 both describe theirs. On ChatGPT the
+   widget covers this; on a terminal client it does not.
+5. The v3 copy gaps in `openai-listing-copy.md` (L0177/L0178 invisible; the `learnosity`
+   indexing experiment).
