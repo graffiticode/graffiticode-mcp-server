@@ -113,6 +113,22 @@ async function catalogInvariants() {
     `got ${branded.join(", ") || "(none)"}`,
   );
 
+  // A named brand outranks the item-type word beside it (console `brands`, 2026-09-16).
+  // "mystic wonk quiz" once searched as a quiz: L0180 matched "quiz" and L0182 did not.
+  const brandSearches: Array<[string, string[]]> = [
+    ["mystic wonk quiz", ["L0182"]],
+    ["MysticWonk questionnaire", ["L0182"]],
+    ["learnosity multiple choice", ["L0176", "L0177", "L0178"]],
+  ];
+  for (const [term, want] of brandSearches) {
+    const hits = await ids({ search: term });
+    check(
+      `search:"${term}" ranks the brand's language first`,
+      want.includes(hits[0]),
+      `got ${hits.join(", ") || "(none)"}`,
+    );
+  }
+
   const withHints = (await handleListLanguages(ctx, { domain: "assessments" })) as {
     languages: Array<{ id: string; when_to_use?: string }>;
   };
@@ -217,6 +233,34 @@ const CASES: Case[] = [
       "Make a quiz item for our LMS — we use the Learnosity Items API. A short-text question " +
       "asking students which organelle is the powerhouse of the cell.",
     expect: "L0176",
+  },
+  // A named brand decides the language, even under the wrong noun. The console's scope gate
+  // enforces this server-side (and refuses a brand request for a different kind of artifact —
+  // "Mystic Wonk concept web" — which this eval cannot see, because create_item is stubbed).
+  // These assert the agent gets there on its own, from the catalog line naming the brand.
+  {
+    tag: "brand",
+    prompt: "Make a Mystic Wonk quiz about what our team should prioritize next quarter.",
+    expectReachable: "L0182",
+    why: "brand beats the noun: a Mystic Wonk quiz is a survey",
+  },
+  {
+    tag: "brand",
+    prompt: "Answer the Mystic Wonk test about office improvements.",
+    expectReachable: "L0182",
+    why: "brand beats the noun",
+  },
+  {
+    tag: "brand",
+    prompt: "Fill in the Mystic Wonk questionnaire on remote work.",
+    expectReachable: "L0182",
+    why: "brand beats the noun",
+  },
+  {
+    tag: "brand",
+    prompt: "Pull all items from our Learnosity item bank with the Data API.",
+    expect: "L0178",
+    why: "brand names the family; the Data API names the member",
   },
   // The specialists must still be reachable.
   { prompt: "Grade 5 ELA reading item on citing evidence from an informational passage.", expect: "L0175" },
