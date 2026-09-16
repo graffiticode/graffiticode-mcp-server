@@ -174,3 +174,51 @@ test("L0181 mounts, reveals the back, and advances to the next card", async () =
   await click('[aria-label="Next card"]');
   assert.match(text(), front === "evaporation" ? /during condensation\?/ : /during evaporation\?/);
 });
+
+/** L0182 is read-only: the set of ideas and the ranked response must both draw. */
+test("L0182 mounts and shows the ideas and the ranked response", async () => {
+  const dom = new JSDOM(`<!doctype html><html><body><div id="root"></div></body></html>`, {
+    url: "https://mcp.graffiticode.org/",
+    pretendToBeVisual: true,
+  });
+  const g = globalThis as unknown as Record<string, unknown>;
+  g.window = dom.window;
+  g.document = dom.window.document;
+  Object.defineProperty(globalThis, "navigator", { value: dom.window.navigator, configurable: true });
+  g.HTMLElement = dom.window.HTMLElement;
+  g.Element = dom.window.Element;
+  g.Node = dom.window.Node;
+  g.MutationObserver = dom.window.MutationObserver;
+  g.requestAnimationFrame = (cb: () => void) => setTimeout(cb, 0);
+  g.cancelAnimationFrame = (id: number) => clearTimeout(id);
+
+  const mod = (await import("../dist/widget/lang/L0182.mjs")) as {
+    mount: (el: unknown, data: unknown) => void;
+  };
+  const root = dom.window.document.getElementById("root")!;
+  mod.mount(root, {
+    data: {
+      survey: {
+        id: "team-focus",
+        title: "What should the team focus on next?",
+        instructions: "Pick up to two, most important first.",
+        ideas: [
+          { id: "i0", text: "Faster onboarding" },
+          { id: "i1", text: "Fewer meetings" },
+          { id: "i2", text: "Better documentation" },
+        ],
+        minChoices: 1,
+        maxChoices: 2,
+      },
+      response: { selection: ["i2", "i0"], idea: "A shared team calendar" },
+    },
+    errors: [],
+  });
+  await new Promise((r) => setTimeout(r, 50));
+
+  const text = root.textContent ?? "";
+  assert.match(text, /Fewer meetings/);
+  assert.match(text, /A shared team calendar/);
+  assert.match(text, /Better documentation/);
+  assert.doesNotMatch(text, /No response yet/, "the response must render, not the empty state");
+});

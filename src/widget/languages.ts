@@ -91,15 +91,9 @@ export const NATIVE_LANGUAGES: NativeLanguage[] = [
   // is the whole bar. `tests/l0014-widget-mount.test.ts` pins that against the built bundle.
   { id: "L0014", pkg: "@graffiticode/l0014-view" },
 
-  // L0182 (surveys) is deliberately NOT here yet. `@graffiticode/l0182-view` exists in its own
-  // repo but has not been published, and the build imports every entry's `Form` and
-  // `style.css` from npm — so adding the row before the publish breaks `npm run build`, which
-  // is the same thing that held the five `-view` packages back on 2026-09-01.
-  //
-  // Add `{ id: "L0182", pkg: "@graffiticode/l0182-view" }` once it is on npm. Until then a
-  // survey renders as the content card, which reads correctly: `describeItem` has an L0182
-  // branch that lists the ideas and the response rather than falling through to an empty
-  // preview. That branch is the whole of what a caller sees, which is why it has its own test.
+  // L0182 surveys. Read-only: the Form displays the set of ideas and the response, and never
+  // calls `apply`, so drawing both is the whole bar — pinned by `tests/widget-native-mount.test.ts`.
+  { id: "L0182", pkg: "@graffiticode/l0182-view" },
 ];
 
 /** Normalize `0166` / `l0166` / `L0166` to `L0166`. */
