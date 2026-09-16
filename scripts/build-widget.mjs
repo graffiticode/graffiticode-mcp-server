@@ -24,7 +24,7 @@
  * Runs after `tsc` as part of `npm run build` (it reads the compiled registry).
  */
 import { build } from "esbuild";
-import { mkdir } from "node:fs/promises";
+import { mkdir, readFile } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 
 let NATIVE_LANGUAGES;
@@ -160,6 +160,36 @@ export function mount(el, raw) {
 `;
 }
 
+/**
+ * Keep only the woff2 source of an inlined `@font-face`.
+ *
+ * A view built in Vite library mode inlines every font it references, and KaTeX declares each
+ * face three times (woff2, woff, ttf). A browser uses the first format it supports, and every
+ * browser the hosts run in supports woff2, so the other two are never used — but the widget
+ * imports the stylesheet as a string, so all of it is shipped and parsed before anything draws.
+ * For L0159 and L0181 that was 1.09 MB of their ~1.47 MB stylesheets. A face with no woff2
+ * source is left alone.
+ */
+export function woff2Only(css) {
+  // A source is `url(...) format(...)`; a data URL holds `;` but never `)`, so match whole
+  // sources rather than splitting the declaration on `;`.
+  const SOURCE = /url\([^)]*\)\s*format\(["']([\w-]+)["']\)/g;
+  return css.replace(new RegExp(`src:(?:${SOURCE.source}\\s*,?\\s*)+`, "g"), (decl) => {
+    const woff2 = [...decl.matchAll(SOURCE)].filter((m) => m[1] === "woff2").map((m) => m[0]);
+    return woff2.length ? `src:${woff2.join(",")}` : decl;
+  });
+}
+
+const WOFF2_ONLY = {
+  name: "woff2-only",
+  setup(b) {
+    b.onLoad({ filter: /\.css$/ }, async (args) => ({
+      contents: woff2Only(await readFile(args.path, "utf8")),
+      loader: "text",
+    }));
+  },
+};
+
 await mkdir("dist/widget/lang", { recursive: true });
 
 await Promise.all(
@@ -175,6 +205,7 @@ await Promise.all(
       outfile: `dist/widget/lang/${id}.mjs`,
       format: "esm",
       loader: { ".css": "text" },
+      plugins: [WOFF2_ONLY],
       define: { "process.env.NODE_ENV": '"production"' },
     }).then(() => console.log(`Bundled dist/widget/lang/${id}.mjs`))
   )
