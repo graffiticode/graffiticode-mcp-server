@@ -126,13 +126,12 @@ as the Challenge Base URL — confirm in-portal before assuming.
       connection + fresh conversation.
 - [ ] **A person has watched the widget mount in ChatGPT web AND mobile**, on all three
       starter prompts. Partly satisfied: on 2026-09-11 an L0173 chart was seen drawing in the
-      **ChatGPT mobile app** — the first confirmed OpenAI-host render. The same item **fell
-      back to the content card in ChatGPT desktop**, with the same client name, the same
-      advertised metadata and the same bundle fetched 200 in both. The transport fix
-      (`365e406`) explains and fixes **Codex's** blank card; it does not explain the desktop
-      fallback, which is still open (§10). Since the reviewer tests both surfaces, this gate
-      is not met until desktop is seen rendering. jsdom is not a substitute — it cannot render
-      L0173 at all (ECharts needs a canvas it lacks).
+      **ChatGPT mobile app** — the first confirmed OpenAI-host render. The same item fell back
+      to the content card in ChatGPT desktop; root-caused 2026-09-15 as a delivery race in the
+      Skybridge watch loop (§10) and fixed, but **not yet re-confirmed on desktop by a
+      person**. Since the reviewer tests both surfaces, this gate is not met until it is.
+      jsdom is not a substitute — it cannot render L0173 at all (ECharts needs a canvas it
+      lacks).
 - [ ] A **"Generating…" card is expected now, and is not a defect.** It carries a live
       progress line (elapsed + tokens written) and is replaced in place when the item is
       ready. What must NOT appear is a stack of them: `render_item` gives ChatGPT the
@@ -291,12 +290,33 @@ Also changed, and material to a reviewer:
 **Still open before resubmitting:**
 
 1. **ChatGPT desktop fell back to the content card** on 2026-09-11 while ChatGPT mobile drew
-   the same L0173 chart — same client name, same metadata, bundle 200 in both. The transport
-   race fixed Codex; this one has no explanation on record. It is the highest-value thing to
-   reproduce before resubmitting, because the reviewer runs both surfaces and a card where a
-   chart belongs is exactly "did not produce correct results". The fallback note (`f5759be`)
-   and the element `title` now distinguish "threw" from "mounted and drew nothing" — read
-   them on the next desktop repro rather than starting from logs.
+   the same L0173 chart. **Root-caused 2026-09-15 and fixed**, but unconfirmed on a real
+   desktop client.
+
+   The cause was a delivery race, not a host capability. Skybridge carries a tool result on
+   two globals — `toolOutput` (structuredContent) and `toolResponseMetadata` (`_meta`) — and
+   for `render_item` the src/data a native mount needs lives ONLY in the metadata, because the
+   structuredContent is compact by design. `SkybridgeHost.connect()` keyed its "is this new?"
+   check on `JSON.stringify(r.structuredContent)` alone. A host that sets the output first
+   therefore delivered a payload with no render data, the renderer correctly fell back to the
+   card, and every later tick that DID carry the metadata was suppressed as a duplicate. The
+   card was permanent, no mount was ever attempted, and no bundle fetch existed to explain it.
+   Mobile simply won the race. The key now covers `meta`, pinned by
+   `tests/widget-skybridge-late-meta.test.ts` (late metadata re-delivers; a stable payload
+   still delivers once).
+
+   **For whoever reads the 2026-09-11 commit messages:** `f5759be` says the bundle was
+   "fetched with a 200 in both". The logs do not support that. Every Mac-Chrome
+   `/widget/lang/*.mjs` fetch that day belongs to an `openai-mcp (Codex)` session — each one
+   seconds after that session's own `resources/read` — and the only fetch from a plain
+   `openai-mcp` session is the Android one that worked. The ABSENCE of a desktop fetch is what
+   identifies the failure as "never attempted a mount" rather than "mounted and drew nothing".
+
+   **What this does NOT rule out:** that the desktop host never populates
+   `toolResponseMetadata` at all, in which case the symptom survives the fix. Logs cannot tell
+   "late" from "never". If a desktop repro still shows the card, that is the answer — and the
+   diagnostic to add next is a visible note for "a native language arrived with no render
+   payload", which today falls back silently.
 2. **A person has still not watched all three starter prompts render** on either OpenAI
    surface — one chart on mobile is the whole of the evidence. §5 gate.
 3. **`list_languages(search: "invoice")` returns nothing**, as does any word the catalog's
