@@ -458,9 +458,16 @@ export function describeItem(lang: string, sc: Record<string, unknown>): ItemCon
         const stimulus = String(qq.stimulus ?? qq.prompt ?? "")
           .replace(/<[^>]+>/g, "")
           .trim();
-        const valid = (qq["valid-response"] ?? qq.validResponse) as
-          | Record<string, unknown>
-          | undefined;
+        // The answer key has moved: current L0176 payloads nest it as
+        // `validation.valid_response`, while this looked only at the top level. So
+        // nothing was ever marked correct and the ✓ — the whole point of the
+        // summary for anyone checking the item — never appeared. Starter prompt 3
+        // in the ChatGPT listing says "answers marked"; it was not true.
+        const validation = isRecord(qq.validation) ? qq.validation : undefined;
+        const valid = (qq["valid-response"] ??
+          qq.validResponse ??
+          validation?.["valid_response"] ??
+          validation?.validResponse) as Record<string, unknown> | undefined;
         const correct = new Set(
           Array.isArray(valid?.value) ? (valid!.value as unknown[]).map(String) : []
         );
@@ -489,6 +496,31 @@ export function describeItem(lang: string, sc: Record<string, unknown>): ItemCon
   if (data && Array.isArray(data.cards)) {
     const deck = flashcardDeck(data);
     if (deck) return deck;
+  }
+
+  // A multi-item L0180 ACTIVITY: `data = { activity: { items: [{ interaction, validation }] } }`.
+  //
+  // This is what "make me a 5-question quiz" compiles to, and it was falling through
+  // every branch to `preview` — which chat suppresses — so the catalog's general
+  // assessment language, the one the whole generic-quiz gap was closed to reach,
+  // answered a five-question quiz with a title and a link. The single-item branch
+  // below has existed for a while and hid it: a one-item payload read correctly, so
+  // the language looked covered.
+  //
+  // Each entry carries its own interaction and validation, exactly like the single
+  // item, so the per-question extractor is reused rather than reimplemented and a
+  // quiz reads the way one item does.
+  if (data && isRecord(data.activity)) {
+    const items = Array.isArray(data.activity.items)
+      ? data.activity.items.filter(isRecord)
+      : [];
+    const shown = items
+      .slice(0, QUESTIONS_SHOWN)
+      .map((it) =>
+        isRecord(it.interaction) ? l0180Question(it.interaction, it.validation) : null
+      )
+      .filter((q): q is QuestionSummary => q !== null);
+    if (shown.length) return { kind: "questions", count: items.length, shown };
   }
 
   // L0180 assessment items: `data = { interaction, validation }`.
