@@ -673,3 +673,89 @@ test("the call site actually passes the mount flag", () => {
     "handleItemResult must pass clientMountsWidget(...) to buildLinkDirective",
   );
 });
+
+/**
+ * A concept web has two shapes, and only one of them was understood.
+ *
+ * A FINISHED diagram carries its content in each node's `text`. An ASSESSMENT
+ * carries blank node text on purpose — the blank IS the exercise — with the
+ * expected answers in `assess.expected` and the draggable options in `concepts`.
+ * The extractor read `text ?? value` off every node, got "" from all of them,
+ * and returned no content at all: `render_item` answered with a title and a link
+ * and nothing else.
+ *
+ * It survived because the widget hides it. A widget host mounts the real
+ * component and never reads the summary, so the failure was only visible to a
+ * client that has nothing BUT text — which is every terminal, and ChatGPT
+ * whenever the widget does not mount.
+ *
+ * The tray is described and the mapping is not, deliberately: the tray is what
+ * the learner is shown, while which concept belongs in which node is the answer
+ * key. The Learnosity and choice summaries don't print their keys either.
+ */
+const RAIN_WEB = {
+  data: {
+    conceptWeb: {
+      topic: "How Rain Forms",
+      instructions: "Drag the correct concepts onto the nodes to complete the water cycle diagram.",
+      anchor: { assess: { method: "value", expected: "Rain" }, text: "" },
+      connections: [
+        { assess: { method: "value", expected: "Evaporation" }, text: "" },
+        { assess: { method: "value", expected: "Water Vapor Rises" }, text: "" },
+        { assess: { method: "value", expected: "Condensation" }, text: "" },
+        { assess: { method: "value", expected: "Cloud Formation" }, text: "" },
+        { assess: { method: "value", expected: "Precipitation" }, text: "" },
+      ],
+      concepts: [
+        { value: "Evaporation" },
+        { value: "Water Vapor Rises" },
+        { value: "Condensation" },
+        { value: "Cloud Formation" },
+        { value: "Precipitation" },
+        { value: "Rain" },
+      ],
+      trayAlign: "right",
+      relations: [],
+    },
+  },
+  errors: [],
+};
+
+test("an assessment concept web describes itself, blank nodes and all", () => {
+  const md = contentToMarkdown(describeItem("L0169", { data: RAIN_WEB }));
+  assert.notEqual(md, "", "a terminal client would see a link and nothing else");
+  assert.match(md, /How Rain Forms/);
+  assert.match(md, /Drag the correct concepts/);
+  // Six assessed nodes: five connections plus the anchor.
+  assert.match(md, /6 nodes to fill, from a tray of 6/);
+  assert.match(md, /Evaporation, Water Vapor Rises, Condensation/);
+});
+
+test("the node-to-answer mapping stays out of the summary", () => {
+  const md = contentToMarkdown(describeItem("L0169", { data: RAIN_WEB }));
+  // The tray names every concept, so presence proves nothing; what must not
+  // appear is the pairing of a node with its expected answer.
+  assert.doesNotMatch(md, /expected/i);
+  assert.doesNotMatch(md, /→/, "an arrow here would be a node-to-answer pairing");
+});
+
+test("a finished concept web still reads as one, with its labelled edges", () => {
+  const md = contentToMarkdown(
+    describeItem("L0169", {
+      data: {
+        data: {
+          conceptWeb: {
+            topic: "Photosynthesis",
+            anchor: { text: "Photosynthesis" },
+            connections: [{ text: "Sunlight" }, { text: "Chlorophyll" }],
+            edges: [{ from: "Sunlight", to: "Photosynthesis", text: "provides energy" }],
+          },
+        },
+        errors: [],
+      },
+    })
+  );
+  assert.match(md, /Concepts: Sunlight, Chlorophyll/);
+  assert.match(md, /Sunlight → Photosynthesis — provides energy/);
+  assert.doesNotMatch(md, /nodes to fill/, "nothing here is blank");
+});
