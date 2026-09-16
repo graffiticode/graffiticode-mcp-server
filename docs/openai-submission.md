@@ -331,9 +331,12 @@ Also changed, and material to a reviewer:
    keywords miss. Starter prompt 1 routes correctly anyway (3/3 on the inlined catalog), but a
    reviewer who searches before creating gets an empty result. The keyword index lives in the
    console, not this repo.
-4. **L0169's `render_item` summary is empty** — a concept web returns a link and a title and no
-   description of its contents, where L0179 and L0176 both describe theirs. On ChatGPT the
-   widget covers this; on a terminal client it does not.
+4. ~~**L0169's `render_item` summary is empty**~~ — **fixed 2026-09-16.** The extractor
+   understood only a finished diagram, whose content sits in each node's `text`; an assessment
+   web has blank node text by design, with the answers in `assess.expected` and the options in
+   `concepts`, so every string it read was `""` and it returned nothing. The summary now gives
+   the topic, instructions, how many nodes are to be filled, and the tray — but not the
+   node-to-answer mapping, which is the answer key.
 5. The v3 copy gaps in `openai-listing-copy.md` (L0177/L0178 invisible; the `learnosity`
    indexing experiment).
 
