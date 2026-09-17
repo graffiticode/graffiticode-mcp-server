@@ -31,10 +31,10 @@ Submitting as **v2.1.0**, rescanned in the still-editable v2 draft.
 2. ~~**Build the plugin ZIP**~~ — **done 2026-09-17**, `npm run package` in
    `graffiticode-skills`. The build refuses an uncommitted or stale ref, so it always describes
    a pushed commit. Record the artifact SHA-256 in `openai-submission.md` §2.
-3. **Refresh §6's 5+3 test cases** so they name the current languages and verified outcomes.
-   They were written before L0180 and L0181 existed, and a reviewer follows them literally.
-   Positive case 1 also still describes the retired `list_languages → get_language_info` path.
-   *Mine to draft.*
+3. ~~**Refresh §6's 5+3 test cases**~~ — **done 2026-09-17.** Rewritten around the current
+   catalog, every positive executed against production that day with its outcome recorded.
+   Two behaviours they depend on were fixed the same day: the `get_spec` bridge (case 5) and the
+   phantom "already rendered" claim.
 4. **Run the 5+3 by hand in ChatGPT**, on a build whose hash you have checked. This is the
    whole ballgame: the rejection said test cases failed, and two of the five never reached the
    server at all. *Yours — no agent can do it.*
@@ -92,9 +92,11 @@ Three consequences worth holding onto:
    words nobody searches. Rationale in `openai-listing-copy.md`.
 2. **Description.** Adopt the three-paragraph draft that adds L0177/L0178, or keep v2's
    two-paragraph text and leave both integration languages invisible.
-3. **Starter prompt 1.** Its recorded output claimed `$#,##0.00` currency formatting, which was
-   L0166's behaviour; L0179 emits raw numbers. Accept the plain invoice, or ask for formatting
-   in the prompt and re-verify. **Do not resubmit with the stale expectation in the record.**
+3. ~~**Starter prompt 1.**~~ **Settled 2026-09-17.** The old record was wrong on the facts:
+   L0179 formats currency perfectly well *when asked*, it just does not volunteer it. The prompt
+   as written produced no `$` anywhere; reworded to end "…and a grand total, formatted as
+   currency" (120/128 chars) it returns `format "$0.00"`, `=B2*C2` row totals and `=SUM(D2:D4)`.
+   Use the reworded prompt.
 4. **L0159.** It is `hidden`, so `matching game` / `memory game` cannot be advertised or routed
    to. Unhide it and both words go into the copy and the catalog; leave it and they stay out.
 

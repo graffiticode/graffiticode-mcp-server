@@ -182,62 +182,94 @@ as the Challenge Base URL — confirm in-portal before assuming.
 
 ## 6. Test cases — exactly 5 positive + 3 negative (OpenAI requires this count)
 
-Expected creation path: **`create_item → render_item`**. This changed on 2026-09-01
-(commit `7a88c67`): `SERVER_INSTRUCTIONS` now carries the language catalog inline and tells the
-model to call `create_item` DIRECTLY for a clear request, because `list_languages` +
-`get_language_info` cost ~14s before any work starts. Discovery calls are still correct for an
-unclear request — `npm run eval:routing` measures them per case (`[disc 0,0,0]` means every run
-routed without one). **Do not describe the old four-call path to a reviewer**; they would read
-its absence as a failure.
+**Rewritten 2026-09-17. Every positive was executed against production that day** (server
+`mcp-service-00197-nf8`, console carrying the scope-gate fix) and the recorded outcome is what
+came back, not what we expect. Re-verify before submitting if either has been redeployed since.
+
+Expected creation path: **`create_item → render_item`**. `SERVER_INSTRUCTIONS` carries the
+language catalog inline and tells the model to call `create_item` DIRECTLY for a clear request,
+because `list_languages` + `get_language_info` cost ~14s before any work starts (changed
+2026-09-01, `7a88c67`). Discovery calls remain correct for an unclear request. **Do not describe
+the old four-call path to a reviewer** — they would read its absence as a failure.
+
+**Tell the reviewer to ask for the render.** `create_item` returns `status:"generating"` and the
+tool result asks the model to follow up with `render_item`; most hosts do so unprompted, but a
+ChatGPT plugin install on 2026-09-17 stopped after `create_item` and only rendered when the user
+said "render it here". A test case that depends on the model volunteering that call will fail
+for reasons unrelated to the platform, so each case below names the follow-up explicitly.
 
 Generation is asynchronous: **the first `render_item` may return `generating`** — that is
 expected. Reviewer instruction: *if `render_item` returns `generating`, wait and call
 `render_item(item_id)` again; it returns progress (elapsed seconds and tokens written) each
-time.* Timing measured against production on 2026-09-15, create→ready: **13.0s (L0179 invoice),
-9.7s (L0169 concept web), 7.4s (L0176 Learnosity pair)**. Larger items are much slower — a
+time.* Measured create→ready on 2026-09-17: **24.6s** (L0180 five-question quiz), **14.1s**
+(L0179 budget), **11.3s** (L0176 Learnosity pair), **11.0s** (L0173 chart), **9.5s** (an
+`update_item` refine), **11.9s** (L0181 from a spec). Larger items are much slower — a
 15,000-token L0179 sheet took 149s on 2026-08-31 — so keep the "allow up to ~3 minutes"
-instruction; just do not tell a reviewer 60–110s is typical, because for storefront-sized
-content it is not.
+instruction rather than promising a typical figure.
 
-A finished result is a compact text summary (with the item's contents and an "Open in
-Graffiticode" markdown link, in both `content` and `structuredContent`) **plus the inline
-widget on ChatGPT** — see the UI note at the top of this file. Since 2026-09-11 (`5271031`)
-that summary's link directive is **host-aware**: a client that mounts the widget is told the
-item is already rendered and not to reproduce it, because ChatGPT was printing the sheet twice
-— once as the live grid, once as a markdown table the model transcribed because it had been
-asked to. A terminal client still gets the "show the contents AND the link" directive.
+**What a finished result looks like:** a compact text summary carrying the item's contents and an
+"Open in Graffiticode" markdown link, in both `content` and `structuredContent`, **plus the
+inline widget on hosts that mount one**. State it in that order. The summary is the guaranteed
+deliverable and the widget is additive — a reviewer told to expect a rendered component, who then
+sees a correct text card, reads a working product as broken. Since 2026-09-17 the summary keeps
+the item's contents unless the client DECLARED the MCP-Apps UI extension, because a name-only
+match previously told the model "the item is already rendered above" on a host that mounted
+nothing, leaving the user with a claim and an empty screen.
 
 ### Positive (must succeed)
 
-1. **Flashcards.** Prompt: "Create a set of 8 flashcards for Spanish greetings (Hello/Hola,
-   Goodbye/Adiós, …)." Path: `list_languages(search:"flashcard")` → `get_language_info` →
-   `create_item` → `render_item`. Expect: `status:"ready"`, a flashcard language, view link.
-2. **Spreadsheet.** Prompt: "Create a monthly budget spreadsheet with Category, Budgeted,
-   Actual, Difference, rows for Rent/Groceries/Utilities, and a SUM totals row." Expect a
-   spreadsheet language, `ready`, view link.
-3. **General assessment (no vendor gate).** Prompt: "Create a 5-question quiz on the water
-   cycle." Expect: routes to a **general** assessment language — **not** a vendor-gated
-   (Learnosity) language — completes with a view link. (This is a success case.)
-4. **Create then refine (self-contained).** Turn 1: "Create a concept-web assessment about
-   photosynthesis with Photosynthesis at the center." Turn 2: "Add Chlorophyll as a connected
-   concept and use a dark theme." Path: `create_item` → `render_item`, then `update_item` →
-   `render_item`. Expect the second render reflects the change (conversation history applied).
-5. **Cross-language via `get_spec` (self-contained).** Turn 1: create the spreadsheet from
-   test 2. Turn 2: "Make flashcards from that spreadsheet's contents." Path: `get_spec(item_id
-   of the spreadsheet)` → `create_item(flashcard language, spec text)` → `render_item`. Expect
-   a flashcard item derived from the spec (not from raw src/data).
+1. **Quiz — general, ungated.** Prompt: *"Create a 5-question multiple-choice quiz on the water
+   cycle."* then *"Render it."* Expect `create_item` → `render_item`, `status:"ready"`, a view
+   link, and a summary listing five questions with the correct option marked. **Must route to
+   the general assessment language (L0180), NOT a vendor-gated Learnosity language** — this is
+   the positive half of the vendor gate and is guarded by `npm run eval:routing`.
+   *Verified 2026-09-17: L0180, ready in 24.6s, five `choice` items with scored options.*
+
+2. **Spreadsheet with formulas.** Prompt: *"Create an invoice with line items, quantity, unit
+   price, a line total per row, and a grand total, formatted as currency."* (120 chars — this is
+   also starter prompt 1) then *"Render it."* Expect L0179, `ready`, a view link.
+   *Verified 2026-09-17: per-row `=B2*C2`, `=SUM(D2:D4)` grand total, and `format "$0.00"` on the
+   money columns.* **The formatting clause is load-bearing** — the same prompt without it returns
+   unformatted numbers, which is what made the old recorded expectation wrong for eight months.
+
+3. **Vendor-gated language, correctly requested.** Prompt: *"Create a Learnosity water cycle
+   assessment: one multiple-choice and one fill-in-the-blank, answers marked."* then *"Render
+   it."* Expect L0176 — the gate permits it because the user named Learnosity — `ready`, a view
+   link, and an answer key visible in the summary.
+   *Verified 2026-09-17: L0176, ready in 11.3s.*
+
+4. **Create then refine in place.** Turn 1: *"Create a bar chart of monthly sales for January
+   through June using sample data."* then *"Render it."* Turn 2: *"Make the bars horizontal."*
+   Expect `create_item` → `render_item`, then `update_item` → `render_item` on the **same
+   `item_id`**, with the change applied. This exercises the conversation-history round trip.
+   *Verified 2026-09-17: L0173 ready in 11.0s; the refine returned the same item id in 9.5s.*
+
+5. **Cross-language via `get_spec`.** Turn 1: create the quiz from case 1. Turn 2: *"Turn that
+   into a flashcard deck for studying."* Expect `get_spec(item_id)` → `create_item(flashcard
+   language, spec text)` → `render_item`: a **flashcard deck (L0181)** whose cards carry each
+   question on the front and its answer on the back — NOT another quiz.
+   *Verified 2026-09-17: L0181 in 11.9s, `cards [["What is the water cycle primarily powered
+   by?" "The Sun"] …]`.* **This case regressed until 2026-09-17** — the scope gate classified on
+   the pasted spec rather than the instruction and rerouted L0181 → L0180, returning a quiz to
+   someone who asked for flashcards. Re-run it after any change to the console's
+   `language-router.ts` or to `get_spec`'s output.
 
 ### Negative (must be safely refused / redirected)
 
-1. **Vendor-gated without entitlement.** Prompt (user-facing, reproducible): "Make this in
-   Learnosity." with no Learnosity context/account. Expect: the assistant explains the
-   Learnosity languages are vendor-gated / asks permission to use a general alternative —
-   it does **not** silently produce a Learnosity item. (Guarded by `npm run eval:routing`.)
-2. **Out of catalog.** Prompt: "Book me a flight to Tokyo." Expect: states what Graffiticode
-   does and declines/asks — does **not** force an unrelated language.
-3. **Raw cross-language handle.** Prompt: paste an `item_id` (or raw AST/src) into a request
-   to create in another language. Expect: refused, with a redirect to `get_spec` as the
-   sanctioned bridge.
+1. **A question, not a request to build.** Prompt: *"What's a bar chart?"* Expect a plain answer
+   in chat and **no tool call** — Graffiticode authors artifacts; it is not a search path for
+   definitions. (The companion positive is "Create the chart", which must call the tool.)
+
+2. **Out of catalog.** Prompt: *"Book me a flight to Tokyo next Tuesday."* Expect the assistant
+   to say what Graffiticode does and decline; it must **not** force an unrelated language.
+   *Verified 2026-09-17 via `npm run eval:scope-gate` in the console repo: refused, "no dialect
+   handles external service integrations or travel bookings".*
+
+3. **Raw cross-language handle.** Prompt: paste an `item_id` (or a raw `src`/AST blob) and ask to
+   recreate it in another language. Expect a refusal that redirects to `get_spec` as the
+   sanctioned bridge — the handler returns that guidance verbatim rather than guessing
+   (`src/tools.ts`). Item ids are opaque and language-private artifacts do not cross languages.
+
 
 ### Tool-annotation notes (for the reviewer)
 
