@@ -289,11 +289,20 @@ const CASES: Case[] = [
   // entirely when L0179 superseded it. Note that `list_languages(search: "invoice")` returns
   // NOTHING — this prompt routes on the inlined catalog reading "invoice" as a spreadsheet,
   // not on search, which is why it is asserted rather than assumed.
+  //
+  // The wording changed on 2026-09-17, and the trailing clause is the change: the old
+  // prompt's RECORDED output claimed currency formatting, and the prompt as written does
+  // not produce any — verified against production that day, no `$` and no format directive
+  // anywhere in the result. The record had blamed L0166's deprecation, which was wrong on
+  // the facts: L0179 formats currency perfectly well when ASKED, it just does not
+  // volunteer it. Asking costs 18 characters and makes the recorded expectation true.
+  // Keep this string identical to starter prompt 1 in `openai-listing-copy.md`; it is
+  // 120 of the portal's 128 characters.
   {
     tag: "starter",
     prompt:
-      "Create an invoice with line items, quantity, unit price, a line total for each row, " +
-      "and a grand total.",
+      "Create an invoice with line items, quantity, unit price, a line total per row, " +
+      "and a grand total, formatted as currency.",
     expect: "L0179",
   },
   { tag: "starter", prompt: "Create a concept web explaining how rain forms.", expect: "L0169" },

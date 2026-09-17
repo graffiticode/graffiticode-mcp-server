@@ -166,7 +166,7 @@ Shorter fallback if the field tightens (35): `Quizzes, sheets, diagrams, and mor
 
 | # | Prompt | Chars | Language | Verified output |
 |---|---|---|---|---|
-| 1 | `Create an invoice with line items, quantity, unit price, a line total for each row, and a grand total.` | 102 | ~~L0166~~ → **L0179** | per-row `=B2*C2`, `=SUM(D2:D4)` grand total. **No currency formatting** — see re-verification below |
+| 1 | `Create an invoice with line items, quantity, unit price, a line total per row, and a grand total, formatted as currency.` | 120 | **L0179** | per-row `=B2*C2`, `=SUM(D2:D4)` grand total, and `format "$0.00"` on the money columns — re-verified against production 2026-09-17 |
 | 2 | `Create a concept web explaining how rain forms.` | 47 | L0169 | 5 assessed nodes + populated 6-concept drag tray |
 | 3 | `Create a Learnosity water cycle assessment: one multiple-choice and one fill-in-the-blank, answers marked.` | 106 | L0176 | MCQ with correct option marked + `clozetext` with `{{response}}`, signed payload |
 
