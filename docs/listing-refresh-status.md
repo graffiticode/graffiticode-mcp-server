@@ -54,6 +54,124 @@ Everything else — latency, routing, the widget race, the catalog search — is
 
 ---
 
+## App vs plugin, and how to test the refresh
+
+Source: advice from ChatGPT on 2026-09-17, pasted into a working session. **None of it has
+been checked against OpenAI's docs or the portal.** Treat the claims as leads, and check them
+before a decision depends on one. Where the advice contradicts this repo, the repo wins; those
+points are called out below.
+
+### The two layers
+
+According to that advice, OpenAI uses the two words for different layers:
+
+| | App | Plugin |
+|---|---|---|
+| What it is | The connection to Graffiticode (our MCP server) | The package users install and invoke |
+| Provides tools | Yes | Through an app it includes |
+| Carries skills/instructions | No | Yes |
+| Can contain several apps | No | Yes |
+| Discovery surface | None of its own; sits underneath | **Plugin Directory** |
+
+- **The Plugin Directory is said to be the main discovery surface since 2026-07-09.** A plugin
+  bundles apps, skills and app templates. Apps still exist, as the integration layer underneath.
+- **What this means for us:** it's the same structure we already submit as
+  "app-plus-skills" (runbook §2). The MCP server is the app. The `graffiticode-skills` ZIP is
+  the behavioural layer: when to call Graffiticode, which language to pick, how to read the
+  result.
+- **Why ChatGPT doesn't reliably use a registered server:** the app gives ChatGPT the
+  *capability*, and the skill gives it the *workflow*. When the server is connected but never
+  gets called, look at the skills and `SERVER_INSTRUCTIONS` before the tools.
+- **Corrections to the advice:** its example diagram listed `compile` and `create artifact`
+  tools. Neither exists. The real set is the seven tools in `CLAUDE.md`.
+
+### What to test: discovery, then routing, then execution
+
+| Layer | Question | Example |
+|---|---|---|
+| Discovery | Does ChatGPT see that Graffiticode is relevant, **without being told**? | "Create a polished bar chart showing monthly sales using sample data." |
+| Routing | Does it pick the right language? | chart → L0173, spreadsheet → L0179, concept web → L0169, quiz → L0180 |
+| Execution | Does the item actually work? | reaches `ready`, the widget mounts, the link opens |
+
+**Prompt categories** (aim for 15–20 prompts across them):
+
+1. **Obvious fit, no mention of Graffiticode.** Bar chart, household budget spreadsheet, water
+   cycle concept map, 5-question photosynthesis quiz. This is the harder test and the more
+   valuable one.
+2. **Explicit invocation.** The same asks, phrased as `@Graffiticode …` or "Use Graffiticode
+   to …".
+3. **Several languages could apply.** Spreadsheet vs chart, concept web vs assessment, and
+   Learnosity only when the user names it (the vendor gate; see `npm run eval:routing`).
+   - The advice also listed "Mystic Wonk/L0182". This repo's docs don't record it. Confirm it's
+     in the catalog before writing a case for it.
+   - The advice said spreadsheet → L0166. **L0166 was deprecated on 2026-08-26. Use L0179.**
+4. **Follow-ups that should edit, not restart.** "Make the bars horizontal", "Add March",
+   "Make question 3 harder", "Add another category to the budget". Expect `update_item` on the
+   existing `item_id`, not a new `create_item`.
+5. **Boundary cases: activation vs non-activation.**
+   - Should **not** call Graffiticode: "What's a bar chart?", "Give me five ideas for a quiz",
+     "Show me how to make a spreadsheet in Excel".
+   - **Should** call it: "Create the quiz", "Make the spreadsheet for me".
+
+   These are strong candidates for the 3 negative test cases in §6. They are more realistic than
+   "Book me a flight to Tokyo".
+
+**Four configurations**, each run in a **fresh chat**:
+
+- **A.** Plugin not installed (baseline: what ChatGPT does on its own)
+- **B.** Plugin installed, no `@` mention (discovery: the most informative one)
+- **C.** Plugin installed, with `@Graffiticode` (explicit routing)
+- **D.** A fresh conversation for every important case; never lean on earlier context
+
+**Score each run on five things, not a single pass/fail:** activation, non-activation,
+language selection, compilation, UX. Also record the chain
+*prompt → ChatGPT's interpretation → language → generated item → render*, so a bad result
+points to the step that failed.
+
+**Permissions.**
+- Test read-only calls and consequential calls separately. OpenAI reportedly has per-app
+  permission controls (from "ask before actions" to allowing low-risk actions).
+- **Correction to the advice:** we have no publish/share/send tool. Our one consequential call
+  is `update_item` (`destructiveHint: true`, `src/tools.ts`).
+- The test that matters: does ChatGPT ask for confirmation before `update_item` and not before
+  `render_item` / `get_spec` / `list_languages`?
+
+**Don't use `list_languages` as an acceptance test.** It's a good MCP diagnostic and a poor
+product test, which matches the 2026-09-01 change to call `create_item` directly. §6 positive
+case 1 still describes the old `list_languages → get_language_info` path. Fix it in step 2 of
+the critical path.
+
+**Best two end-to-end smoke tests:**
+- "Create a polished bar chart using sample data."
+- "Make a 5-question multiple-choice quiz on the water cycle."
+
+They exercise two very different languages, and a reviewer understands both without knowing
+anything about Graffiticode. Run each with and without `@Graffiticode`.
+
+### How to install the development version (unverified)
+
+- **Public listing:** Plugins → search "Graffiticode" → Install plugin → Connect → new chat
+  → `@Graffiticode`. That tests v1.0.0, **not** the refresh.
+- **Pre-release (recommended):** use a workspace-private plugin. Workspace settings →
+  Plugins → Add → Import marketplace → GitHub repository. Set Graffiticode to *Available*,
+  install it yourself, and use **Sync now** after each change instead of waiting for the daily
+  sync.
+  - This tests the exact manifest + skill + app combination you're about to submit.
+  - **Unknown:** whether we have a GitHub plugin repo in the shape this route expects. The skills
+    repo is not obviously one.
+
+### Web vs desktop vs mobile
+
+- **Web first.** It's the main acceptance environment and the easiest place to debug, because
+  it takes the desktop app's version and cache state out of the picture.
+- **Desktop** is a regression pass. If something works on web and fails on desktop, suspect
+  client caching before the server; see "two clients, two caches" below.
+- **Mobile:** smoke-test the 2–3 key workflows.
+- **This does not relax the §5 gate.** The reviewer tests web **and** mobile, so both still need
+  a full 5+3 run and a widget render a person has watched.
+
+---
+
 ## Verified, with dates
 
 Nothing here should be re-derived. Everything else should be treated as unknown.
