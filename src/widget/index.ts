@@ -1,9 +1,14 @@
 /**
- * Widget module exports for Claude MCP Apps integration.
+ * Widget module exports for the native inline widget.
  *
- * ChatGPT intentionally receives no widget metadata or resource. Its production
- * baseline is the tool result's text-and-link response; a ChatGPT-native widget
- * remains a separately tested experiment.
+ * OpenAI clients DO receive widget metadata and the widget resource, as of
+ * 2026-08-31 — the same resource and the same bundles Claude gets, keyed
+ * differently (`openai/outputTemplate` alongside `ui.resourceUri`). The route is
+ * decided in `widgetRouteFor()`; see CLAUDE.md for which client takes which.
+ *
+ * Only the RETIRED OpenAI-shaped URIs below are unserved: they point at the old
+ * card template, and `matchWidgetUri` keeps classifying them so a stale pointer
+ * fails loudly instead of looking like a typo.
  */
 import { RESOURCE_MIME_TYPE } from "@modelcontextprotocol/ext-apps/server";
 import { widgetContentHash } from "./widget-html.js";

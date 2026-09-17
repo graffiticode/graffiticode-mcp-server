@@ -79,19 +79,47 @@ content **requires sign-in**, and OAuth (when enabled) associates later work wit
 - [ ] Org owner has **`api.apps.write`** (draft/submit) and `api.apps.read`.
 - [ ] Production is on the single-instance review config (see §5).
 
-## 2. Skill bundle (app-plus-skills requires a skill ZIP)
+## 2. Plugin package (the ZIP is built, not assembled by hand)
 
 Source: the public `graffiticode/graffiticode-skills` repo (same skills served as MCP
-resources). Finalized skills: **`render`** (broad default-rendering preference — the primary),
-**`assessments`**, **`learnosity`**. `forms` is **draft-only** (`SKILL.md.draft`) — finalize
-or exclude it; do not ship a draft.
+resources). Built with **`npm run package`** there — `scripts/build-plugin.mjs`. Served
+skills as of 2026-09-17: **`render`** (broad default-rendering preference — the primary),
+**`assessments`**, **`learnosity`**. `forms` is held (`SKILL.md.draft`) and the build excludes
+it automatically.
+
+The package is an **Agent Plugins 1.0.0** tree — a generated `plugin.json` at the root plus
+`skills/<id>/SKILL.md`. Note the shipped layout is NOT the repo's: skills live at the repo's
+top level because the MCP server discovers them there at request time, and the build restages
+them. `plugin.json`'s `interface` block **is** the listing (display name, subtitle, long
+description, category, starter prompts); it is generated from `plugin.meta.json` in that repo,
+whose human-readable counterpart is `openai-listing-copy.md`.
+
+```bash
+cd ../graffiticode-skills
+npm run package -- --dry-run    # build and hash, write nothing
+npm run package                 # dist/graffiticode-plugin-<version>.zip
+```
+
+The build is a pure function of one commit: it resolves `--ref` (default `origin/main`) to a
+SHA, gates on that ref's own `validate`, and reads every shipped byte out of git rather than
+off disk — so an uncommitted edit cannot ship. Output is byte-identical across machines,
+timezones and locales, which is what makes the checklist below verifiable at all.
 
 Checklist for the ZIP:
-- [ ] Each included skill dir has a **final `SKILL.md`** (front-matter `name` + `description`
-      with precise **trigger conditions**), no `.draft`.
-- [ ] Referenced scripts/assets included; **no secrets**, no unnecessary permissions.
-- [ ] The **exact file tree** matches what was tested locally.
-- [ ] Language IDs inside skill copy are not stale (the catalog is dynamic — see §4).
+- [ ] Built from a **pushed** commit (the build refuses anything else) and `npm run validate`
+      is green.
+- [ ] `interface` text matches `openai-listing-copy.md`, and every capability it claims is one
+      the current catalog actually serves.
+- [ ] `version` matches what the portal draft carries (see the record below).
+- [ ] **Record the artifact SHA-256 and the ref it was built from**, so the ZIP the portal
+      holds is comparable to the ZIP the repo produces.
+
+| Version | Ref | SHA-256 | Uploaded |
+|---|---|---|---|
+| 2.1.0 | `7e4945f` (2026-09-17) | `bbc098f91766f902a472ce079640208045c166f403a2a58caf81b5b6afbcbf57` | not yet |
+
+Rebuild that ref to compare: `npm run package -- --ref 7e4945f --dry-run` prints the same
+SHA-256 or the artifact is not what this table claims.
 
 ## 3. Domain verification — **DONE**
 
@@ -259,7 +287,7 @@ access/refresh tokens through the auth service.
    permits** — ours declares `resourceDomains` only; if the portal offers `frameDomains`, leave
    it EMPTY. Inspect the imported snapshot: the resource URI is content-hashed, so a stale hash
    in the snapshot means the portal cached a previous build.
-6. Upload the **skill bundle** (§2).
+6. Upload the **plugin ZIP** (§2), built with `npm run package`.
 7. Add listing copy, starter prompts, the exact **5+3** tests (§6), availability, release
    notes. **UI screenshots are now in scope** — capture them from ChatGPT, not Claude, and only
    from a render a person has actually watched mount.

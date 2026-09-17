@@ -23,19 +23,65 @@ changes**; a status doc that has gone stale is worse than none, as §11 records 
 
 ## The critical path
 
+Submitting as **v2.1.0**, rescanned in the still-editable v2 draft.
+
 1. ~~**Deploy `e2365df`**~~ — **done 2026-09-16**, revision `mcp-service-00196-jcc`. Verified
    live: a 3-question quiz now returns all three questions with ✓ answer keys. The widget hash
    moved to **`2656b7bd`** as expected, so every client's cached build is one behind again.
-2. **Refresh §6's 5+3 test cases** so they name the current languages and verified outcomes.
+2. ~~**Build the plugin ZIP**~~ — **done 2026-09-17**, `npm run package` in
+   `graffiticode-skills`. The build refuses an uncommitted or stale ref, so it always describes
+   a pushed commit. Record the artifact SHA-256 in `openai-submission.md` §2.
+3. **Refresh §6's 5+3 test cases** so they name the current languages and verified outcomes.
    They were written before L0180 and L0181 existed, and a reviewer follows them literally.
+   Positive case 1 also still describes the retired `list_languages → get_language_info` path.
    *Mine to draft.*
-3. **Run the 5+3 by hand in ChatGPT**, on a build whose hash you have checked. This is the
+4. **Run the 5+3 by hand in ChatGPT**, on a build whose hash you have checked. This is the
    whole ballgame: the rejection said test cases failed, and two of the five never reached the
    server at all. *Yours — no agent can do it.*
-4. **Paste the copy decisions** into the draft (see below). *Yours.*
-5. **Resubmit.**
+5. **Rescan and resubmit.** Open the v2 draft, set 2.1.0, upload the ZIP, **run Scan Tools**,
+   then freeze and submit. *Yours.*
+
+**Step 5's scan is what surfaces the widget, and nothing else does.** The v2 draft's metadata
+was captured on 2026-08-18, before OpenAI clients got widget metadata at all (2026-08-31, with
+the mount fixes of 09-11 and 09-15). Resubmitting without rescanning ships the August contract
+under a new number. Confirm in the scan result that the widget marker lands on `render_item`
+and `get_item` only, and that the imported UI resource URI is a `widget-mcp.<hash>.html` one —
+a retired `widget-oai`/`form-widget` pointer would make every `resources/read` in review throw
+`Resource retired` (`src/server.ts:928`).
 
 Everything else — latency, routing, the widget race, the catalog search — is done and verified.
+
+---
+
+## What is snapshot and what is live (researched 2026-09-17, OpenAI primary docs)
+
+This is the frame for every "will it update automatically" question, and the answer is usually
+no.
+
+| | Runtime source | Refreshes without resubmitting? |
+|---|---|---|
+| Tool **calls**, **results**, **UI resources** (widget HTML, per-language bundles) | live server | **Yes** — always live |
+| Tool **definitions** (name, description, schemas, annotations) | last accepted scan | Docs say yes via continuous review; **OpenAI staff said no** on 2026-07-23. Contradictory — do not rely on it |
+| **`_meta`**, linked UI resource metadata, **CSP** | submission snapshot | **No** |
+| Server **`instructions`** | undocumented | Imported at scan; absent from the refresh sentence. **Assume snapshot** |
+| **Skills** (ZIP *or* MCP-served) | submission snapshot | **No.** Stated three times: "ChatGPT and Codex do not fetch them from your MCP server at runtime" |
+| Listing copy (`interface.*`) | submission snapshot | **No** |
+| Arbitrary non-UI **resources** (`graffiticode://skills/<id>`) | undocumented | Probably never read by ChatGPT at all — "Plugins primarily use tools" |
+
+Three consequences worth holding onto:
+
+- **`skills/list` (SEP-2640) would not buy dynamic skills.** It buys single-sourcing — no ZIP to
+  keep in sync — and nothing else. That is why the refresh ships a built ZIP instead.
+- **Our MCP resources deliver nothing to ChatGPT.** The runtime GitHub discovery that makes a
+  new skill live in ~3.5 minutes serves Claude and any other resource-reading client; ChatGPT
+  sees the snapshot taken at Scan Tools.
+- **The language catalog may be frozen for ChatGPT.** `buildServerInstructions(getCachedFullCatalog())`
+  rebuilds it into `instructions` on every `initialize` — a live mechanism whose output the
+  portal appears to snapshot. If so, ChatGPT has been routing against the catalog as of
+  submission day, while `list_languages` would have returned the current one all along. **Test
+  it in the ChatGPT pass**: ask for a language added since 2026-08-18 and see whether it routes.
+  If it does not, the fix is to shrink `instructions` to a stable pointer and let the tool
+  result carry the catalog — at the cost of the ~14s discovery call removed on 2026-09-01.
 
 ---
 
@@ -56,10 +102,14 @@ Everything else — latency, routing, the widget race, the catalog search — is
 
 ## App vs plugin, and how to test the refresh
 
-Source: advice from ChatGPT on 2026-09-17, pasted into a working session. **None of it has
-been checked against OpenAI's docs or the portal.** Treat the claims as leads, and check them
-before a decision depends on one. Where the advice contradicts this repo, the repo wins; those
-points are called out below.
+Source: advice from ChatGPT on 2026-09-17, pasted into a working session, and **since checked
+against OpenAI's primary docs** — see the snapshot-vs-live section above, which supersedes this
+one wherever they disagree. The two-layer account below held up; the package format is the
+Agent Plugins 1.0.0 standard (`plugin.json` + `skills/<id>/SKILL.md`), and the plugin's
+`interface` block is the listing itself. **What did not hold up:** GitHub marketplace import is
+workspace-private distribution, *not* a route into the public directory — public submission is
+still a ZIP upload at the portal. The testing advice below is unverified but sound, and the
+corrections marked in it still stand.
 
 ### The two layers
 

@@ -10,6 +10,12 @@ Companion to `openai-submission.md` (the operational runbook). Required by Phase
 **Rule:** change the portal and this file in the same sitting. A field that exists only in
 the portal is a field nobody can review.
 
+**Machine copy:** `graffiticode-skills/plugin.meta.json` is what `npm run package` generates
+`plugin.json` from — the same fields, minus the rationale. It and this file are a matched
+pair: **change both in the same sitting**, the same discipline the rule above imposes on the
+portal. The build prints that file's SHA-256 on every run, so drift is provable rather than
+argued.
+
 ---
 
 ## v2 draft as it stands in the portal — read back 2026-09-16
