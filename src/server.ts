@@ -72,7 +72,7 @@ import {
   generateWidgetHtml,
   widgetResourceUris,
   matchWidgetUri,
-  widgetCsp,
+  widgetResourceMeta,
   CLAUDE_WIDGET_MIME_TYPE,
 } from "./widget/index.js";
 import { normalizeLanguageId, isNativeLanguage } from "./widget/languages.js";
@@ -872,13 +872,12 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
     // step to discover as linked UI.
     if (shouldAdvertiseWidget(server.getClientVersion()?.name, declaresUiExtension(server))) {
       const uris = widgetResourceUris();
-      const csp = widgetCsp();
       resources.push({
         uri: uris.mcp,
         name: "Graffiticode Form Widget",
         mimeType: CLAUDE_WIDGET_MIME_TYPE,
         description: "Interactive item widget for MCP Apps hosts such as Claude",
-        _meta: { ui: { csp: csp.camel } },
+        _meta: widgetResourceMeta(),
       });
     }
     // Skills are best-effort: a GitHub outage must not break resource listing.
@@ -912,14 +911,13 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
       console.log(
         `[widget] resources/read host=${server.getClientVersion()?.name ?? "?"} uri=${uri}`
       );
-      const csp = widgetCsp();
       return {
         contents: [
           {
             uri,
             mimeType: CLAUDE_WIDGET_MIME_TYPE,
             text: generateWidgetHtml(MCP_SERVER_URL),
-            _meta: { ui: { csp: csp.camel } },
+            _meta: widgetResourceMeta(),
           },
         ],
       };

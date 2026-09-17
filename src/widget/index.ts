@@ -29,7 +29,7 @@ let cachedUris: { mcp: string } | null = null;
 
 export function widgetResourceUris(): { mcp: string } {
   if (!cachedUris) {
-    const h = widgetContentHash(MCP_SERVER_URL);
+    const h = widgetContentHash(MCP_SERVER_URL, widgetResourceMeta());
     cachedUris = {
       mcp: `ui://graffiticode/widget-mcp.${h}.html`,
     };
@@ -68,4 +68,21 @@ export function widgetCsp(): { camel: Record<string, string[]>; snake: Record<st
     camel: { resourceDomains: [MCP_SERVER_URL] },
     snake: { resource_domains: [MCP_SERVER_URL] },
   };
+}
+
+/**
+ * The `_meta` for the widget resource, in BOTH CSP dialects.
+ *
+ * `ui.csp` is the MCP Apps spelling and is what Claude reads. ChatGPT's web sandbox
+ * reads the Apps SDK's own `openai/widgetCSP` (snake_case), and `snake` was computed
+ * above but never emitted — so ChatGPT fell back to its default CSP, which does not
+ * admit our origin, and the per-language `import()` was refused inside the sandbox
+ * before any request left the browser. On screen that was "Interactive preview
+ * unavailable" with `Failed to fetch dynamically imported module …/L0180.mjs`, and in
+ * the logs a `resources/read` from openai-mcp followed by no bundle fetch at all.
+ * A host ignores the dialect it does not speak, so sending both costs nothing.
+ */
+export function widgetResourceMeta(): Record<string, unknown> {
+  const csp = widgetCsp();
+  return { ui: { csp: csp.camel }, "openai/widgetCSP": csp.snake };
 }

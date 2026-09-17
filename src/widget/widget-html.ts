@@ -108,6 +108,10 @@ export function generateWidgetHtml(origin: string): string {
 /** The resource URI is the host's cache key (the spike proved this the hard way),
  * so hash the served HTML into it: any change to the widget mints a new URI and
  * the host is forced to re-read instead of replaying a stale build. */
-export function widgetContentHash(origin: string): string {
-  return createHash("sha256").update(generateWidgetHtml(origin)).digest("hex").slice(0, 8);
+export function widgetContentHash(origin: string, resourceMeta?: Record<string, unknown>): string {
+  const hash = createHash("sha256").update(generateWidgetHtml(origin));
+  // Hosts cache the resource's policy alongside its HTML. A metadata-only fix
+  // must mint a new URI too, or the old sandbox policy can survive deployment.
+  if (resourceMeta !== undefined) hash.update(JSON.stringify(resourceMeta));
+  return hash.digest("hex").slice(0, 8);
 }
