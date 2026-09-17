@@ -648,7 +648,18 @@ test("clientMountsWidget answers for the hosts actually seen in production", () 
   assert.equal(clientMountsWidget("Anthropic/ClaudeAI", true), true);
   assert.equal(clientMountsWidget("openai-mcp", true), true);
   assert.equal(clientMountsWidget("codex-mcp-client", true), true);
-  assert.equal(clientMountsWidget("codex-mcp-client", false), true, "openai mounts without declaring");
+  // Was `true` ("openai mounts without declaring"), on the strength of a chart
+  // that drew in ChatGPT mobile on 2026-09-11. Flipped 2026-09-17 after the
+  // opposite case appeared: a ChatGPT workspace plugin created a quiz, mounted
+  // nothing, and told the user "The interactive Graffiticode quiz is rendered
+  // above" — because this predicate said it had been.
+  //
+  // Both observations are real, so an undeclared OpenAI client CANNOT be
+  // answered confidently either way. The tie goes to the recoverable failure:
+  // printing the contents next to a widget that did mount is redundant, while
+  // suppressing them when nothing mounted leaves the user with a claim and an
+  // empty screen.
+  assert.equal(clientMountsWidget("codex-mcp-client", false), false, "undeclared: cannot assume a mount");
   assert.equal(clientMountsWidget("claude-code", false), false, "terminal: summary IS the product");
   assert.equal(clientMountsWidget("web-sandbox", true), false, "declares but is not given a widget");
   assert.equal(clientMountsWidget(undefined, undefined), false);

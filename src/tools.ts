@@ -1098,7 +1098,23 @@ export function buildLinkDirective(viewUrl: string, mountsWidget = false): strin
  * cannot drift apart.
  */
 export function clientMountsWidget(clientKind?: string, declaresUi?: boolean): boolean {
-  return widgetRouteFor(clientKind, declaresUi) !== "none";
+  // Only a DECLARED mount counts as "already shown".
+  //
+  // This used to be `route !== "none"`, which let the name-only `openai` route
+  // claim a render it never performed — the same over-match this function's own
+  // docstring warns about for `claude-code`, reintroduced for OpenAI clients.
+  // Observed 2026-09-17 in a ChatGPT workspace plugin: the quiz was created, no
+  // widget appeared, and the assistant said "The interactive Graffiticode quiz
+  // is rendered above" because this message told it to. The user got neither the
+  // widget nor the contents.
+  //
+  // A host that mounts and ALSO prints the contents shows the item twice, which
+  // is the 2026-09-11 bug this suppression was written for. That is the better
+  // failure: duplication is recoverable by reading past it, while a phantom
+  // render leaves nothing on screen and tells the user it is there. So the
+  // suppression now needs the extension declaration, and the name-only route
+  // keeps the contents.
+  return widgetRouteFor(clientKind, declaresUi) === "mcp-apps";
 }
 
 /**
@@ -1762,10 +1778,26 @@ export async function handleGetSpec(
 ): Promise<unknown> {
   const { item_id } = args;
   const result = await apiGetSpec({ auth: ctx.auth, id: item_id });
+  // The spec leads with a blank line, and that is load-bearing rather than
+  // cosmetic.
+  //
+  // This text exists to be pasted into create_item under one line of intent
+  // ("Make a flashcard deck from this:"), and the console's scope gate splits
+  // the ASK from pasted SOURCE at the first blank line — everything after it is
+  // subject matter, not a request. A model that concatenates inline, which the
+  // create_item description invites by saying to add "only your intent/target
+  // framing", leaves no blank line at all, so the split lands inside the spec
+  // and the ask inherits the other language's content. Measured 2026-09-17: a
+  // flashcard request carrying a quiz spec rerouted L0181 -> L0180, and the
+  // classifier's reason cited the pasted questions.
+  //
+  // Leading with the separator makes the boundary a property of the text rather
+  // than of how carefully the caller assembled it: `"intent: " + spec` splits
+  // correctly, and so does `"intent:\n\n" + spec`.
   const response: Record<string, unknown> = {
     item_id: result.itemId,
     language: `L${result.lang}`,
-    spec: result.spec,
+    spec: `\n\n${result.spec.replace(/^\s+/, "")}`,
   };
   // Surface (non-gating) fidelity telemetry so callers can see if the spec may
   // have elided authored content. Empty missing[] ⇒ full coverage.
