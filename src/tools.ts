@@ -1073,11 +1073,28 @@ export function buildLinkDirective(viewUrl: string, mountsWidget = false): strin
   //
   // The clause that prevents the ORIGINAL failure is kept either way, as the last
   // word: a model that decides prose is enough must still hand over the link.
+  // …but whether a component ACTUALLY draws cannot be known from here, so this
+  // half no longer asserts that it did. Both signals we have were measured wrong
+  // on 2026-09-17, in opposite directions:
+  //
+  //   name-only  — a ChatGPT workspace plugin matched the OpenAI allow-list,
+  //                mounted nothing, and told the user "The interactive
+  //                Graffiticode quiz is rendered above". Nothing was there.
+  //   declared   — codex-mcp-client declares io.modelcontextprotocol/ui and is a
+  //                TERMINAL: it received "do NOT reproduce its contents" and
+  //                printed a bare link, which is the failure this whole directive
+  //                was written to prevent.
+  //
+  // So the model is told what to do in each case and left to see which it is,
+  // rather than being handed a false premise. A host that did mount and prints
+  // the contents anyway shows the item twice, which is recoverable; a host that
+  // did not mount and was told to stay quiet leaves the user with nothing.
   if (mountsWidget) {
     return (
-      "The item is already rendered above — do NOT reproduce its contents; " +
-      "summarise in one line at most. Give them this link so they can open and " +
-      `use it: ${viewUrl}` +
+      "If the item is displayed above this message, do NOT reproduce its contents " +
+      "— summarise in one line at most. If it is NOT displayed (many hosts show no " +
+      "component), show its contents from `summary` below. Either way, give them " +
+      `this link so they can open and use it: ${viewUrl}` +
       " — the link is required; a description alone is not a substitute for it."
     );
   }

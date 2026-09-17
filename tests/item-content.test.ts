@@ -619,14 +619,24 @@ test("the progress phrase is shared, and empty when there is nothing to say", ()
   );
 });
 
-test("a widget host is told NOT to reproduce the contents it already rendered", () => {
+test("a widget host is told not to duplicate a render, without assuming one happened", () => {
   // Observed 2026-09-11: a 5x5 sheet rendered as an interactive grid in the chat
   // and the model printed a second, static markdown copy of the same numbers
   // directly underneath, because `message` asked it to show the contents from
   // `summary` regardless of whether the host had already drawn them.
+  //
+  // The directive is CONDITIONAL rather than assertive as of 2026-09-17, because
+  // both mount signals were measured wrong that day: a ChatGPT plugin matched on
+  // name, mounted nothing and announced a render that was not there; and
+  // codex-mcp-client DECLARES the UI extension and is a terminal, so it was told
+  // to stay quiet and printed a bare link. Neither host can be identified from
+  // here, so the model is given both branches instead of a false premise.
   const d = buildLinkDirective("https://app.graffiticode.org/form/abc", true);
-  assert.match(d, /already rendered above/i);
+  assert.match(d, /if the item is displayed above/i);
   assert.match(d, /do NOT reproduce/i);
+  assert.match(d, /if it is NOT displayed/i, "the non-mounting branch must survive");
+  assert.match(d, /contents from `summary`/i);
+  assert.doesNotMatch(d, /is already rendered above/i, "must not assert a render happened");
   // The link is still mandatory — that clause is what stopped the ORIGINAL
   // failure, where a model wrote prose and handed over nothing to click.
   assert.match(d, /https:\/\/app\.graffiticode\.org\/form\/abc/);
