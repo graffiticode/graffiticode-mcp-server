@@ -16,17 +16,16 @@ changes**; a status doc that has gone stale is worse than none, as §11 records 
 | Last submission | **v2.0.0, REJECTED 2026-08-30** — "one or more test cases did not produce correct results" |
 | The v2 draft | **still editable in the portal** (read back 2026-09-16). This is what resubmits unless changed |
 | Resubmission | **not filed.** Blocked on one thing: nobody has run the 5+3 test cases in ChatGPT |
-| Server | `mcp-service-00191-jcj` (2026-09-16 17:33 UTC). **`e2365df` is committed and NOT deployed** |
+| Server | `mcp-service-00196-jcc` (2026-09-16). Carries `e2365df` — quiz summary + Learnosity ✓ |
 | Console | `console-00618-4gk` (2026-09-16), carries the catalog-search work |
 
 ---
 
 ## The critical path
 
-1. **Deploy `e2365df`** (`npm run gcp:deploy`). It carries the multi-question quiz summary and
-   the Learnosity ✓ answer key — the second of which starter prompt 3 promises in the live
-   listing. **This moves the widget hash** (`src/item-content.ts` is bundled into the widget),
-   so re-read the current hash afterwards before trusting any render. *Mine to run.*
+1. ~~**Deploy `e2365df`**~~ — **done 2026-09-16**, revision `mcp-service-00196-jcc`. Verified
+   live: a 3-question quiz now returns all three questions with ✓ answer keys. The widget hash
+   moved to **`2656b7bd`** as expected, so every client's cached build is one behind again.
 2. **Refresh §6's 5+3 test cases** so they name the current languages and verified outcomes.
    They were written before L0180 and L0181 existed, and a reviewer follows them literally.
    *Mine to draft.*
@@ -68,6 +67,7 @@ Nothing here should be re-derived. Everything else should be treated as unknown.
 | Widget render on a NAMED build | 2026-09-16 02:45 / 02:49 UTC | L0173 chart and L0169 concept web drew in Codex on `ae93cbff` |
 | ChatGPT served the current build | 2026-09-16 16:21 UTC | read the legacy URI, which maps to current — see below |
 | Demo sequence end to end | 2026-09-16 | quiz 13.6s → add cloze ~20s → flashcards via `get_spec` ~25-30s |
+| Quiz summary + answer key, in production | 2026-09-16, rev `00196` | 3 questions listed, each with its ✓ correct option |
 
 **The rule that makes those dates meaningful:** a render proves nothing unless you know which
 build the client loaded. Check before concluding anything:
@@ -77,7 +77,8 @@ gcloud logging read 'resource.labels.service_name="mcp-service" AND textPayload:
   --project graffiticode-app --freshness=2h --format="value(timestamp,textPayload)"
 ```
 
-Current build as of this writing: **`25e0a64c`**. It moves on the next deploy.
+Current build as of this writing: **`2656b7bd`** (revision `mcp-service-00196-jcc`). It moves on
+every deploy that touches `src/widget/` or `src/item-content.ts`.
 
 ## Not verified
 
