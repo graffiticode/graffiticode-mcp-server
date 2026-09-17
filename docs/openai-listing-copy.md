@@ -65,14 +65,14 @@ also fits (30), but spends four characters on the verb and forces "sheets" in pl
 "spreadsheets". Whether the index matches whole words is the open question — the full word is
 the safer bet, and the description carries the verb framing anyway.
 
-### Description (877 chars, up from ~581)
+### Description (865 chars, up from ~581)
 
 > Graffiticode is a platform of specialized agents, each purpose-built for one kind of task and
 > each producing a real, editable artifact rather than text in a chat window.
 >
 > Today's agents create interactive quizzes and assessment items — multiple choice,
-> fill-in-the-blank, hot text, sequencing and matching — plus worksheets, flashcard decks,
-> spreadsheets and budgets, charts, and concept maps. Describe what you want in plain English;
+> fill-in-the-blank, hot text, sequencing and matching — plus flashcard decks, spreadsheets
+> and budgets, charts, and concept maps. Describe what you want in plain English;
 > the matching agent validates your request against a formal task language and returns a
 > structured result you can refine, re-render, and keep.
 >
@@ -95,6 +95,15 @@ list in paragraph two first — it is the most redundant with the catalog itself
 ### Vocabulary the action plan asks for, and what it gets
 
 Included: `author api`, `data api`, `item bank`, `concept map`.
+
+**Cut 2026-09-17: `worksheets`.** It carried two incompatible senses — a printable practice
+page, and a tab in a workbook — and the second made it redundant with "spreadsheets and
+budgets" three words later. Nothing backs the first: `list_languages(search: "worksheet")`
+against production matches **L0180** (the assessment language) on a fuzzy match only; L0180's
+own description and `when_to_use` never use the word, and neither does any skill. The ambiguity
+costs more in the index than in the prose — it pulls in spreadsheet-intent searchers and lands
+them on a quiz authoring language. `worksheet` stays in the re-audit search list, where its job
+is to tell us whether the index reaches us through the rest of the copy.
 
 **Excluded on purpose: `matching game` and `memory game`.** L0159 is the match-and-memory-game
 language and it is `hidden` in the catalog — withheld from discovery, so nothing can route to
