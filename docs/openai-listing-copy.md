@@ -12,6 +12,104 @@ the portal is a field nobody can review.
 
 ---
 
+## v2 draft as it stands in the portal — read back 2026-09-16
+
+The v2 submission was rejected and **its draft is still editable**, so this is what will be
+resubmitted unless it is changed. Read back from the portal by Jeff; corrections to the record
+below are from that reading, not from our proposals.
+
+**What matches the record:** the description, verbatim, both paragraphs. Category `Productivity`.
+
+**What did not, and could not have:** the field is **Subtitle**, capped at **30 characters**
+(the portal's own examples are verb-led: "Find flights and hotels", "Create docs and
+slideshows", "Find local hiking trails"). This file recorded a 41-character tagline with a
+35-character fallback — **both over the cap, so neither was ever enterable**. The draft holds:
+
+```
+Assessments, diagrams and more
+```
+(exactly 30). A real subtitle was written at the portal and this file kept a proposal that would
+have been rejected on paste. That is the drift this file exists to prevent; the cap is now
+recorded so it cannot recur.
+
+**Still unknown: what the LIVE v1.0.0 listing says.** This read-back is the rejected v2 draft,
+not the published version. Whether any v2 copy reached the live listing through post-approval
+editing is unanswered.
+
+---
+
+## Proposed for the resubmission — drafted 2026-09-16, NOT yet pasted
+
+Rationale first, because the fields are short and the reasons are not.
+
+### Subtitle (29 / 30)
+
+```
+Quizzes, spreadsheets, charts
+```
+
+The live draft's `Assessments, diagrams and more` spends its 30 characters on the two words a
+searcher is least likely to type. "Assessments" is the institutional word for a quiz; nobody
+looking for one searches it. "Quizzes" and "spreadsheets" are the highest-value terms we have,
+and in list view the subtitle is the whole pitch. The audit that produced v2 found the listing
+matched 0 of 8 realistic searches, and this field is the most concentrated place to fix that.
+
+Deliberately NOT verb-led, though the portal's examples are: "Create quizzes, sheets, charts"
+also fits (30), but spends four characters on the verb and forces "sheets" in place of
+"spreadsheets". Whether the index matches whole words is the open question — the full word is
+the safer bet, and the description carries the verb framing anyway.
+
+### Description (877 chars, up from ~581)
+
+> Graffiticode is a platform of specialized agents, each purpose-built for one kind of task and
+> each producing a real, editable artifact rather than text in a chat window.
+>
+> Today's agents create interactive quizzes and assessment items — multiple choice,
+> fill-in-the-blank, hot text, sequencing and matching — plus worksheets, flashcard decks,
+> spreadsheets and budgets, charts, and concept maps. Describe what you want in plain English;
+> the matching agent validates your request against a formal task language and returns a
+> structured result you can refine, re-render, and keep.
+>
+> For teams working in Learnosity, Graffiticode also authors Learnosity-compatible assessment
+> items and writes integration recipes for the Author API and the Data API — embedding an item
+> authoring UX, or reading and writing an item bank server to server. New agents are added to
+> the catalog over time.
+
+This closes the v2 gap: **both job families are now in the listing.** L0177 and L0178 were
+invisible, and they are the surface most relevant to a Learnosity partnership. The integration
+paragraph is deliberately last and explicitly conditioned ("For teams working in Learnosity"),
+so the consumer framing that v2 was rebuilt around survives — v1's mistake was addressing
+developers in the FIRST line, not mentioning developers at all.
+
+Item types in paragraph two are named because they are what someone searches for, and each one
+is shipped: choice, fill-in-the-blank, hot text, sequencing and matching are all in L0180's
+current coverage. The description cap is unknown; if the portal rejects 877, cut the item-type
+list in paragraph two first — it is the most redundant with the catalog itself.
+
+### Vocabulary the action plan asks for, and what it gets
+
+Included: `author api`, `data api`, `item bank`, `concept map`.
+
+**Excluded on purpose: `matching game` and `memory game`.** L0159 is the match-and-memory-game
+language and it is `hidden` in the catalog — withheld from discovery, so nothing can route to
+it. Advertising a memory game we cannot produce is a misleading claim on a page whose own
+guidance forbids them, and it is a reviewer test case that fails. L0180 authors *matching items*
+(pair these terms, sort these into categories), which paragraph two claims and which is a
+different thing from a concentration game. If L0159 is unhidden, add both words then.
+
+`mind map` stays a catalog search keyword rather than a listing claim: a concept web is
+reasonably called a concept map, while a mind map is a looser artifact we do not really make.
+
+### Starter prompts
+
+Unchanged and re-verified 2026-09-15 (see the re-verification section above); they are separate
+fields and a description edit does not affect them. **One decision is still open on prompt 1:**
+its recorded output claimed `$#,##0.00` currency formatting, which was L0166's behaviour. L0179
+emits raw numbers. Either accept the unformatted invoice or ask for formatting in the prompt and
+re-verify — do not resubmit with the stale expectation in the record.
+
+---
+
 ## v2 — submitted 2026-08-18, **REJECTED 2026-08-30**
 
 > ⚠️ **Fields below are AS PROPOSED, not yet read back from the portal.** They were drafted
