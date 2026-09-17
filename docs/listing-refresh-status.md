@@ -53,6 +53,37 @@ Everything else — latency, routing, the widget race, the catalog search — is
 
 ---
 
+## Capability is not activation (measured 2026-09-17, Codex CLI)
+
+The clean experiment, reproducible with `codex exec --approve-for-me "<prompt>"` and the
+Graffiticode MCP server added via `codex mcp add graffiticode --url https://mcp.graffiticode.org/mcp`:
+
+| Prompt | Result |
+|---|---|
+| "Create a 5-question multiple-choice quiz on the water cycle." | **markdown quiz, no tool call** — twice, in separate sessions |
+| "Use the graffiticode MCP server's create_item tool to make a 5-question multiple-choice quiz…" | `create_item` → `render_item` → a real item and link |
+
+Same server, same session shape, same model. The tools were attached and reachable in both — the
+first run simply never reached for them. **The difference is the skills**, which the CLI does not
+have: they ship in the plugin, and `render` is the one whose entire job is "do not hand back
+static markdown when Graffiticode could render it".
+
+Consequences worth holding onto:
+
+- **`SERVER_INSTRUCTIONS` alone did not carry it.** They are delivered at `initialize` and this
+  host still answered from its own knowledge. Whatever the snapshot question above turns out to
+  be, instructions are not a substitute for a skill.
+- **The storefront starter prompts are exactly this shape** ("Create an invoice with line
+  items…"). In ChatGPT the plugin carries the skills, so a reviewer should be fine — but any
+  environment WITHOUT them can produce a plausible markdown answer and look like a broken app.
+- **It settles the app-vs-plugin question empirically.** The app gives a host the capability; the
+  skill is what makes it used. That is the whole argument for shipping app-plus-skills rather
+  than a bare MCP endpoint.
+- **`render_item` polling works unprompted**: one run got `generating` and polled twice more on
+  its own until ready, which is the async contract §6 describes.
+
+---
+
 ## What is snapshot and what is live (researched 2026-09-17, OpenAI primary docs)
 
 This is the frame for every "will it update automatically" question, and the answer is usually
