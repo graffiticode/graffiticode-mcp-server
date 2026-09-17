@@ -4,6 +4,10 @@ Operational checklist and reviewer materials for submitting the Graffiticode MCP
 server to OpenAI's app directory (Apps SDK, `platform.openai.com/plugins`) as a
 **With MCP → app-plus-skills** submission.
 
+> **Where we are right now: [`listing-refresh-status.md`](./listing-refresh-status.md)** — the
+> pick-up-here document. It holds the critical path, the decisions owed, what is verified and
+> what is not. This file is the procedure; that one is the state.
+
 **Status (2026-09-15).** v1.0.0 was **approved 2026-08-14**. v2.0.0 was **rejected
 2026-08-30** — "one or more test cases did not produce correct results." No resubmission has
 been filed. What changed since the rejection is recorded in §10; read it before reusing any
