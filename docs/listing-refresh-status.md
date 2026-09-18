@@ -48,12 +48,13 @@ came from skipping that (§11).
 
 ## Status at a glance
 
-**2026-09-18.** The widget question is answered for two hosts and still open for the one that
-matters: it **mounts in Claude** on build `a2a692b8` (`boot` → `mounted` beacons) and in Codex,
-and ChatGPT's **developer-mode connector does not execute UI components at all** — it reads the
-resource once at connect and renders the tool result as text. The published-app path remains
-untested, and is the surface a reviewer uses. Full account and the measurement method in
-`openai-submission.md` §11.
+**2026-09-18, 19:19 UTC — the widget renders inline in ChatGPT.** A person asked for a
+five-question quiz through the workspace plugin on `mcp-service-00200-l8w` and it mounted
+unprompted (`boot` → `mounted`, no `dump`). It mounts in Claude and Codex too. What blocked it for
+two days was not the host: `@graffiticode/l0180-view@0.1.0` had no activity support, so a
+multi-question quiz reached a Form that printed the payload instead of rendering it. Fixed by
+publishing `l0180-view@0.2.0` and the `@graffiticode/l0180` core it depends on. Full account and
+the beacon method in `openai-submission.md` §11.
 
 | | |
 |---|---|
@@ -328,10 +329,10 @@ every deploy that touches `src/widget/` or `src/item-content.ts`.
 
 ## Not verified
 
-- **No person has watched a widget render in ChatGPT itself.** Still true 2026-09-18, and now
-  explained rather than mysterious: on a freshly added dev connector, `openai-mcp` reads the
-  widget resource once at connect and never executes it — no bundle fetch, no `boot` beacon. The
-  same build mounts in Claude and Codex. Whether the PUBLISHED app path executes it is untested.
+- ~~**No person has watched a widget render in ChatGPT itself.**~~ **Done 2026-09-18** — see
+  the top of this file. What remains unverified is narrower: whether a candidate can ANSWER the
+  inline quiz and see it scored inside ChatGPT's sandbox. The scorer is client-side and pinned by
+  a jsdom test, but nobody has clicked an option on that host.
 - **The multi-question quiz shape in the widget.** A five-question quiz is
   `data.activity.items[]`, a different shape from the single item our mount test covers. That
   exact distinction was broken in the summary extractor until 2026-09-16. Dry-run before filming

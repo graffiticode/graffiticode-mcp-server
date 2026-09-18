@@ -223,7 +223,9 @@ nothing, leaving the user with a claim and an empty screen.
    link, and a summary listing five questions with the correct option marked. **Must route to
    the general assessment language (L0180), NOT a vendor-gated Learnosity language** — this is
    the positive half of the vendor gate and is guarded by `npm run eval:routing`.
-   *Verified 2026-09-17: L0180, ready in 24.6s, five `choice` items with scored options.*
+   *Verified 2026-09-17: L0180, ready in 24.6s, five `choice` items with scored options. On
+   2026-09-18 the same case **rendered as an inline interactive quiz in ChatGPT**, unprompted —
+   so expect the component, with the summary beneath it, not a link alone.*
 
 2. **Spreadsheet with formulas.** Prompt: *"Create an invoice with line items, quantity, unit
    price, a line total per row, and a grand total, formatted as currency."* (120 chars — this is
@@ -473,37 +475,39 @@ gcloud logging read 'resource.labels.service_name="mcp-service" AND textPayload:
   --project graffiticode-app --freshness=2h --format="value(timestamp,textPayload)"
 ```
 
-### Which hosts actually execute the widget (measured 2026-09-17/18)
+### Which hosts execute the widget (measured 2026-09-17/18)
 
-The widget had never been watched rendering by a person on any OpenAI host, and the reason it
-stayed unknown for weeks is that a widget failing in a chat is SILENT: the CSP declares no
-`connectDomains`, nobody has a devtools console open in a chat window, and the host reports
-nothing. `/widget/beacon/<stage>.mjs` fixed that — a dynamic `import()` is the one outbound call
-the CSP already permits (it is how the language bundles load), so the page imports a stub at
-each step and the access log becomes the trace: `boot` (our script ran), `mounted`, `empty`,
-`error`, `card`.
+**ChatGPT renders it.** Confirmed 2026-09-18 19:19 UTC on `mcp-service-00200-l8w`: a person asked
+for a five-question quiz through the workspace plugin and the widget mounted inline, unprompted —
+`boot` → `mounted` beacons, the `L0180.mjs` bundle fetched 200, and no `dump` beacon. This is the
+first observed inline render on an OpenAI host, and it supersedes every earlier claim in this file
+that ChatGPT does not execute the component.
 
-On build `a2a692b8`:
+| Host | Reads the resource | Executes it |
+|---|---|---|
+| `openai-mcp` (ChatGPT) | yes | **yes — mounts** |
+| `claude-ai` / `Anthropic/ClaudeAI` | yes | **yes — mounts** |
+| `codex-mcp-client` (app) | yes, several URIs at once | yes, sometimes from a cached copy |
 
-| Host | Reads the resource | Executes it | Evidence |
-|---|---|---|---|
-| `claude-ai` / `Anthropic/ClaudeAI` | yes | **yes — mounts** | `boot` → `mounted`, `L0180.mjs` 200 |
-| `codex-mcp-client` (app) | yes, several URIs at once | **yes**, from a cached copy | `L0169.mjs` 200, no beacon — so it ran HTML cached before the beacon shipped |
-| `openai-mcp` (ChatGPT dev connector) | yes, ONCE, 0.2s after `tools/list` | **no** | no bundle fetch, no beacon, on a freshly added connector |
+**What made it look impossible for two days** was a stale npm package, not the host. A
+five-question quiz is `data.activity.items[]`; `@graffiticode/l0180-view@0.1.0` contained the
+string "activity" zero times, and every `Form` in the family prints what it cannot parse. So the
+component mounted, drew a pretty-printed JSON blob, and reported success. The fix was publishing
+`l0180-view@0.2.0` from `l0180@b3be1e8` ("Back-port the activity vocabulary from L0182") — which
+also required publishing `@graffiticode/l0180` itself, never before on npm, because the back-port
+imports `matching` from it.
 
-So the component, the bundles, the CSP and the hydration payload are all sound — proven by two
-hosts — and ChatGPT's **developer-mode connector** simply does not execute UI components. It
-fetches the resource at connect time and shows the tool result as text.
+**The method mattered as much as the fix.** A widget failing in a chat is silent: the CSP declares
+no `connectDomains`, nobody has a devtools console open, and the host reports nothing. A dynamic
+`import()` is the one outbound call the CSP already permits, so `/widget/beacon/<stage>.mjs` turns
+the access log into a trace — `boot`, `mounted`, `empty`, `error`, `card`, `dump`. Before it, three
+separate wrong diagnoses; after it, the answer in one prompt. `dump` in particular is
+language-agnostic: any view can meet a shape it was never given, and the content card beats a data
+dump every time.
 
-**What this does NOT tell us:** whether the PUBLISHED app path renders. That is a different
-surface, it is the one a reviewer uses, and its widget metadata arrives through the reviewed
-snapshot rather than live. Submitting still means the inline render is unverified where it
-counts — which is acceptable only because the text fallback is now substantive and honest (§6).
-
-**Corollary for the model's prose:** with widget metadata present, models claim a render whether
-or not one happened ("Rendered above. The quiz is interactive…" with nothing above it). The
-server no longer encourages this — the "already rendered" directive is gone (see below) — but it
-cannot be prevented from here.
+**Still unverified:** that a candidate can ANSWER the inline quiz and see it scored in ChatGPT's
+sandbox. L0180 ships its own scorer and needs no network, and `tests/widget-native-mount.test.ts`
+pins the click-to-score path in jsdom — but nobody has done it on that host.
 
 ### Reconnect before you conclude anything
 
