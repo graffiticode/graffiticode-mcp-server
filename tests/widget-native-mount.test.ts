@@ -224,22 +224,21 @@ test("L0182 mounts and shows the ideas and the ranked response", async () => {
 });
 
 /**
- * A five-question quiz is a DIFFERENT SHAPE from a single item, and the view
- * package cannot render it.
+ * A five-question quiz renders as a quiz, not as its own payload.
  *
- * Measured in ChatGPT on 2026-09-18: `boot` and `mounted` beacons both fired and
- * the user got a pretty-printed JSON blob where the quiz should have been. The
- * cause is not the widget — `l0180-view@0.1.0` contains the string "activity"
- * exactly zero times, so a payload of `data.activity.items[]` reaches a Form that
- * understands `data.interaction`, and the family's Forms print what they cannot
- * parse. app.graffiticode.org renders the same item correctly by another path.
+ * A multi-question item is `data.activity.items[]`, a different shape from the
+ * single item above. `l0180-view@0.1.0` had no activity support at all — the
+ * string did not appear in the package — and every Form in the family prints
+ * what it cannot parse, so in ChatGPT on 2026-09-18 a real quiz arrived as a
+ * pretty-printed JSON blob with `boot` and `mounted` beacons both fired. The
+ * mount was never the problem; the view was three commits behind its own source.
  *
- * This pins the SHAPE FACT, so that if a later view package gains activity
- * support the test fails and tells us the workaround can come out. The workaround
- * itself — renderer.ts treating a JSON dump as a failed mount and showing the
- * content card instead — is what keeps this out of a user's face meanwhile.
+ * Fixed by publishing `l0180-view@0.2.0` (and the `@graffiticode/l0180` core it
+ * imports `matching` from, which had never been published at all). This asserts
+ * the shape that broke, so a future view regression is caught here rather than
+ * in a chat window.
  */
-test("a multi-question activity is not renderable by the L0180 view", async () => {
+test("a multi-question activity renders its questions", async () => {
   const { JSDOM } = await import("jsdom");
   const dom = new JSDOM("<!doctype html><div id='root'></div>", { pretendToBeVisual: true });
   const g = globalThis as unknown as Record<string, unknown>;
@@ -276,18 +275,26 @@ test("a multi-question activity is not renderable by the L0180 view", async () =
           },
           validation: { mapping: { A: { correct: true, points: 1 } } },
         },
+        {
+          id: 1,
+          interaction: {
+            type: "choice",
+            maxChoices: 1,
+            options: [
+              { id: "A", text: "Evaporation" },
+              { id: "B", text: "Condensation" },
+            ],
+          },
+          validation: { mapping: { B: { correct: true, points: 1 } } },
+        },
       ],
     },
   });
   await new Promise((r) => setTimeout(r, 300));
 
   const text = (el.textContent ?? "").trim();
-  const isDump = /^[{[]/.test(text) && (() => {
-    try {
-      return typeof JSON.parse(text) === "object";
-    } catch {
-      return false;
-    }
-  })();
-  assert.equal(isDump, true, "expected the view to print the payload it cannot render");
+  assert.doesNotMatch(text, /^[{[]/, "the view must not print its own payload");
+  assert.match(text, /Question 1/, "the first item must render");
+  assert.match(text, /Question 2/, "every item must render, not just the first");
+  assert.match(text, /Water vapor turns into droplets/, "option text must reach the DOM");
 });
