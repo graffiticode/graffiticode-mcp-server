@@ -271,3 +271,24 @@ test("free-plan claim fields carry the host bucket and the reconnect hint", () =
   // No token (unconfigured salt) degrades to no claim fields, not a broken link.
   assert.equal(buildClaimFields(auth, null, "cursor"), null);
 });
+
+/**
+ * No agent-facing text may name a retired language.
+ *
+ * `create_item`'s `language` parameter carried the example `'L0166'` for weeks
+ * after L0166 was deprecated (2026-08-26) and left the catalog. That was harmless
+ * until 2026-09-18, when a session lost mid-conversation meant `list_languages`
+ * never returned — and the model, with no catalog to read, called
+ * `create_item(L0166)` using the one language id it could see: the example.
+ *
+ * An example in a schema is not decoration. It is the fallback a model reaches
+ * for when everything else fails, so it has to be a language that exists.
+ */
+test("tool definitions never name a retired language", async () => {
+  const { tools } = await import("../src/tools.js");
+  const RETIRED = ["L0166", "L0158"];
+  const text = JSON.stringify(tools);
+  for (const id of RETIRED) {
+    assert.ok(!text.includes(id), `a tool definition still names retired language ${id}`);
+  }
+});

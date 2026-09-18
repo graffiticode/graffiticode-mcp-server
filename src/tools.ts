@@ -260,7 +260,7 @@ Generation runs asynchronously: this returns immediately with an item_id and sta
     properties: {
       language: {
         type: "string",
-        description: "Language ID (e.g., 'L0166'). Call list_languages() to discover options. A best guess is fine — the platform re-routes the request if another language is a better fit.",
+        description: "Language ID (e.g., 'L0180'). Call list_languages() to discover options. A best guess is fine — the platform re-routes the request if another language is a better fit.",
       },
       description: {
         type: "string",
@@ -499,7 +499,7 @@ Call this after list_languages() to learn about a specific language before using
     properties: {
       language: {
         type: "string",
-        description: "Language ID (e.g., 'L0166')",
+        description: "Language ID (e.g., 'L0180')",
       },
     },
     required: ["language"],
