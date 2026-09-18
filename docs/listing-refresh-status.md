@@ -8,41 +8,45 @@ changes**; a status doc that has gone stale is worse than none, as §11 records 
 
 ---
 
-## Pick up here — morning of 2026-09-18
+## Pick up here — evening of 2026-09-18
 
-Everything below is done and pushed. Four things are left, in order:
+**All 5+3 test cases passed in ChatGPT.** Ready for portal submission.
 
-1. **Confirm the copy, or rebuild.** The artifact carries the PROPOSED subtitle
-   (`Quizzes, spreadsheets, charts`, 29/30) and the three-paragraph description. Keeping v2's
-   text instead means editing `graffiticode-skills/plugin.meta.json` and rebuilding.
-2. **Run the 5+3 by hand in ChatGPT** (§6 of the runbook). Nobody else can do this, and it is
-   what v2.0.0 was rejected for. Positives are prefixed "Use Graffiticode to…"; negatives are
-   deliberately NOT — one of them must call no tool at all.
-3. **Portal:** open the still-editable v2 draft → set **2.1.0** → upload the ZIP → **Scan Tools**
-   → freeze → submit → publish. The scan is the only step that puts the widget marker into the
-   snapshot; resubmitting without it ships the August contract under a new number.
-4. **Check the scan result** before freezing: 7 tools, widget marker on `render_item` and
-   `get_item` ONLY, and a `widget-mcp.<hash>.html` URI — a retired `widget-oai`/`form-widget`
-   pointer would make every `resources/read` in review throw (`src/server.ts`).
+### What's done
 
-**The artifact, ready to upload:**
+1. ✅ **5+3 test cases passed** (2026-09-18 ~23:20 UTC):
+   - Positive #1: L0180 quiz ✅
+   - Positive #2: L0179 invoice (1ms `list_languages`!) ✅
+   - Positive #3: L0176 Learnosity ✅
+   - Positive #4: L0173 chart + `update_item` refine ✅
+   - Positive #5: L0181 flashcards via `get_spec` ✅
+   - Negative #1: "What's a bar chart?" — no tool call ✅
+   - Negative #2: "Book me a flight" — declined ✅
+   - Negative #3: Cross-language item_id — used `get_spec` correctly ✅
 
-```
-graffiticode-skills/dist/graffiticode-plugin-2.1.0.zip
-  sha256 b3f6fc7c428e4dfaa8bf1d08a11b5dff2dbe467ce7e8c0248661630422de3529
-  built from graffiticode-skills@bac5a28 — `npm run package` reproduces it
-```
+2. ✅ **Critical fix deployed** (`mcp-service-00205-dn2`): `list_languages` now fetches the full
+   cached catalog and filters client-side, eliminating per-search-term cache misses that were
+   causing timeouts in ChatGPT. Measured: 1ms vs 300-500ms+ before.
 
-**Live right now:** `mcp-service-00199-hx5` (widget `a2a692b8`), console carrying the scope-gate
-fix. **If you test in any client, reconnect first** — every stale-metadata surprise yesterday
-came from skipping that (§11).
+3. ✅ **ZIP verified:**
+   ```
+   graffiticode-skills/dist/graffiticode-plugin-2.1.0.zip
+     sha256 a428f4155024df1272c65377c6bd9a1b9e74880d447a16d01700004a9f88fd97
+   ```
+   Copy: subtitle `Assessments, diagrams and more` (30/30), 3-paragraph description with
+   Learnosity Author/Data API, 3 starter prompts (invoice, concept web, Learnosity assessment).
 
-**Two things that would change the plan if they turn out differently:**
+### What's left — portal submission
 
-- The inline widget is unverified on the published-app path. It mounts in Claude and Codex and is
-  not executed by ChatGPT's dev connector. The text fallback is what carries the listing.
-- A build with no skills does not use the tools at all (Codex CLI, measured twice). The reviewer's
-  environment has them; anything else may not.
+1. **Open the v2 draft** at platform.openai.com
+2. **Set version to 2.1.0**
+3. **Upload the ZIP** (`graffiticode-skills/dist/graffiticode-plugin-2.1.0.zip`)
+4. **Scan Tools** — verify: 7 tools, widget on `render_item` and `get_item` ONLY, URI is
+   `widget-mcp.<hash>.html`
+5. **Freeze → Submit → Publish** (on approval)
+
+**Live right now:** `mcp-service-00205-dn2`. **Reconnect before testing** — clients cache
+connection metadata.
 
 ---
 

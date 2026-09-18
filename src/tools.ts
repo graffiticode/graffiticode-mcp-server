@@ -1895,15 +1895,28 @@ export async function handleListLanguages(
   ctx: ToolContext,
   args: { domain?: string; search?: string }
 ): Promise<unknown> {
-  const languages = await apiListLanguages({
-    auth: ctx.auth,
-    domain: args.domain,
-    search: args.search,
-  });
+  // Always fetch the full catalog (cached & warmed on connect), filter client-side.
+  // This avoids per-search-term cache misses that were causing timeouts in ChatGPT.
+  const languages = await apiListLanguages({ auth: ctx.auth });
+
+  const { domain, search } = args;
+  const searchLower = search?.toLowerCase();
 
   return {
     languages: languages
       .filter(lang => isDiscoverable(lang.id))
+      .filter(lang => {
+        if (domain && !lang.domains?.includes(domain)) return false;
+        if (searchLower) {
+          const haystack = [
+            lang.name,
+            lang.description,
+            lang.routingHint,
+          ].filter(Boolean).join(" ").toLowerCase();
+          if (!haystack.includes(searchLower)) return false;
+        }
+        return true;
+      })
       .map(lang => ({
         id: `L${lang.id}`,
         name: lang.name,
