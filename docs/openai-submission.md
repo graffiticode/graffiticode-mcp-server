@@ -473,6 +473,78 @@ gcloud logging read 'resource.labels.service_name="mcp-service" AND textPayload:
   --project graffiticode-app --freshness=2h --format="value(timestamp,textPayload)"
 ```
 
+### Which hosts actually execute the widget (measured 2026-09-17/18)
+
+The widget had never been watched rendering by a person on any OpenAI host, and the reason it
+stayed unknown for weeks is that a widget failing in a chat is SILENT: the CSP declares no
+`connectDomains`, nobody has a devtools console open in a chat window, and the host reports
+nothing. `/widget/beacon/<stage>.mjs` fixed that — a dynamic `import()` is the one outbound call
+the CSP already permits (it is how the language bundles load), so the page imports a stub at
+each step and the access log becomes the trace: `boot` (our script ran), `mounted`, `empty`,
+`error`, `card`.
+
+On build `a2a692b8`:
+
+| Host | Reads the resource | Executes it | Evidence |
+|---|---|---|---|
+| `claude-ai` / `Anthropic/ClaudeAI` | yes | **yes — mounts** | `boot` → `mounted`, `L0180.mjs` 200 |
+| `codex-mcp-client` (app) | yes, several URIs at once | **yes**, from a cached copy | `L0169.mjs` 200, no beacon — so it ran HTML cached before the beacon shipped |
+| `openai-mcp` (ChatGPT dev connector) | yes, ONCE, 0.2s after `tools/list` | **no** | no bundle fetch, no beacon, on a freshly added connector |
+
+So the component, the bundles, the CSP and the hydration payload are all sound — proven by two
+hosts — and ChatGPT's **developer-mode connector** simply does not execute UI components. It
+fetches the resource at connect time and shows the tool result as text.
+
+**What this does NOT tell us:** whether the PUBLISHED app path renders. That is a different
+surface, it is the one a reviewer uses, and its widget metadata arrives through the reviewed
+snapshot rather than live. Submitting still means the inline render is unverified where it
+counts — which is acceptable only because the text fallback is now substantive and honest (§6).
+
+**Corollary for the model's prose:** with widget metadata present, models claim a render whether
+or not one happened ("Rendered above. The quiz is interactive…" with nothing above it). The
+server no longer encourages this — the "already rendered" directive is gone (see below) — but it
+cannot be prevented from here.
+
+### Reconnect before you conclude anything
+
+**A client tests the metadata it connected with, not what is live.** This cost three separate
+diagnoses on 2026-09-17 alone:
+
+1. A workspace plugin listed as `assessments` with the wrong description — fixed by re-uploading,
+   but the listing only updated on a fresh install.
+2. A JSON dump in the chat that "fixed itself" between two runs, with no deploy in between. The
+   actual change was the connector being deleted and re-added.
+3. A widget build with a beacon that emitted no beacons, because the connector was still serving
+   `63bb0b17` while production served `a2a692b8`.
+
+The rule: **after any deploy that changes tool metadata or the widget, delete and re-add the
+connector (or use the host's Refresh) before drawing a conclusion.** The tell is the
+`[widget] resources/read` line — it names the build the client actually loaded. If that hash is
+not the one you just deployed, nothing observed afterwards means anything.
+
+`widgetResourceUris()` content-hashes the URI so new content cannot be served from a cache keyed
+on a stale URI, and `handleRequest` serves the CURRENT HTML for any `widget-mcp.<hash>.html` — an
+alias that keeps old cached pointers working. Codex exploits both at once: it read four different
+URIs within five seconds on 2026-09-18 and got current content for each.
+
+### The link directive: three failed attempts at suppression
+
+`buildLinkDirective` once told a host that had "already rendered" the item not to reproduce its
+contents. Every way of deciding who qualifies was measured wrong in one day:
+
+- **By client NAME** — a ChatGPT plugin matched the OpenAI allow-list, mounted nothing, and the
+  assistant announced "The interactive Graffiticode quiz is rendered above" over an empty screen.
+- **By UI-EXTENSION DECLARATION** — `codex-mcp-client` declares it and is a TERMINAL; it was told
+  to stay quiet and printed a bare link, the original failure this directive exists to prevent.
+- **CONDITIONAL** ("if it is displayed above…") — the model took the quiet branch anyway and a
+  chart arrived as one sentence and a URL.
+
+It is now unconditional: **every client is told to show the item's contents.** Suppression
+protected a render not observed on the hosts that matter and charged for it on every call.
+Duplication, if a mount starts working, is visible on screen and fixable by a deploy without a
+resubmission — the opposite of a silent empty answer.
+
+
 ### Codex flips routes between launches
 
 Same binary, minutes apart, on 2026-09-16:
