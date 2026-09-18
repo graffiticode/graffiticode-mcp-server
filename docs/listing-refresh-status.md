@@ -8,6 +8,44 @@ changes**; a status doc that has gone stale is worse than none, as §11 records 
 
 ---
 
+## Pick up here — morning of 2026-09-18
+
+Everything below is done and pushed. Four things are left, in order:
+
+1. **Confirm the copy, or rebuild.** The artifact carries the PROPOSED subtitle
+   (`Quizzes, spreadsheets, charts`, 29/30) and the three-paragraph description. Keeping v2's
+   text instead means editing `graffiticode-skills/plugin.meta.json` and rebuilding.
+2. **Run the 5+3 by hand in ChatGPT** (§6 of the runbook). Nobody else can do this, and it is
+   what v2.0.0 was rejected for. Positives are prefixed "Use Graffiticode to…"; negatives are
+   deliberately NOT — one of them must call no tool at all.
+3. **Portal:** open the still-editable v2 draft → set **2.1.0** → upload the ZIP → **Scan Tools**
+   → freeze → submit → publish. The scan is the only step that puts the widget marker into the
+   snapshot; resubmitting without it ships the August contract under a new number.
+4. **Check the scan result** before freezing: 7 tools, widget marker on `render_item` and
+   `get_item` ONLY, and a `widget-mcp.<hash>.html` URI — a retired `widget-oai`/`form-widget`
+   pointer would make every `resources/read` in review throw (`src/server.ts`).
+
+**The artifact, ready to upload:**
+
+```
+graffiticode-skills/dist/graffiticode-plugin-2.1.0.zip
+  sha256 b3f6fc7c428e4dfaa8bf1d08a11b5dff2dbe467ce7e8c0248661630422de3529
+  built from graffiticode-skills@bac5a28 — `npm run package` reproduces it
+```
+
+**Live right now:** `mcp-service-00199-hx5` (widget `a2a692b8`), console carrying the scope-gate
+fix. **If you test in any client, reconnect first** — every stale-metadata surprise yesterday
+came from skipping that (§11).
+
+**Two things that would change the plan if they turn out differently:**
+
+- The inline widget is unverified on the published-app path. It mounts in Claude and Codex and is
+  not executed by ChatGPT's dev connector. The text fallback is what carries the listing.
+- A build with no skills does not use the tools at all (Codex CLI, measured twice). The reviewer's
+  environment has them; anything else may not.
+
+---
+
 ## Status at a glance
 
 **2026-09-18.** The widget question is answered for two hosts and still open for the one that
