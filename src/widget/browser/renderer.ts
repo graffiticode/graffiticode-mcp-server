@@ -169,8 +169,35 @@ export function startRenderer(host: HostAdapter): void {
             reportHeight();
             return;
           }
-          if (mountPoint.childNodes.length > 0) {
+          // Nodes are not the same thing as a rendering.
+          //
+          // L0176 emits Learnosity RESPONSE PLACEHOLDERS — empty
+          // `<span class="learnosity-response" data-response-id="…">` that
+          // Learnosity's own hosted script fills in. Our sandbox declares no
+          // `connectDomains`, so that script can never load and the spans stay
+          // empty: one child node, zero text, and a blank box on screen.
+          // Measured 2026-09-18 against a real item (Q58dZSOqoSAOBsRJ2frl): the
+          // mount produced one child node whose entire text content was "", and
+          // it beaconed `mounted` while the user looked at an empty box. There is
+          // no test fixture for this — an approximated payload lands in the
+          // JSON-dump path instead, which proves nothing — so the guard is what
+          // carries it, and the `blank` beacon is how we would see it recur.
+          //
+          // So a mount must produce something a person can SEE. Images and canvas
+          // renders (L0173 charts) legitimately carry no text, hence the element
+          // check alongside it.
+          const drewSomething =
+            text.length > 0 || mountPoint.querySelector("canvas, svg, img, input, button") !== null;
+          if (mountPoint.childNodes.length > 0 && drewSomething) {
             beacon("mounted", lang);
+            return;
+          }
+          if (mountPoint.childNodes.length > 0) {
+            const why = `${lang} mounted ${mountPoint.childNodes.length} node(s) with nothing visible — needs a host script the sandbox cannot load`;
+            console.warn(`[widget] ${why} — using the card`);
+            beacon("blank", lang, why);
+            renderCard(sc, why);
+            reportHeight();
             return;
           }
           const why = `${lang} mounted but produced no output within ${EMPTY_MOUNT_GRACE_MS}ms`;
