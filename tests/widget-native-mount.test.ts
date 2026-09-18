@@ -222,3 +222,72 @@ test("L0182 mounts and shows the ideas and the ranked response", async () => {
   assert.match(text, /Better documentation/);
   assert.doesNotMatch(text, /No response yet/, "the response must render, not the empty state");
 });
+
+/**
+ * A five-question quiz is a DIFFERENT SHAPE from a single item, and the view
+ * package cannot render it.
+ *
+ * Measured in ChatGPT on 2026-09-18: `boot` and `mounted` beacons both fired and
+ * the user got a pretty-printed JSON blob where the quiz should have been. The
+ * cause is not the widget — `l0180-view@0.1.0` contains the string "activity"
+ * exactly zero times, so a payload of `data.activity.items[]` reaches a Form that
+ * understands `data.interaction`, and the family's Forms print what they cannot
+ * parse. app.graffiticode.org renders the same item correctly by another path.
+ *
+ * This pins the SHAPE FACT, so that if a later view package gains activity
+ * support the test fails and tells us the workaround can come out. The workaround
+ * itself — renderer.ts treating a JSON dump as a failed mount and showing the
+ * content card instead — is what keeps this out of a user's face meanwhile.
+ */
+test("a multi-question activity is not renderable by the L0180 view", async () => {
+  const { JSDOM } = await import("jsdom");
+  const dom = new JSDOM("<!doctype html><div id='root'></div>", { pretendToBeVisual: true });
+  const g = globalThis as unknown as Record<string, unknown>;
+  g.window = dom.window;
+  g.document = dom.window.document;
+  // Getter-only global on modern Node; same treatment as the setup above.
+  Object.defineProperty(globalThis, "navigator", {
+    value: dom.window.navigator,
+    configurable: true,
+  });
+  g.HTMLElement = dom.window.HTMLElement;
+  g.Element = dom.window.Element;
+  g.Node = dom.window.Node;
+  g.MutationObserver = dom.window.MutationObserver;
+  g.requestAnimationFrame = (cb: () => void) => setTimeout(cb, 0);
+  g.cancelAnimationFrame = (id: number) => clearTimeout(id);
+
+  const mod = (await import("../dist/widget/lang/L0180.mjs")) as {
+    mount: (el: HTMLElement, data: unknown) => void;
+  };
+  const el = dom.window.document.getElementById("root") as unknown as HTMLElement;
+  mod.mount(el, {
+    activity: {
+      items: [
+        {
+          id: 0,
+          interaction: {
+            type: "choice",
+            maxChoices: 1,
+            options: [
+              { id: "A", text: "Water vapor turns into droplets, forming clouds." },
+              { id: "B", text: "Liquid water becomes vapor." },
+            ],
+          },
+          validation: { mapping: { A: { correct: true, points: 1 } } },
+        },
+      ],
+    },
+  });
+  await new Promise((r) => setTimeout(r, 300));
+
+  const text = (el.textContent ?? "").trim();
+  const isDump = /^[{[]/.test(text) && (() => {
+    try {
+      return typeof JSON.parse(text) === "object";
+    } catch {
+      return false;
+    }
+  })();
+  assert.equal(isDump, true, "expected the view to print the payload it cannot render");
+});

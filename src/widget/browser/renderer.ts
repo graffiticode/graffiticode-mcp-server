@@ -147,6 +147,28 @@ export function startRenderer(host: HostAdapter): void {
         // proving its renderer against every payload first — the worst case is the
         // card it would have shown anyway.
         setTimeout(() => {
+          // A component can also "succeed" by printing its own input.
+          //
+          // Every Form in the family renders the raw payload when it does not
+          // recognise the shape, and that output is non-empty, so the emptiness
+          // check below waves it through. Measured 2026-09-18 in ChatGPT: a
+          // five-question quiz is `data.activity.items[]`, l0180-view has no
+          // activity support whatsoever (the string does not appear in the
+          // package), and the widget showed a pretty-printed JSON blob where the
+          // quiz should be — mounted, beaconed, and useless.
+          //
+          // Detected generically rather than per language: any view can meet a
+          // payload shape it was never given, and the content card is a better
+          // answer than a data dump in every one of those cases.
+          const text = mountPoint.textContent?.trim() ?? "";
+          if (looksLikeDataDump(text)) {
+            const why = `${lang} rendered its payload as JSON — the view does not understand this shape`;
+            console.warn(`[widget] ${why} — using the card`);
+            beacon("dump", lang, why);
+            renderCard(sc, why);
+            reportHeight();
+            return;
+          }
           if (mountPoint.childNodes.length > 0) {
             beacon("mounted", lang);
             return;
@@ -190,6 +212,23 @@ export function startRenderer(host: HostAdapter): void {
       ).catch(() => {});
     } catch {
       /* never let telemetry break a render */
+    }
+  }
+
+  /**
+   * Does this rendered text look like the payload, rather than a rendering of it?
+   *
+   * Deliberately narrow: it must START like JSON and PARSE as JSON. Prose that
+   * merely mentions a brace, or a spreadsheet cell containing `{`, does not
+   * qualify — a false positive would replace a working render with a card.
+   */
+  function looksLikeDataDump(text: string): boolean {
+    if (!/^[{[]/.test(text)) return false;
+    try {
+      const parsed: unknown = JSON.parse(text);
+      return typeof parsed === "object" && parsed !== null;
+    } catch {
+      return false;
     }
   }
 
