@@ -619,28 +619,27 @@ test("the progress phrase is shared, and empty when there is nothing to say", ()
   );
 });
 
-test("a widget host is told not to duplicate a render, without assuming one happened", () => {
-  // Observed 2026-09-11: a 5x5 sheet rendered as an interactive grid in the chat
-  // and the model printed a second, static markdown copy of the same numbers
-  // directly underneath, because `message` asked it to show the contents from
-  // `summary` regardless of whether the host had already drawn them.
+test("every client is told to show the contents, whatever it claims to render", () => {
+  // Suppression was tried three ways in one day and each cost more than it saved.
+  // Keyed on NAME, a ChatGPT plugin announced "the interactive quiz is rendered
+  // above" with nothing on screen. Keyed on the UI-EXTENSION DECLARATION, it
+  // reached codex-mcp-client — a terminal — and produced a bare link. Made
+  // CONDITIONAL, the model still took the quiet branch and a chart arrived as one
+  // sentence and a URL.
   //
-  // The directive is CONDITIONAL rather than assertive as of 2026-09-17, because
-  // both mount signals were measured wrong that day: a ChatGPT plugin matched on
-  // name, mounted nothing and announced a render that was not there; and
-  // codex-mcp-client DECLARES the UI extension and is a terminal, so it was told
-  // to stay quiet and printed a bare link. Neither host can be identified from
-  // here, so the model is given both branches instead of a false premise.
-  const d = buildLinkDirective("https://app.graffiticode.org/form/abc", true);
-  assert.match(d, /if the item is displayed above/i);
-  assert.match(d, /do NOT reproduce/i);
-  assert.match(d, /if it is NOT displayed/i, "the non-mounting branch must survive");
-  assert.match(d, /contents from `summary`/i);
-  assert.doesNotMatch(d, /is already rendered above/i, "must not assert a render happened");
-  // The link is still mandatory — that clause is what stopped the ORIGINAL
-  // failure, where a model wrote prose and handed over nothing to click.
-  assert.match(d, /https:\/\/app\.graffiticode\.org\/form\/abc/);
-  assert.match(d, /not a substitute/i);
+  // The deciding measurement: a FRESHLY connected ChatGPT client on the current
+  // build read the widget HTML, fetched the language bundle (HTTP 200) and
+  // painted nothing. Suppression protects a render not yet observed on these
+  // hosts and charges for it on every call; duplication, if a mount ever starts
+  // working, is visible and fixable by a deploy.
+  for (const mounts of [true, false]) {
+    const d = buildLinkDirective("https://app.graffiticode.org/form/abc", mounts);
+    assert.match(d, /Show the user this item's contents/, `mountsWidget=${mounts}`);
+    assert.doesNotMatch(d, /already rendered/i);
+    assert.doesNotMatch(d, /do NOT reproduce/i);
+    assert.match(d, /https:\/\/app\.graffiticode\.org\/form\/abc/);
+    assert.match(d, /not a substitute/i);
+  }
 });
 
 test("a client that mounts nothing is still told to show the contents", () => {

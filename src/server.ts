@@ -1030,6 +1030,37 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
     return;
   }
 
+  // Widget beacon: the only way to see whether the component ran.
+  //
+  // A widget failing in a chat is invisible. The CSP declares no `connectDomains`
+  // (deliberately — nothing else needs the network), so the page cannot report
+  // home; nobody has a devtools console open in ChatGPT; and the host renders no
+  // error of its own. On 2026-09-17 a freshly connected ChatGPT client read the
+  // widget HTML and fetched L0180.mjs with a 200 and then painted NOTHING — and
+  // there was no way to tell whether our script had run, thrown, or never
+  // executed at all.
+  //
+  // A dynamic `import()` is the one outbound call the CSP already permits, which
+  // is how the language bundles load. So the page imports this, and the access
+  // log becomes the trace: `boot` says the script ran, `mounted` that a component
+  // drew, `empty`/`error` that it did not and why.
+  const beacon = url.pathname.match(/^\/widget\/beacon\/([a-z]+)\.mjs$/);
+  if (beacon) {
+    const stage = beacon[1];
+    const lang = (url.searchParams.get("lang") || "-").slice(0, 8);
+    const why = (url.searchParams.get("why") || "").slice(0, 200);
+    console.log(`[widget] beacon stage=${stage} lang=${lang}${why ? ` why=${why}` : ""}`);
+    res.writeHead(200, {
+      "Content-Type": "text/javascript; charset=utf-8",
+      "Access-Control-Allow-Origin": "*",
+      "Cache-Control": "no-store",
+    });
+    // Must parse as a module: a failed import would be swallowed by the caller's
+    // catch and the beacon would look fine while reporting nothing.
+    res.end("export default 1;\n");
+    return;
+  }
+
   // Health check
   if (url.pathname === "/health") {
     res.writeHead(200, { "Content-Type": "application/json" });

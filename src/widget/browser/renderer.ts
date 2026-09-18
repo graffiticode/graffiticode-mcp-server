@@ -124,6 +124,9 @@ export function startRenderer(host: HostAdapter): void {
     if (status === "failed") return showStatus(sc, "failed");
 
     const lang = normalizeLang(sc.language);
+    // The script ran and has a payload. Absence of this in the log means the page
+    // never executed — a different problem from a component that fails to draw.
+    beacon("boot", lang);
     // Set only when a native mount was attempted and failed; renderCard shows it.
     let mountError: string | undefined;
     if (__NATIVE__.includes(lang) && sc.data !== undefined) {
@@ -144,9 +147,13 @@ export function startRenderer(host: HostAdapter): void {
         // proving its renderer against every payload first — the worst case is the
         // card it would have shown anyway.
         setTimeout(() => {
-          if (mountPoint.childNodes.length > 0) return;
+          if (mountPoint.childNodes.length > 0) {
+            beacon("mounted", lang);
+            return;
+          }
           const why = `${lang} mounted but produced no output within ${EMPTY_MOUNT_GRACE_MS}ms`;
           console.warn(`[widget] ${why} — using the card`);
+          beacon("empty", lang, why);
           renderCard(sc, why);
           reportHeight();
         }, EMPTY_MOUNT_GRACE_MS);
@@ -156,10 +163,34 @@ export function startRenderer(host: HostAdapter): void {
         // the content card, which needs no bundle.
         mountError = `${lang} failed to mount: ${err instanceof Error ? err.message : String(err)}`;
         console.error("[widget] native mount failed:", err);
+        beacon("error", lang, mountError);
       }
     }
     renderCard(sc, mountError);
+    beacon("card", lang, mountError);
     reportHeight();
+  }
+
+  /**
+   * Report where the render got to, via the one outbound call the CSP allows.
+   *
+   * `connectDomains` is empty by design, so fetch/XHR/beacon APIs are refused
+   * before they leave the browser. A dynamic import of our own origin is
+   * permitted — it is how the language bundles load — so the import IS the
+   * signal, and the server's access log is the readout. Fire and forget: a
+   * failed beacon must never affect what the user sees.
+   */
+  function beacon(stage: string, lang?: string, why?: string): void {
+    try {
+      const q = new URLSearchParams();
+      if (lang) q.set("lang", lang);
+      if (why) q.set("why", why.slice(0, 200));
+      void import(
+        /* @vite-ignore */ `${__MCP_ORIGIN__}/widget/beacon/${stage}.mjs?${q.toString()}`
+      ).catch(() => {});
+    } catch {
+      /* never let telemetry break a render */
+    }
   }
 
   async function mountNative(lang: string, data: unknown): Promise<HTMLElement> {

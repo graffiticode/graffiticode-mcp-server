@@ -1089,15 +1089,22 @@ export function buildLinkDirective(viewUrl: string, mountsWidget = false): strin
   // rather than being handed a false premise. A host that did mount and prints
   // the contents anyway shows the item twice, which is recoverable; a host that
   // did not mount and was told to stay quiet leaves the user with nothing.
-  if (mountsWidget) {
-    return (
-      "If the item is displayed above this message, do NOT reproduce its contents " +
-      "— summarise in one line at most. If it is NOT displayed (many hosts show no " +
-      "component), show its contents from `summary` below. Either way, give them " +
-      `this link so they can open and use it: ${viewUrl}` +
-      " — the link is required; a description alone is not a substitute for it."
-    );
-  }
+  // …and as of 2026-09-17 that is the ONLY directive, for every client.
+  //
+  // Suppression was tried three ways and each cost more than it saved. Keyed on
+  // NAME, a ChatGPT plugin announced "the interactive quiz is rendered above"
+  // with nothing on screen. Keyed on the UI-EXTENSION DECLARATION, it reached a
+  // terminal and produced a bare link. Made CONDITIONAL, the model still chose
+  // the quiet branch and a chart arrived as one sentence and a URL.
+  //
+  // What decided it: on a FRESHLY connected ChatGPT client against the current
+  // build, the host read the widget HTML and fetched the language bundle (HTTP
+  // 200) and still painted nothing. Suppression protects a render that has never
+  // been observed on these hosts, and it charges for that protection on every
+  // single call. If a widget does start mounting, the failure becomes the item
+  // appearing twice — visible, and fixable by a deploy without a resubmission,
+  // which is the opposite of a silent empty answer.
+  void mountsWidget;
   return (
     "Show the user this item's contents from `summary` below, then give them this " +
     `link so they can open and use it: ${viewUrl}` +
