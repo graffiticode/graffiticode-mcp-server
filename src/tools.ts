@@ -404,15 +404,17 @@ export const getSpecTool = {
   name: "get_spec",
   description: `Get a precise, platform-neutral English specification of an existing item's content.
 
-Use this to reproduce or wrap an item's content in ANOTHER language: pass the returned spec as the create_item description for the target language. The spec captures every authored detail (questions, options, answer keys, formulas, passages) with no language-specific encoding.
+Call this FIRST whenever the user gives you a Graffiticode item — its id, or a link such as https://app.graffiticode.org/form/<item_id> (the id is the last path segment) — and asks to reuse, recreate, convert, copy, or turn it into something else. An item id is exactly this tool's input: never tell the user an id is not enough or ask them for a screenshot of the item — fetch its content here.
 
-Item ids are opaque handles. Never pass an item id or get_item output (src/data) to another language — those are private to the item's own language and another language's generator cannot interpret them. get_spec is the only correct way to move content across languages.`,
+Use the result to reproduce or wrap the item's content in ANOTHER language: pass the returned spec as the create_item description for the target language. The spec captures every authored detail (questions, options, answer keys, formulas, passages) with no language-specific encoding.
+
+Never pass an item id or get_item output (src/data) to create_item — those are private to the item's own language and another language's generator cannot interpret them. get_spec is the only correct way to move content across languages.`,
   inputSchema: {
     type: "object",
     properties: {
       item_id: {
         type: "string",
-        description: "The item ID to describe",
+        description: "The item's id — as returned by create_item, or the last path segment of a https://app.graffiticode.org/form/<item_id> link",
       },
     },
     required: ["item_id"],
