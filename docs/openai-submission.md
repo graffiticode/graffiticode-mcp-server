@@ -241,9 +241,21 @@ nothing, leaving the user with a claim and an empty screen.
 
 3. **Vendor-gated language, correctly requested.** Prompt: *"Create a Learnosity water cycle
    assessment: one multiple-choice and one fill-in-the-blank, answers marked."* then *"Render
-   it."* Expect L0176 — the gate permits it because the user named Learnosity — `ready`, a view
-   link, and an answer key visible in the summary.
+   it."* Expect L0176 — the gate permits it because the user named Learnosity — `ready`, and
+   **a content card, not an interactive component**: both questions with the multiple-choice
+   answer marked ✓, the fill-in-the-blank's sentence with the blank shown as `_____` and its
+   accepted answer marked ✓, the note "Interactive preview unavailable — open it to use the
+   item", and an "Open the Learnosity assessment" link.
    *Verified 2026-09-17: L0176, ready in 11.3s.*
+   **Tell the reviewer this is the intended result.** A Learnosity item cannot render inline:
+   it is delivered by Learnosity's own hosted Items API, which needs network access the widget's
+   CSP deliberately withholds, a signed request, and a whitelisted domain — and the widget runs
+   on the host's sandbox origin, not ours. The item renders fully at the linked form view, whose
+   domain is whitelisted. Measured 2026-09-18: without a guard the mount produced one empty
+   placeholder `<span>` and a blank frame; the renderer now detects that (`blank` beacon) and
+   shows the card. Until the same day the card also showed the fill-in-the-blank as its
+   instruction alone — no sentence, no answer — because the extractor read `options` and a cloze
+   has none; it now reads the `template` and `valid_response`.
 
 4. **Create then refine in place.** Turn 1: *"Create a bar chart of monthly sales for January
    through June using sample data."* then *"Render it."* Turn 2: *"Make the bars horizontal."*

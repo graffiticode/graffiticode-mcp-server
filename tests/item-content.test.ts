@@ -916,3 +916,49 @@ test("a Learnosity item marks its correct option from nested validation", () => 
   assert.match(md, /- ✓ Evaporation/);
   assert.doesNotMatch(md, /✓ Condensation/);
 });
+
+// A cloze has no options: its content is the sentence, its key the blanks.
+// Verbatim from a real L0176 item (Q58dZSOqoSAOBsRJ2frl), where the card showed
+// "Complete the sentence about the water cycle." and nothing else — no sentence,
+// no blank, no answer — on a card whose job is to show the answer key.
+const CLOZE = {
+  language: "L0176",
+  data: {
+    data: {
+      request: {
+        questions: [
+          {
+            type: "clozetext",
+            template:
+              "Water vapor in the atmosphere cools and forms liquid water droplets through a process called {{response}}.",
+            validation: { scoring_type: "exactMatch", valid_response: { score: 1, value: ["condensation"] } },
+            stimulus: "Complete the sentence about the water cycle.",
+          },
+        ],
+      },
+    },
+    errors: [],
+  },
+};
+
+test("a cloze shows its sentence with the blank and the accepted answer marked", () => {
+  const c = describeItem("L0176", CLOZE);
+  assert.equal(c.kind, "questions");
+  if (c.kind !== "questions") return;
+  const q = c.shown[0];
+  assert.equal(q.stimulus, "Complete the sentence about the water cycle.");
+  assert.equal(
+    q.template,
+    "Water vapor in the atmosphere cools and forms liquid water droplets through a process called _____.",
+  );
+  assert.deepEqual(q.options, [{ label: "condensation", correct: true }]);
+
+  const md = contentToMarkdown(c);
+  assert.match(md, /through a process called _____\./);
+  assert.match(md, /- ✓ condensation/);
+});
+
+test("a multiple-choice item carries no template", () => {
+  const c = describeItem("L0176", LEARNOSITY);
+  assert.equal(c.kind === "questions" && c.shown[0].template, undefined);
+});

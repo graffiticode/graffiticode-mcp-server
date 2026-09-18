@@ -320,6 +320,9 @@ export function startRenderer(host: HostAdapter): void {
       for (const q of content.shown) {
         const li = el("li");
         li.appendChild(el("div", "q-stim", q.stimulus));
+        // A cloze's content is its sentence; without this line the card showed
+        // the instruction and nothing to fill in.
+        if (q.template) li.appendChild(el("div", "q-template", q.template));
         if (q.options.length) {
           const ul = el("ul", "q-opts");
           for (const o of q.options) {

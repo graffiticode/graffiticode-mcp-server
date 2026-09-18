@@ -73,6 +73,7 @@ const STYLES = `
   body.dark .card-pre { background: #0b1220; border-color: #374151; }
   .q-list { margin-top: 10px; padding-left: 18px; display: flex; flex-direction: column; gap: 10px; }
   .q-stim { font-weight: 500; }
+  .q-template { margin-top: 4px; font-size: 14px; line-height: 1.5; }
   .q-opts { margin-top: 4px; padding-left: 16px; list-style: none; }
   .q-opts li { font-size: 13px; color: #6b7280; }
   .q-opts li.correct { color: #15803d; font-weight: 600; }

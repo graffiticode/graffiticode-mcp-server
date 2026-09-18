@@ -30,6 +30,15 @@ export interface ToolPayload {
 
 export interface QuestionSummary {
   stimulus: string;
+  /**
+   * The sentence of a fill-in-the-blank item, each blank shown as `_____`.
+   *
+   * A cloze has no options: its content IS this sentence, and its answer key is
+   * what goes in the blanks. Without it the item rendered as its instruction alone
+   * ("Complete the sentence about the water cycle.") — no sentence, no blank, no
+   * answer — on a card whose whole job is to show the answer key.
+   */
+  template?: string;
   options: { label: string; correct: boolean }[];
 }
 
@@ -472,14 +481,28 @@ export function describeItem(lang: string, sc: Record<string, unknown>): ItemCon
           Array.isArray(valid?.value) ? (valid!.value as unknown[]).map(String) : []
         );
         const opts = qq.options as Array<Record<string, unknown>> | undefined;
+        // A cloze (`clozetext`, `clozedropdown`, …) carries its content in a
+        // `template` with a `{{response}}` per blank, and its answer key in
+        // `valid_response.value` — one accepted answer per blank, in order. It has
+        // no `options`, so the branch below produced an item that was all
+        // instruction and no substance. The accepted answers are listed as
+        // correct options so every renderer marks them ✓ with no new code path.
+        const template =
+          typeof qq.template === "string"
+            ? qq.template.replace(/<[^>]+>/g, "").replace(/\{\{response\}\}/g, "_____").trim()
+            : undefined;
+        const answers = Array.isArray(valid?.value) ? (valid!.value as unknown[]).map(String) : [];
         return {
           stimulus: stimulus || "(question)",
+          ...(template ? { template } : {}),
           options: Array.isArray(opts)
             ? opts.map((o) => ({
                 label: String(o.label ?? o.value ?? ""),
                 correct: correct.has(String(o.value)),
               }))
-            : [],
+            : template
+              ? answers.map((a) => ({ label: a, correct: true }))
+              : [],
         };
       });
       return { kind: "questions", count: questions.length, shown };
@@ -676,6 +699,7 @@ export function contentToMarkdown(content: ItemContent): string {
       const lines = [`**${count} question${count === 1 ? "" : "s"}**`, ""];
       shown.forEach((q, i) => {
         lines.push(`${i + 1}. ${q.stimulus}`);
+        if (q.template) lines.push(`   ${q.template}`);
         for (const o of q.options) {
           // The check mark is the answer key. It is the single most useful thing
           // in the summary for anyone verifying that the item is correct.
