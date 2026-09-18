@@ -233,6 +233,11 @@ nothing, leaving the user with a claim and an empty screen.
    *Verified 2026-09-17: per-row `=B2*C2`, `=SUM(D2:D4)` grand total, and `format "$0.00"` on the
    money columns.* **The formatting clause is load-bearing** — the same prompt without it returns
    unformatted numbers, which is what made the old recorded expectation wrong for eight months.
+   *2026-09-18 in ChatGPT: the grid mounted inline (`boot` → `mounted`, no `dump`), and
+   create→ready took **91 seconds** across ten `render_item` polls the client made unprompted.*
+   **Quote that figure, not the 14.1s elsewhere in this file** — that one is the four-row budget
+   sheet. This prompt asks for per-row formulas, a grand total and formatting, and it is the
+   slowest of the five. It is also why the "allow up to ~3 minutes" instruction above stays.
 
 3. **Vendor-gated language, correctly requested.** Prompt: *"Create a Learnosity water cycle
    assessment: one multiple-choice and one fill-in-the-blank, answers marked."* then *"Render
@@ -485,7 +490,7 @@ that ChatGPT does not execute the component.
 
 | Host | Reads the resource | Executes it |
 |---|---|---|
-| `openai-mcp` (ChatGPT) | yes | **yes — mounts** |
+| `openai-mcp` (ChatGPT) | yes | **yes — mounts** (L0180 quiz and L0179 sheet, both inline) |
 | `claude-ai` / `Anthropic/ClaudeAI` | yes | **yes — mounts** |
 | `codex-mcp-client` (app) | yes, several URIs at once | yes, sometimes from a cached copy |
 
