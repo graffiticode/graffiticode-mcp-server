@@ -44,6 +44,25 @@ editing is unanswered.
 
 ---
 
+## DECIDED for 2.1.0 — 2026-09-18
+
+**Subtitle: unchanged.** `Assessments, diagrams and more` (30/30) stays, because it is what the
+portal draft already holds. The case for `Quizzes, spreadsheets, charts` below is a
+search-term argument rather than a correctness one, and a resubmission carrying a rejection
+history does not need to also change a field the portal has already accepted. Revisit it as its
+own change once 2.1.0 is approved, where a listing edit can be judged on its own.
+
+**Description: changed** to the three-paragraph text below (865 chars). That gap — L0177 and
+L0178 invisible on the listing — is the reason to touch the copy at all.
+
+**Starter prompt 1: changed**, see the table below; it now asks for the currency formatting the
+old record wrongly assumed.
+
+The machine copy is `graffiticode-skills/plugin.meta.json`; both shipped in the 2.1.0 artifact
+recorded in `openai-submission.md` §2.
+
+---
+
 ## Proposed for the resubmission — drafted 2026-09-16, NOT yet pasted
 
 Rationale first, because the fields are short and the reasons are not.
