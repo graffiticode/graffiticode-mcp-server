@@ -38,15 +38,90 @@ changes**; a status doc that has gone stale is worse than none, as §11 records 
 
 ### What's left — portal submission
 
-1. **Open the v2 draft** at platform.openai.com
-2. **Set version to 2.1.0**
-3. **Upload the ZIP** (`graffiticode-skills/dist/graffiticode-plugin-2.1.0.zip`)
-4. **Scan Tools** — verify: 7 tools, widget on `render_item` and `get_item` ONLY, URI is
-   `widget-mcp.<hash>.html`
-5. **Freeze → Submit → Publish** (on approval)
+Follow the checklist below.
 
 **Live right now:** `mcp-service-00205-dn2`. **Reconnect before testing** — clients cache
 connection metadata.
+
+---
+
+## Pre-submission checklist
+
+Run through this before clicking Submit in the portal.
+
+### 1. Verify infrastructure
+
+```bash
+# Health check
+curl -s https://mcp.graffiticode.org/health | jq .
+# Expected: {"status":"ok"}
+
+# Confirm min/max instances (session state requires single instance)
+gcloud run services describe mcp-service --project graffiticode-app --region us-central1 \
+  --format="yaml(spec.template.metadata.annotations)" 2>/dev/null | grep -E "minScale|maxScale"
+# Expected: minScale: '1', maxScale: '1'
+```
+
+### 2. Verify the ZIP
+
+```bash
+# Confirm SHA matches recorded artifact
+shasum -a 256 ../graffiticode-skills/dist/graffiticode-plugin-2.1.0.zip
+# Expected: a428f4155024df1272c65377c6bd9a1b9e74880d447a16d01700004a9f88fd97
+
+# Spot-check contents
+cd ../graffiticode-skills && unzip -l dist/graffiticode-plugin-2.1.0.zip
+# Expected: plugin.json, mcp.json, .app.json, skills/{render,assessments,learnosity}/SKILL.md
+```
+
+### 3. Portal: Upload and Scan Tools
+
+1. Open the **v2 draft** at platform.openai.com
+2. Set version to **2.1.0**
+3. Upload `graffiticode-skills/dist/graffiticode-plugin-2.1.0.zip`
+4. Click **Scan Tools**
+5. **Wait for scan to complete**, then verify:
+
+| Check | Expected |
+|-------|----------|
+| Tool count | **7** (create_item, update_item, render_item, get_item, get_spec, list_languages, get_language_info) |
+| Widget marker | On `render_item` and `get_item` **ONLY** |
+| Widget URI format | `widget-mcp.<hash>.html` (NOT `widget-oai` or `form-widget`) |
+| CSP | `resourceDomains` only, no `frameDomains` |
+
+### 4. Verify scan hit the live server
+
+```bash
+# Check logs for the scan's tools/list call (within last few minutes)
+gcloud logging read 'resource.labels.service_name="mcp-service" AND textPayload:"tools/list"' \
+  --project graffiticode-app --freshness=10m --limit=3 \
+  --format="value(timestamp,textPayload)"
+```
+
+Look for a `[widget] tools/list` line showing the current widget hash. If the hash in the
+portal snapshot doesn't match, the scan read a stale cache — wait and rescan.
+
+### 5. Final checks before Submit
+
+- [ ] Version is **2.1.0**
+- [ ] All 7 tools visible with correct schemas
+- [ ] Widget appears in preview for `render_item` / `get_item`
+- [ ] Starter prompts are the 3 from the ZIP (invoice, concept web, Learnosity)
+- [ ] Category is **Productivity**
+- [ ] Legal links resolve: `/privacy`, `/terms`
+
+### 6. Submit
+
+1. **Freeze** the metadata
+2. Click **Submit for Review**
+3. Record submission timestamp here: `_______________`
+
+### 7. After approval
+
+1. Click **Publish** (apps do not auto-list)
+2. Verify listing appears in directory
+3. Test the 3 starter prompts from a fresh install
+4. Update this doc with the approval date
 
 ---
 
