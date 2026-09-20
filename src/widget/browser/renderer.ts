@@ -408,7 +408,10 @@ export function startRenderer(host: HostAdapter): void {
   function showStatus(sc: Record<string, unknown>, status: "generating" | "failed"): void {
     const card = el("div", "card");
     if (status === "generating") {
-      card.appendChild(el("div", "card-title", "Generating…"));
+      // Title says "Graffiticode" to distinguish our generation time from the
+      // client's prior thinking time — a user seeing 60s total should know that
+      // the first 30s was their assistant composing the request, not us.
+      card.appendChild(el("div", "card-title", "Graffiticode"));
       // Show the live figure when there is one. A widget host renders THIS card and
       // not the tool result's text, so a counter that only reached `summary` was
       // invisible here — a user watching ChatGPT on 2026-09-09 saw a static "Your
@@ -419,12 +422,12 @@ export function startRenderer(host: HostAdapter): void {
       // generation there is genuinely nothing to report, and "0s" would be worse
       // than a sentence.
       const progress = typeof sc.progress === "string" ? sc.progress.trim() : "";
+      const verb = sc.operation === "update" ? "Updating" : "Generating";
       card.appendChild(
         el(
           "div",
           "card-text",
-          progress ||
-            (sc.operation === "update" ? "Your item is being updated." : "Your item is being created.")
+          progress ? `${verb}… ${progress}` : `${verb}…`
         )
       );
     } else {
