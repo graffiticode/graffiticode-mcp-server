@@ -42,7 +42,8 @@ changes**; a status doc that has gone stale is worse than none, as §11 records 
 5. ✅ **ZIP verified:**
    ```
    graffiticode-skills/dist/graffiticode-plugin-2.1.0.zip
-     sha256 a428f4155024df1272c65377c6bd9a1b9e74880d447a16d01700004a9f88fd97
+     ref    f2c3035 (2026-09-19)
+     sha256 7c7ae8527b36c6edec9be7ecbcb8372fb518e4c18077b4662d2f2eac0dc4faa2
    ```
    Copy: subtitle `Assessments, diagrams and more` (30/30), 3-paragraph description with
    Learnosity Author/Data API, 3 starter prompts (invoice, concept web, Learnosity assessment).
@@ -51,8 +52,8 @@ changes**; a status doc that has gone stale is worse than none, as §11 records 
 
 Follow the checklist below.
 
-**Live right now:** `mcp-service-00206-rk6`. **Reconnect before testing** — clients cache
-connection metadata.
+**Live right now:** `mcp-service-00209-mf7` (commit `144f237`). **Reconnect before testing** —
+clients cache connection metadata.
 
 ---
 

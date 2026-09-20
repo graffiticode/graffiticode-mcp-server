@@ -116,7 +116,7 @@ Checklist for the ZIP:
 
 | Version | Ref | SHA-256 | Uploaded |
 |---|---|---|---|
-| 2.1.0 | `5974366` (2026-09-18) | `a428f4155024df1272c65377c6bd9a1b9e74880d447a16d01700004a9f88fd97` | not yet |
+| 2.1.0 | `f2c3035` (2026-09-19) | `7c7ae8527b36c6edec9be7ecbcb8372fb518e4c18077b4662d2f2eac0dc4faa2` | not yet |
 
 Rebuild that ref to compare: `npm run package -- --ref 7e4945f --dry-run` prints the same
 SHA-256 or the artifact is not what this table claims.
