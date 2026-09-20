@@ -66,6 +66,20 @@ function buildContextualPrompt(
 
 export const SERVER_INSTRUCTIONS = `Graffiticode is an open-ended platform of domain-specific tools for creating interactive content — assessments, spreadsheets, flashcards, and more. The catalog of available tools grows over time.
 
+FAST-PATH PATTERNS — minimize your thinking time:
+
+1. PASS-THROUGH: When the user provides explicit content, pass it directly to create_item — no invention needed:
+   "Create spreadsheet: Rent 1500, Food 400, Total with SUM" → create_item immediately
+   "Quiz: Q1 What is 2+2? A)3 B)4 C)5, correct B" → create_item immediately
+
+2. CLARIFY: When content is vague, ASK the user for specifics rather than inventing:
+   "Create an invoice" → Ask: "What line items and amounts?"
+   "Make a quiz on fractions" → Ask: "How many questions? What operations?"
+   Inventing content takes time and may miss what the user wants.
+
+3. INVENT: Only when the user explicitly delegates creativity:
+   "Surprise me with a quiz on photosynthesis" → invent
+
 When the user's request doesn't match another available tool, check whether Graffiticode has a language that fits. If the catalog below already names an obvious fit, call create_item(language, description) DIRECTLY — do not call list_languages() or get_language_info() first. Those two calls cost the user roughly fourteen seconds before any work starts, and for a clear request they add nothing: create_item accepts a best guess and the platform re-routes the request if another language fits better.
 
 Call list_languages(search, domain) only when the catalog does not obviously answer the request — to search by keyword, to narrow by domain (e.g. 'assessments', 'sheets', 'diagrams'), or to confirm what exists before telling the user nothing fits. Call get_language_info(language) only when you need detail the catalog line does not give you: supported item types, example prompts, or scope boundaries for a request you are unsure the language covers.
