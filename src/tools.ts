@@ -367,10 +367,8 @@ The returned src and data are PRIVATE to this item's language — do not pass th
     destructiveHint: false,
     openWorldHint: false,
   },
-  // Marks this tool as widget-bearing. The resource URIs and CSP are filled in
-  // per-request by toolsForClient() — they're content-hashed at runtime and differ
-  // by host, so they can't be static here.
-  _meta: { "openai/resultCanProduceWidget": true },
+  // No widget: get_item is for programmatic access to raw src/data.
+  // Use render_item for user-facing display with widget rendering.
 } as const;
 
 export const renderItemTool = {

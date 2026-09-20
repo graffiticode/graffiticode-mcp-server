@@ -28,7 +28,10 @@ changes**; a status doc that has gone stale is worse than none, as §11 records 
    cached catalog and filters client-side, eliminating per-search-term cache misses that were
    causing timeouts in ChatGPT. Measured: 1ms vs 300-500ms+ before.
 
-3. ✅ **ZIP verified:**
+3. ✅ **Widget clarified** (`mcp-service-00206-rk6`): `get_item` no longer carries widget metadata.
+   Widget is on `render_item` only — `get_item` returns raw src/data for programmatic clients.
+
+4. ✅ **ZIP verified:**
    ```
    graffiticode-skills/dist/graffiticode-plugin-2.1.0.zip
      sha256 a428f4155024df1272c65377c6bd9a1b9e74880d447a16d01700004a9f88fd97
@@ -40,7 +43,7 @@ changes**; a status doc that has gone stale is worse than none, as §11 records 
 
 Follow the checklist below.
 
-**Live right now:** `mcp-service-00205-dn2`. **Reconnect before testing** — clients cache
+**Live right now:** `mcp-service-00206-rk6`. **Reconnect before testing** — clients cache
 connection metadata.
 
 ---
@@ -85,7 +88,7 @@ cd ../graffiticode-skills && unzip -l dist/graffiticode-plugin-2.1.0.zip
 | Check | Expected |
 |-------|----------|
 | Tool count | **7** (create_item, update_item, render_item, get_item, get_spec, list_languages, get_language_info) |
-| Widget marker | On `render_item` and `get_item` **ONLY** |
+| Widget marker | On `render_item` **ONLY** (not `get_item`) |
 | Widget URI format | `widget-mcp.<hash>.html` (NOT `widget-oai` or `form-widget`) |
 | CSP | `resourceDomains` only, no `frameDomains` |
 
@@ -105,7 +108,7 @@ portal snapshot doesn't match, the scan read a stale cache — wait and rescan.
 
 - [ ] Version is **2.1.0**
 - [ ] All 7 tools visible with correct schemas
-- [ ] Widget appears in preview for `render_item` / `get_item`
+- [ ] Widget appears in preview for `render_item` only
 - [ ] Starter prompts are the 3 from the ZIP (invoice, concept web, Learnosity)
 - [ ] Category is **Productivity**
 - [ ] Legal links resolve: `/privacy`, `/terms`
@@ -170,7 +173,8 @@ Submitting as **v2.1.0**, rescanned in the still-editable v2 draft.
 was captured on 2026-08-18, before OpenAI clients got widget metadata at all (2026-08-31, with
 the mount fixes of 09-11 and 09-15). Resubmitting without rescanning ships the August contract
 under a new number. Confirm in the scan result that the widget marker lands on `render_item`
-and `get_item` only, and that the imported UI resource URI is a `widget-mcp.<hash>.html` one —
+only (not `get_item` — that tool returns raw data for programmatic clients), and that the
+imported UI resource URI is a `widget-mcp.<hash>.html` one —
 a retired `widget-oai`/`form-widget` pointer would make every `resources/read` in review throw
 `Resource retired` (`src/server.ts:928`).
 
