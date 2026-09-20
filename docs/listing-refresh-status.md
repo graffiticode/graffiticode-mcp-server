@@ -8,13 +8,13 @@ changes**; a status doc that has gone stale is worse than none, as §11 records 
 
 ---
 
-## Pick up here — evening of 2026-09-18
+## Pick up here — evening of 2026-09-19
 
 **All 5+3 test cases passed in ChatGPT.** Ready for portal submission.
 
 ### What's done
 
-1. ✅ **5+3 test cases passed** (2026-09-18 ~23:20 UTC):
+1. ✅ **5+3 test cases passed** (2026-09-18):
    - Positive #1: L0180 quiz ✅
    - Positive #2: L0179 invoice (1ms `list_languages`!) ✅
    - Positive #3: L0176 Learnosity ✅
@@ -31,7 +31,15 @@ changes**; a status doc that has gone stale is worse than none, as §11 records 
 3. ✅ **Widget clarified** (`mcp-service-00206-rk6`): `get_item` no longer carries widget metadata.
    Widget is on `render_item` only — `get_item` returns raw src/data for programmatic clients.
 
-4. ✅ **ZIP verified:**
+4. ✅ **Scan Tools simulation** (2026-09-19):
+   | Check | Result |
+   |-------|--------|
+   | Tool count | 7 ✅ |
+   | Widget marker | `render_item` only ✅ |
+   | `get_item` widget | none (just `securitySchemes`) ✅ |
+   | Widget URI | `widget-mcp.fb346b4c.html` ✅ |
+
+5. ✅ **ZIP verified:**
    ```
    graffiticode-skills/dist/graffiticode-plugin-2.1.0.zip
      sha256 a428f4155024df1272c65377c6bd9a1b9e74880d447a16d01700004a9f88fd97
