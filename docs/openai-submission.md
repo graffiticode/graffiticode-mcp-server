@@ -333,8 +333,9 @@ access/refresh tokens through the auth service.
 3. Configure OAuth + reviewer creds **only if** submitting with OAuth.
 4. Domain-verify (§3).
 5. **Scan Tools** → confirm **7 tools**, correct input/output schemas, annotations, and
-   `securitySchemes`. Confirm the portal imports the **widget on `render_item` and `get_item`**
-   (`openai/outputTemplate`) and on nothing else. Provide the **smallest CSP the portal
+   `securitySchemes`. Confirm the portal imports the **widget on `render_item` only**
+   (`openai/outputTemplate`) — `get_item` returns raw src/data for programmatic clients and
+   carries no widget metadata. Provide the **smallest CSP the portal
    permits** — ours declares `resourceDomains` only; if the portal offers `frameDomains`, leave
    it EMPTY. Inspect the imported snapshot: the resource URI is content-hashed, so a stale hash
    in the snapshot means the portal cached a previous build.

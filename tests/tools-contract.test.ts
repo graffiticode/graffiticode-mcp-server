@@ -25,7 +25,7 @@ const OPENAI_CLIENTS = ["ChatGPT", "openai-apps", "openai-mcp", "openai-mcp (Cod
 // and must get text. Same reasoning as web-sandbox.
 const UNKNOWN_CLIENTS = ["web-sandbox", "some-unknown-host", "gpt", undefined as unknown as string];
 const NON_CLAUDE_CLIENTS = [...OPENAI_CLIENTS, ...UNKNOWN_CLIENTS];
-const WIDGET_TOOLS = new Set(["render_item", "get_item"]);
+const WIDGET_TOOLS = new Set(["render_item"]);
 const expectedSchemes = JSON.parse(JSON.stringify(TOOL_SECURITY_SCHEMES));
 
 function metaOf(tool: ToolRecord): Record<string, unknown> {
