@@ -110,39 +110,51 @@ async function graphqlRequest<T>(
   opts?: { timeoutMs?: number }
 ): Promise<T> {
   const startedAt = Date.now();
-  let response: Response;
+
+  // The timeout must cover the ENTIRE operation — fetch, headers, AND body
+  // reading. AbortSignal.timeout on fetch alone left response.json() without
+  // a deadline: if the console sent headers but hung mid-body, that await
+  // blocked forever. Since listLanguages deduplicates with an inflight map,
+  // one stuck fetch poisoned the map and blocked ALL subsequent calls on that
+  // instance — a total outage for list_languages while other tools worked.
+  const controller = opts?.timeoutMs ? new AbortController() : null;
+  const timeout = controller
+    ? setTimeout(() => controller.abort(new Error("Request timed out")), opts!.timeoutMs)
+    : null;
+
   try {
-    response = await fetch(CONSOLE_API_URL, {
+    const response = await fetch(CONSOLE_API_URL, {
       method: "POST",
       headers: {
         ...buildAuthHeaders(auth),
         "Content-Type": "application/json",
       },
       body: JSON.stringify({ query, variables }),
-      ...(opts?.timeoutMs ? { signal: AbortSignal.timeout(opts.timeoutMs) } : {}),
+      ...(controller ? { signal: controller.signal } : {}),
     });
-  } finally {
-    // In `finally` so a failed upstream call still reports the time it burned —
-    // a timeout is exactly the case the breakdown exists to expose.
+
+    // recordUpstream after fetch completes (even on body-read failure)
     recordUpstream(startedAt);
+
+    if (!response.ok) {
+      const error = await response.text();
+      throw new Error(`GraphQL request failed: ${error}`);
+    }
+
+    const result = await response.json() as GraphQLResponse<T>;
+
+    if (result.errors && result.errors.length > 0) {
+      throw new Error(`GraphQL error: ${result.errors[0].message}`);
+    }
+
+    if (!result.data) {
+      throw new Error("No data returned from GraphQL");
+    }
+
+    return result.data;
+  } finally {
+    if (timeout) clearTimeout(timeout);
   }
-
-  if (!response.ok) {
-    const error = await response.text();
-    throw new Error(`GraphQL request failed: ${error}`);
-  }
-
-  const result = await response.json() as GraphQLResponse<T>;
-
-  if (result.errors && result.errors.length > 0) {
-    throw new Error(`GraphQL error: ${result.errors[0].message}`);
-  }
-
-  if (!result.data) {
-    throw new Error("No data returned from GraphQL");
-  }
-
-  return result.data;
 }
 
 // --- Generate Code ---
