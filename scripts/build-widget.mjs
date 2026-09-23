@@ -103,9 +103,11 @@ console.log("Bundled dist/widget/widget.bundle.js");
  * nothing, and no assessment ever scores. It looked like a missing feature and was
  * a missing `setState`.
  *
- * Language-specific edit semantics (e.g. l0166 merging `args.cells` into
- * `interaction.cells`) are still NOT reproduced — those live in each package's
- * un-exported `view.jsx` reducer. Neither is the `/compile` round trip `View`
+ * Language-specific edit semantics are reproduced only where the package EXPORTS its
+ * reducer as `reduce` — the same hook l0000-view's `View` takes, consulted first and
+ * returning `undefined` for anything it does not claim. L0183 exports one, because its
+ * placements must land in `interaction.cells`, not on the top level. A package that
+ * keeps its reducer un-exported (l0166's `view.jsx`) still gets only the generic merge. Neither is the `/compile` round trip `View`
  * performs on `update`/`response`, which is what re-derives server-computed data
  * (l0166 formula results); the widget's CSP declares no `connectDomains`, so any
  * language whose feedback is computed upstream rather than in the browser still
@@ -120,14 +122,21 @@ function entrySource(pkg) {
   return `
 import { createElement, useMemo, useReducer } from "react";
 import { createRoot } from "react-dom/client";
-import { Form } from ${JSON.stringify(pkg)};
+import * as lang from ${JSON.stringify(pkg)};
 import css from ${JSON.stringify(pkg + "/style.css")};
 
 // The generic half of l0000-view's reducer. \`focus\` is a named field rather than a
 // merge; every other action merges. Unknown types merge too — l0000 logs and drops
 // them, but a dropped action here is a click that does nothing, and merging is the
 // behaviour this build already had for them.
-const reducer = (data, { type, args }) => {
+const Form = lang.Form;
+// Namespace access rather than a named import: most packages export no \`reduce\`, and a
+// named import of a missing export is a build error.
+const langReduce = lang["reduce"];
+const reducer = (data, action) => {
+  const claimed = typeof langReduce === "function" ? langReduce(data, action) : undefined;
+  if (claimed !== undefined) return claimed;
+  const { type, args } = action;
   switch (type) {
     case "init": return { ...args };
     case "focus": return { ...data, focus: args };

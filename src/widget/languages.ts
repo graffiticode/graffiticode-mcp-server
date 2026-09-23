@@ -94,6 +94,12 @@ export const NATIVE_LANGUAGES: NativeLanguage[] = [
   // L0182 surveys. Read-only: the Form displays the set of ideas and the response, and never
   // calls `apply`, so drawing both is the whole bar — pinned by `tests/widget-native-mount.test.ts`.
   { id: "L0182", pkg: "@graffiticode/l0182-view" },
+
+  // L0183 concept webs (supersede L0169). Interactive: placing an answer is a `response`
+  // action whose cells the package's exported `reduce` folds into `interaction.cells`, which
+  // `scripts/build-widget.mjs` now honours. Scoring runs in the browser from `validation`, so
+  // Check works with no network. Pinned by `tests/widget-native-mount.test.ts`.
+  { id: "L0183", pkg: "@graffiticode/l0183-view" },
 ];
 
 /** Normalize `0166` / `l0166` / `L0166` to `L0166`. */

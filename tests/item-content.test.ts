@@ -962,3 +962,57 @@ test("a multiple-choice item carries no template", () => {
   const c = describeItem("L0176", LEARNOSITY);
   assert.equal(c.kind === "questions" && c.shown[0].template, undefined);
 });
+
+/**
+ * L0183 concept webs read `data.interaction` like an L0180 item does, so without their own
+ * branch — checked first — a web would be summarised as a question with no options. The
+ * fixture is compiled L0183 output (the starter template plus one labelled blank edge).
+ */
+const L0183_WEB = {
+  data: {
+    data: {
+      title: "Parts of a cell",
+      instructions: "Drag each part onto an empty node.",
+      interaction: {
+        type: "concept-web",
+        hub: { id: "hub", text: "The Cell" },
+        nodes: [
+          { id: "n1", text: "Nucleus" },
+          { id: "n2", blank: true },
+          { id: "n3", blank: true },
+        ],
+        edges: [
+          { id: "e1", from: "hub", to: "n1", style: "solid", label: "contains" },
+          { id: "e2", from: "hub", to: "n2", style: "solid" },
+          { id: "e3", from: "hub", to: "n3", style: "solid-arrow", blank: true },
+        ],
+        trays: {
+          nodes: { items: [{ id: "c1", text: "Mitochondria" }, { id: "c2", text: "Ribosome" }], align: "right" },
+          edges: { items: [{ id: "r1", text: "makes" }], align: "bottom" },
+        },
+        cells: { n2: {}, n3: {}, e3: {} },
+      },
+      validation: {
+        points: 3,
+        cells: {
+          n2: { assess: { expected: "Mitochondria", points: 1 }, pool: "p1" },
+          n3: { assess: { expected: "Ribosome", points: 1 }, pool: "p2" },
+          e3: { assess: { expected: "makes", points: 1 }, pool: "p3" },
+        },
+      },
+    },
+    errors: [],
+  },
+};
+
+test("L0183 concept webs summarise as the hub, its nodes and the blanks' answers", () => {
+  const content = describeItem("L0183", L0183_WEB);
+  assert.equal(content.kind, "prose");
+  const md = contentToMarkdown(content);
+  assert.match(md, /Concept web: "Parts of a cell" — The Cell with 3 nodes around it, 3 blanks to fill\./);
+  assert.match(md, /- Nucleus/);
+  assert.match(md, /- \[blank: Mitochondria\]/);
+  assert.match(md, /The Cell —contains→ Nucleus/);
+  assert.match(md, /The Cell —\[blank: makes\]→ \[blank: Ribosome\]/);
+  assert.doesNotMatch(md, /"interaction"/);
+});

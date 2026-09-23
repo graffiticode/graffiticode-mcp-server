@@ -298,3 +298,68 @@ test("a multi-question activity renders its questions", async () => {
   assert.match(text, /Question 2/, "every item must render, not just the first");
   assert.match(text, /Water vapor turns into droplets/, "option text must reach the DOM");
 });
+
+/**
+ * L0183 places an answer with a `response` action carrying `{cells}`, which only the package's
+ * exported `reduce` folds into `interaction.cells`. Under the generic merge the answer landed
+ * on the top level, the web never showed it, and Check scored nothing — so this pins the
+ * build's use of `reduce`, not just that the web mounts.
+ */
+const L0183_DATA = {
+  data: {
+    title: "Mammals",
+    interaction: {
+      type: "concept-web",
+      hub: { id: "hub", text: "Mammals" },
+      nodes: [{ id: "n1", blank: true }, { id: "n2", text: "Whale" }],
+      edges: [
+        { id: "e1", from: "hub", to: "n1", style: "solid" },
+        { id: "e2", from: "hub", to: "n2", style: "solid" },
+      ],
+      trays: { nodes: { items: [{ id: "c1", text: "Bat" }, { id: "c2", text: "Shark" }], align: "right" } },
+      cells: { n1: {} },
+    },
+    validation: { points: 1, cells: { n1: { assess: { expected: "Bat", points: 1 }, pool: "p1" } } },
+  },
+  errors: [],
+};
+
+test("L0183 mounts, places a tray answer on a blank, and scores it", async () => {
+  const dom = new JSDOM(`<!doctype html><html><body><div id="root"></div></body></html>`, {
+    url: "https://mcp.graffiticode.org/",
+    pretendToBeVisual: true,
+  });
+  const g = globalThis as unknown as Record<string, unknown>;
+  g.window = dom.window;
+  g.document = dom.window.document;
+  Object.defineProperty(globalThis, "navigator", { value: dom.window.navigator, configurable: true });
+  g.HTMLElement = dom.window.HTMLElement;
+  g.Element = dom.window.Element;
+  g.Node = dom.window.Node;
+  g.MutationObserver = dom.window.MutationObserver;
+  g.requestAnimationFrame = (cb: () => void) => setTimeout(cb, 0);
+  g.cancelAnimationFrame = (id: number) => clearTimeout(id);
+
+  const mod = (await import("../dist/widget/lang/L0183.mjs")) as {
+    mount: (el: unknown, data: unknown) => void;
+  };
+  const root = dom.window.document.getElementById("root")!;
+  mod.mount(root, L0183_DATA);
+  const settle = () => new Promise((r) => setTimeout(r, 50));
+  const click = async (el: Element | undefined, what: string) => {
+    assert.ok(el, `no ${what}`);
+    el.dispatchEvent(new dom.window.MouseEvent("click", { bubbles: true }));
+    await settle();
+  };
+  const buttons = () => [...root.querySelectorAll("button")];
+  await settle();
+
+  assert.match(root.textContent ?? "", /Whale/);
+  await click(buttons().find((b) => b.textContent === "Bat"), "tray item Bat");
+  await click(root.querySelector('[aria-label="Blank, empty"]') ?? undefined, "empty blank");
+  assert.ok(root.querySelector('[aria-label="Blank, holding Bat"]'), "Bat was not placed on the blank");
+  assert.ok(!buttons().some((b) => b.textContent === "Bat" && b.getAttribute("aria-pressed") !== null), "Bat is still in the tray");
+
+  await click(buttons().find((b) => b.textContent === "Check"), "Check button");
+  assert.match(root.textContent ?? "", /1 of 1 points/);
+});

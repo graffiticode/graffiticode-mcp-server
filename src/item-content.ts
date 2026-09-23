@@ -451,6 +451,48 @@ function flashcardDeck(data: Record<string, unknown>): ItemContent | null {
   return { kind: "prose", text: lines.join("\n").slice(0, PROSE_CAP) };
 }
 
+/**
+ * L0183 concept webs: `data = { title?, instructions?, interaction: { type: "concept-web", hub,
+ * nodes, edges, cells }, validation: { cells: { <id>: { assess: { expected } } } } }`.
+ *
+ * Matched on `interaction.type`, and checked BEFORE the L0180 single-item branch, which also
+ * reads `data.interaction` and would otherwise claim a web as a question with no options. A
+ * blank's answer is shown in brackets, the way a ✓ marks the answer key elsewhere.
+ */
+function conceptWeb(data: Record<string, unknown>): ItemContent | null {
+  const web = isRecord(data.interaction) ? data.interaction : undefined;
+  if (!web || web.type !== "concept-web") return null;
+  const key = isRecord(data.validation) && isRecord(data.validation.cells) ? data.validation.cells : {};
+  const expected = (id: string): string => {
+    const cell = key[id];
+    const assess = isRecord(cell) && isRecord(cell.assess) ? cell.assess : undefined;
+    return typeof assess?.expected === "string" ? assess.expected : "?";
+  };
+  const node = (n: unknown): string => {
+    if (!isRecord(n)) return "?";
+    if (n.blank) return `[blank: ${expected(String(n.id))}]`;
+    return typeof n.text === "string" ? n.text : String(n.id ?? "?");
+  };
+  const nodes = Array.isArray(web.nodes) ? web.nodes : [];
+  const names = new Map<string, string>([[ "hub", node(web.hub) ], ...nodes.filter(isRecord).map((n) => [String(n.id), node(n)] as [string, string])]);
+  const edges = (Array.isArray(web.edges) ? web.edges : []).filter(isRecord);
+  const labelled = edges.filter((e) => e.blank || typeof e.label === "string");
+  const blanks = Object.keys(key).length;
+
+  const title = typeof data.title === "string" && data.title ? `"${data.title}"` : null;
+  const lines: string[] = [
+    `Concept web${title ? `: ${title}` : ""} — ${node(web.hub)} with ${nodes.length} nodes around it` +
+      (blanks ? `, ${blanks} blanks to fill.` : "."),
+  ];
+  if (typeof data.instructions === "string" && data.instructions) lines.push(data.instructions);
+  lines.push(...nodes.map((n) => `- ${node(n)}`));
+  for (const e of labelled) {
+    const label = e.blank ? `[blank: ${expected(String(e.id))}]` : String(e.label);
+    lines.push(`- ${names.get(String(e.from)) ?? e.from} —${label}→ ${names.get(String(e.to)) ?? e.to}`);
+  }
+  return { kind: "prose", text: lines.join("\n").slice(0, PROSE_CAP) };
+}
+
 export function describeItem(lang: string, sc: Record<string, unknown>): ItemContent {
   const unwrapped = unwrapData(sc.data);
   const data = isRecord(unwrapped) ? unwrapped : undefined;
@@ -513,6 +555,12 @@ export function describeItem(lang: string, sc: Record<string, unknown>): ItemCon
   if (data && isRecord(data.survey)) {
     const survey = l0182Survey(data.survey, data.response);
     if (survey) return survey;
+  }
+
+  // L0183 concept webs — before any branch that reads `data.interaction` as a question.
+  if (data && isRecord(data.interaction) && data.interaction.type === "concept-web") {
+    const web = conceptWeb(data);
+    if (web) return web;
   }
 
   // L0181 flashcard decks: `data = { cards: [{ front, back }], … }`.
