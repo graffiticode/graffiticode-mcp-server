@@ -360,6 +360,15 @@ test("L0183 mounts, places a tray answer on a blank, and scores it", async () =>
   assert.ok(root.querySelector('[aria-label="Blank, holding Bat"]'), "Bat was not placed on the blank");
   assert.ok(!buttons().some((b) => b.textContent === "Bat" && b.getAttribute("aria-pressed") !== null), "Bat is still in the tray");
 
+  // Checking is the widget's (l0000-view's CheckBar, fed the package's `score`), and the Form
+  // gives nothing away until then: instant feedback is off unless the program asks for it.
+  assert.ok(root.querySelector('[aria-label="Blank, holding Bat"]'), "feedback showed before Check");
   await click(buttons().find((b) => b.textContent === "Check"), "Check button");
   assert.match(root.textContent ?? "", /1 of 1 points/);
+  assert.ok(root.querySelector('[aria-label="Blank, holding Bat, correct"]'), "Check did not show feedback");
+
+  // Any change hides the check again: return Bat to the tray.
+  await click(root.querySelector('[aria-label="Blank, holding Bat, correct"]') ?? undefined, "filled blank");
+  assert.doesNotMatch(root.textContent ?? "", /of 1 points/);
+  assert.ok(root.querySelector('[aria-label="Blank, empty"]'), "the blank kept its verdict after a change");
 });

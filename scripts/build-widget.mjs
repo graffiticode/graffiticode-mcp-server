@@ -113,6 +113,13 @@ console.log("Bundled dist/widget/widget.bundle.js");
  * language whose feedback is computed upstream rather than in the browser still
  * renders inertly. l0180 is not one of those: it ships its own scorer.
  *
+ * Checking is the host's, as in l0000-view's `View` (>= 0.2.1): a package that exports `score`
+ * gets l0000-view's CheckBar under its Form. Check shows the score and lays
+ * `showValidationUI: true` over what the Form sees until the learner next changes the model; an
+ * `update`/`response` that changes nothing (L0179 reports both on a caret move) keeps it. The
+ * Forms draw right and wrong from that flag, or from the program's `instant-feedback true`, and
+ * nothing else — without this bar an L0183 or L0179 item here could never be checked.
+ *
  * `unwrapEnvelope` mirrors the package's `View`: the item's `data(id)` payload is an
  * envelope `{ data, errors }`, and Form expects the UNWRAPPED inner data. Without
  * this, Form receives the envelope, sees no `type`/`interaction`, and renders raw
@@ -120,8 +127,9 @@ console.log("Bundled dist/widget/widget.bundle.js");
  */
 function entrySource(pkg) {
   return `
-import { createElement, useMemo, useReducer } from "react";
+import { createElement, Fragment, useEffect, useMemo, useReducer, useState } from "react";
 import { createRoot } from "react-dom/client";
+import { CheckBar } from "@graffiticode/l0000-view";
 import * as lang from ${JSON.stringify(pkg)};
 import css from ${JSON.stringify(pkg + "/style.css")};
 
@@ -133,6 +141,7 @@ const Form = lang.Form;
 // Namespace access rather than a named import: most packages export no \`reduce\`, and a
 // named import of a missing export is a build error.
 const langReduce = lang["reduce"];
+const langScore = lang["score"];
 const reducer = (data, action) => {
   const claimed = typeof langReduce === "function" ? langReduce(data, action) : undefined;
   if (claimed !== undefined) return claimed;
@@ -152,12 +161,34 @@ function unwrapEnvelope(resp) {
   return { data: resp, errors: [] };
 }
 
+// Counts the learner's real changes, which is what clears a check.
+const CHANGES = new Set(["update", "response"]);
+const tracked = (prev, action) => {
+  const data = reducer(prev.data, action);
+  const changed = CHANGES.has(action.type) && JSON.stringify(data) !== JSON.stringify(prev.data);
+  return { data, changes: prev.changes + (changed ? 1 : 0) };
+};
+
 // \`apply\` is the useReducer dispatch, exactly as in l0000-view's View — that is what
 // makes the controlled Forms re-render, and with them score.
 function Root({ initialData, errors }) {
-  const [data, apply] = useReducer(reducer, initialData);
-  const state = useMemo(() => ({ data, errors, apply }), [data, errors]);
-  return createElement(Form, { state });
+  const [{ data, changes }, apply] = useReducer(tracked, { data: initialData, changes: 0 });
+  const [checked, setChecked] = useState(false);
+  useEffect(() => setChecked(false), [changes]);
+  const result = useMemo(
+    () => (typeof langScore === "function" && errors.length === 0 ? langScore(data) : undefined),
+    [data, errors],
+  );
+  const shown = checked && result ? { ...data, showValidationUI: true } : data;
+  const state = useMemo(() => ({ data: shown, errors, apply }), [shown, errors]);
+  const form = createElement(Form, { state });
+  if (!result) return form;
+  return createElement(
+    Fragment,
+    null,
+    form,
+    createElement(CheckBar, { result, checked, onCheck: () => setChecked(true) }),
+  );
 }
 
 export const styles = css;
