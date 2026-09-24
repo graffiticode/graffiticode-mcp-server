@@ -355,6 +355,8 @@ test("L0183 mounts, places a tray answer on a blank, and scores it", async () =>
   await settle();
 
   assert.match(root.textContent ?? "", /Whale/);
+  const check = () => buttons().find((b) => b.textContent === "Check");
+  assert.ok(check()?.disabled, "Check was enabled before every blank was filled");
   await click(buttons().find((b) => b.textContent === "Bat"), "tray item Bat");
   await click(root.querySelector('[aria-label="Blank, empty"]') ?? undefined, "empty blank");
   assert.ok(root.querySelector('[aria-label="Blank, holding Bat"]'), "Bat was not placed on the blank");
@@ -363,9 +365,16 @@ test("L0183 mounts, places a tray answer on a blank, and scores it", async () =>
   // Checking is the widget's (l0000-view's CheckBar, fed the package's `score`), and the Form
   // gives nothing away until then: instant feedback is off unless the program asks for it.
   assert.ok(root.querySelector('[aria-label="Blank, holding Bat"]'), "feedback showed before Check");
-  await click(buttons().find((b) => b.textContent === "Check"), "Check button");
+  assert.ok(!check()?.disabled, "Check stayed disabled with every blank filled");
+  await click(check(), "Check button");
   assert.match(root.textContent ?? "", /1 of 1 points/);
   assert.ok(root.querySelector('[aria-label="Blank, holding Bat, correct"]'), "Check did not show feedback");
+
+  // Check is a toggle: pressing it again hides the score and the feedback.
+  await click(check(), "Check button, pressed");
+  assert.doesNotMatch(root.textContent ?? "", /of 1 points/);
+  assert.ok(root.querySelector('[aria-label="Blank, holding Bat"]'), "a second press left the feedback showing");
+  await click(check(), "Check button");
 
   // Any change hides the check again: return Bat to the tray.
   await click(root.querySelector('[aria-label="Blank, holding Bat, correct"]') ?? undefined, "filled blank");

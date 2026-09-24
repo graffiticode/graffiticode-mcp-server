@@ -113,10 +113,11 @@ console.log("Bundled dist/widget/widget.bundle.js");
  * language whose feedback is computed upstream rather than in the browser still
  * renders inertly. l0180 is not one of those: it ships its own scorer.
  *
- * Checking is the host's, as in l0000-view's `View` (>= 0.2.1): a package that exports `score`
- * gets l0000-view's CheckBar under its Form. Check shows the score and lays
- * `showValidationUI: true` over what the Form sees until the learner next changes the model; an
- * `update`/`response` that changes nothing (L0179 reports both on a caret move) keeps it. The
+ * Checking is the host's, as in l0000-view's `View` (>= 0.3.0): a package that exports `score`
+ * gets l0000-view's CheckBar under its Form. Check is a toggle — it shows the score and lays
+ * `showValidationUI: true` over what the Form sees, and pressing it again hides both, as does the
+ * learner's next change to the model; an `update`/`response` that changes nothing (L0179 reports
+ * both on a caret move) keeps it. CheckBar itself stays disabled until `score` says `complete`. The
  * Forms draw right and wrong from that flag, or from the program's `instant-feedback true`, and
  * nothing else — without this bar an L0183 or L0179 item here could never be checked.
  *
@@ -187,7 +188,7 @@ function Root({ initialData, errors }) {
     Fragment,
     null,
     form,
-    createElement(CheckBar, { result, checked, onCheck: () => setChecked(true) }),
+    createElement(CheckBar, { result, checked, onToggle: () => setChecked((c) => !c) }),
   );
 }
 
