@@ -179,9 +179,12 @@ export class FirestoreOAuthStore {
    * Get a token by its access token.
    */
   async getTokenByAccessToken(accessToken: string): Promise<TokenEntry | null> {
-    const response = await authFetch(
-      `${AUTH_URL}/oauth-tokens?access_token=${encodeURIComponent(accessToken)}`
-    );
+    // Tokens go in the body, never the URL: request URLs are logged.
+    const response = await authFetch(`${AUTH_URL}/oauth-tokens/lookup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ access_token: accessToken }),
+    });
 
     if (!response.ok) {
       if (response.status === 404) {
@@ -199,9 +202,11 @@ export class FirestoreOAuthStore {
    * Get a token by its refresh token.
    */
   async getTokenByRefreshToken(refreshToken: string): Promise<TokenEntry | null> {
-    const response = await authFetch(
-      `${AUTH_URL}/oauth-tokens?refresh_token=${encodeURIComponent(refreshToken)}`
-    );
+    const response = await authFetch(`${AUTH_URL}/oauth-tokens/lookup`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ refresh_token: refreshToken }),
+    });
 
     if (!response.ok) {
       if (response.status === 404) {
@@ -222,14 +227,11 @@ export class FirestoreOAuthStore {
     accessToken: string,
     updates: Partial<Pick<TokenEntry, "firebase_id_token" | "firebase_refresh_token" | "firebase_token_expires_at">>
   ): Promise<void> {
-    const response = await authFetch(
-      `${AUTH_URL}/oauth-tokens/${encodeURIComponent(accessToken)}`,
-      {
-        method: "PATCH",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(updates),
-      }
-    );
+    const response = await authFetch(`${AUTH_URL}/oauth-tokens/update`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...updates, access_token: accessToken }),
+    });
 
     if (!response.ok) {
       const error = await response.text();
@@ -241,10 +243,11 @@ export class FirestoreOAuthStore {
    * Delete a token by its access token.
    */
   async deleteToken(accessToken: string): Promise<void> {
-    const response = await authFetch(
-      `${AUTH_URL}/oauth-tokens/${encodeURIComponent(accessToken)}`,
-      { method: "DELETE" }
-    );
+    const response = await authFetch(`${AUTH_URL}/oauth-tokens/delete`, {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ access_token: accessToken }),
+    });
 
     if (!response.ok && response.status !== 404) {
       const error = await response.text();
