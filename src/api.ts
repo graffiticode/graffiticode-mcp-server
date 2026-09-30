@@ -622,8 +622,19 @@ const listLanguagesCache = new Map<string, CacheEntry<Language[]>>();
  * normal cold start into a hard failure — the exact failure this code exists to
  * prevent, just relocated.
  */
-const CATALOG_TIMEOUT_WITH_FALLBACK_MS = 2500;
-const CATALOG_TIMEOUT_COLD_MS = 25000;
+let CATALOG_TIMEOUT_WITH_FALLBACK_MS = 2500;
+let CATALOG_TIMEOUT_COLD_MS = 25000;
+
+/** Tests shorten the deadlines and clear the catalog state between cases. */
+export function __setCatalogDeadlinesForTest(d: { fallbackMs: number; coldMs: number }): void {
+  CATALOG_TIMEOUT_WITH_FALLBACK_MS = d.fallbackMs;
+  CATALOG_TIMEOUT_COLD_MS = d.coldMs;
+}
+export function __resetCatalogForTest(): void {
+  listLanguagesCache.clear();
+  listLanguagesInflight.clear();
+  lastGoodFullCatalog = null;
+}
 
 /**
  * The last catalog the console successfully returned for the UNFILTERED query, and
@@ -659,13 +670,46 @@ export function getCachedFullCatalog(): Language[] | null {
  * Never throws and never blocks startup.
  */
 export async function warmCatalog(auth: AuthContext): Promise<void> {
+  // Logged at both ends: a warm-up that starts and never settles is how discovery went
+  // dark for eleven hours on 2026-09-30 (see listLanguages), and without these two lines
+  // nothing in the logs said so.
+  const startedAt = Date.now();
+  console.log("[catalog] warm started");
   try {
-    await listLanguages({ auth });
+    const languages = await listLanguages({ auth });
+    console.log(`[catalog] warm ok: ${languages.length} languages in ${Date.now() - startedAt}ms`);
   } catch (err) {
-    console.error(`[catalog] warm failed: ${(err as Error)?.message ?? err}`);
+    console.error(`[catalog] warm failed after ${Date.now() - startedAt}ms: ${(err as Error)?.message ?? err}`);
   }
 }
-const listLanguagesInflight = new Map<string, Promise<Language[]>>();
+
+/** The one error list_languages surfaces: worded so a model tells the user rather than retrying. */
+class CatalogUnavailable extends Error {}
+function catalogUnavailable(err: unknown): CatalogUnavailable {
+  const why = (err as Error)?.message ?? String(err);
+  return new CatalogUnavailable(
+    "The Graffiticode language catalog is temporarily unavailable " +
+      `(${why}). This is a transient upstream problem, not a ` +
+      "problem with your request. Do NOT retry list_languages — tell the user " +
+      "Graffiticode can't be reached right now and ask them to try again shortly."
+  );
+}
+
+/** A refresh in flight, and when it started, so a caller can tell a live one from a wedged one. */
+interface Inflight {
+  promise: Promise<Language[]>;
+  startedAt: number;
+}
+const listLanguagesInflight = new Map<string, Inflight>();
+
+/** Settle with `p`, or reject after `ms` — whichever is first. The timer never outlives it. */
+function withDeadline<T>(p: Promise<T>, ms: number): Promise<T> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const deadline = new Promise<never>((_, reject) => {
+    timer = setTimeout(() => reject(new Error(`Request timed out after ${ms}ms`)), ms);
+  });
+  return Promise.race([p, deadline]).finally(() => clearTimeout(timer));
+}
 const getLanguageInfoCache = new Map<string, CacheEntry<LanguageInfo | null>>();
 
 export interface Language {
@@ -710,10 +754,21 @@ export async function listLanguages(options: {
   }
 
   const haveFallback = !!cached || !!lastGoodFullCatalog;
+  const deadlineMs = haveFallback ? CATALOG_TIMEOUT_WITH_FALLBACK_MS : CATALOG_TIMEOUT_COLD_MS;
 
-  let inflight = listLanguagesInflight.get(cacheKey);
-  if (!inflight) {
-    inflight = fetchLanguages(auth, domain, search, haveFallback)
+  // Join a refresh already in flight only while it is younger than the longest deadline
+  // it could have been given. An older one has outlived its own abort and is wedged: on
+  // 2026-09-30 the startup warm-up's fetch never settled, and because every call joined
+  // it, list_languages hung for every client, on every revision, for eleven hours, while
+  // get_language_info — which has no in-flight map — kept working.
+  let entry = listLanguagesInflight.get(cacheKey);
+  if (entry && Date.now() - entry.startedAt > CATALOG_TIMEOUT_COLD_MS) {
+    console.error(`[catalog] replacing a refresh wedged for ${Date.now() - entry.startedAt}ms`);
+    entry = undefined;
+  }
+  if (!entry) {
+    const fresh: Inflight = { startedAt: Date.now(), promise: null as unknown as Promise<Language[]> };
+    fresh.promise = fetchLanguages(auth, domain, search, haveFallback)
       .then((languages) => {
         listLanguagesCache.set(cacheKey, {
           value: languages,
@@ -728,22 +783,26 @@ export async function listLanguages(options: {
         console.error(`[catalog] refresh failed: ${err?.message ?? err}`);
         if (cached) return cached.value;
         if (lastGoodFullCatalog) return lastGoodFullCatalog;
-        throw new Error(
-          "The Graffiticode language catalog is temporarily unavailable " +
-          `(${err?.message ?? err}). This is a transient upstream problem, not a ` +
-          "problem with your request. Do NOT retry list_languages — tell the user " +
-          "Graffiticode can't be reached right now and ask them to try again shortly."
-        );
+        throw catalogUnavailable(err);
       })
       .finally(() => {
-        listLanguagesInflight.delete(cacheKey);
+        // Only our own entry: a wedged refresh that settles late must not evict the
+        // healthy one that replaced it.
+        if (listLanguagesInflight.get(cacheKey) === fresh) listLanguagesInflight.delete(cacheKey);
       });
-    listLanguagesInflight.set(cacheKey, inflight);
+    listLanguagesInflight.set(cacheKey, fresh);
+    entry = fresh;
   }
 
   // Stale-while-revalidate: a stale entry answers now, the refresh above lands later.
   if (cached) return cached.value;
-  return inflight;
+  // This caller's own deadline, independent of the fetch's abort. If the fetch ignores
+  // its signal, the caller still gets an answer — the last good catalog, or the
+  // do-not-retry error — instead of waiting with it.
+  return withDeadline(entry.promise, deadlineMs + 1000).catch((err) => {
+    if (lastGoodFullCatalog) return lastGoodFullCatalog;
+    throw err instanceof CatalogUnavailable ? err : catalogUnavailable(err);
+  });
 }
 
 async function fetchLanguages(
