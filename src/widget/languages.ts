@@ -83,6 +83,9 @@ export const NATIVE_LANGUAGES: NativeLanguage[] = [
   // ChatGPT while the quiz it was studied from rendered natively. Flip/advance is pinned by
   // `tests/widget-native-mount.test.ts`.
   { id: "L0181", pkg: "@graffiticode/l0181-view" },
+  // L0184 charts (succeeds L0173, which stays for its existing items). 0.2.1 or later:
+  // 0.2.0's bundle lost its ECharts registration to tree-shaking and drew nothing.
+  { id: "L0184", pkg: "@graffiticode/l0184-view" },
 
   // L0014 authors TransLaTeX rule sets. It is INTERNAL: the catalog does not list it, so
   // nothing routes a request to it. It is here for an item rendered by id, where the
