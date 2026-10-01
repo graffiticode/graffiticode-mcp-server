@@ -64,9 +64,29 @@ function buildContextualPrompt(
 
 // --- Server Instructions (sent to agents at connection time) ---
 
-export const SERVER_INSTRUCTIONS = `Graffiticode is an open-ended platform of domain-specific tools for creating interactive content — assessments, spreadsheets, flashcards, and more. The catalog of available tools grows over time.
+/**
+ * Some hosts keep only the first ~2KB of server instructions. Claude Code cuts at
+ * 2048 chars ("…Never pick one unless the user actually named th… [truncated]"),
+ * and claude.ai Claude also defers our tools behind tool search, so the model
+ * sees bare tool names and this head and nothing else. When the catalog sat at
+ * the END of 8.4KB of instructions, no Claude host ever saw it: 2026-09-28→10-01,
+ * 730 Claude connects listed our tools and made zero tool calls, while
+ * openai-mcp, which reads the whole text, made 58 off 93 connects.
+ *
+ * So the head carries what decides whether Graffiticode gets used at all — what
+ * it makes, "use it, don't write it yourself", and the catalog — and must fit
+ * INSTRUCTIONS_HEAD_BUDGET. Everything after it is refinement a truncating host
+ * can lose without losing the routing.
+ */
+export const INSTRUCTIONS_HEAD_BUDGET = 2000;
 
-FAST-PATH PATTERNS — minimize your thinking time:
+const INSTRUCTIONS_LEAD = `Graffiticode makes interactive content from a plain-English description: quizzes and assessment items, flashcard decks, spreadsheets, charts, surveys, concept webs, and more. When the user asks you to make one of these, make it with Graffiticode rather than writing it out in chat: call create_item(language, description), then render_item(item_id) to show it.`;
+
+const LEAD_WITH_CATALOG = `${INSTRUCTIONS_LEAD} Pick the language from the catalog below and call create_item directly — the platform re-routes a wrong guess.`;
+
+const LEAD_WITHOUT_CATALOG = `${INSTRUCTIONS_LEAD} Call list_languages to find the language first.`;
+
+const INSTRUCTIONS_BODY = `FAST-PATH PATTERNS — minimize your thinking time:
 
 1. PASS-THROUGH: When the user provides explicit content, pass it directly to create_item — no invention needed:
    "Create spreadsheet: Rent 1500, Food 400, Total with SUM" → create_item immediately
@@ -80,7 +100,7 @@ FAST-PATH PATTERNS — minimize your thinking time:
 3. INVENT: Only when the user explicitly delegates creativity:
    "Surprise me with a quiz on photosynthesis" → invent
 
-When the user's request doesn't match another available tool, check whether Graffiticode has a language that fits. If the catalog below already names an obvious fit, call create_item(language, description) DIRECTLY — do not call list_languages() or get_language_info() first. Those two calls cost the user roughly fourteen seconds before any work starts, and for a clear request they add nothing: create_item accepts a best guess and the platform re-routes the request if another language fits better.
+When the user's request doesn't match another available tool, check whether Graffiticode has a language that fits. If the catalog already names an obvious fit, call create_item(language, description) DIRECTLY — do not call list_languages() or get_language_info() first. Those two calls cost the user roughly fourteen seconds before any work starts, and for a clear request they add nothing: create_item accepts a best guess and the platform re-routes the request if another language fits better.
 
 Call list_languages(search, domain) only when the catalog does not obviously answer the request — to search by keyword, to narrow by domain (e.g. 'assessments', 'sheets', 'diagrams'), or to confirm what exists before telling the user nothing fits. Call get_language_info(language) only when you need detail the catalog line does not give you: supported item types, example prompts, or scope boundaries for a request you are unsure the language covers.
 
@@ -98,11 +118,14 @@ A survey (L0182) is the one thing you both author and use, and taking it is not 
 
 Answer as a participant: pick the ideas you genuinely prefer, respect the survey's minimum and maximum, and put them in priority order with the most important first. Add one idea of your own that is not already in the set. Name each idea you choose by its EXACT TEXT as render_item showed it — a survey's ideas are fetched when it compiles, so you have not seen their ids, and a guessed position records the wrong ideas without failing. A survey response is never right or wrong; there is nothing to score and no answer to get correct.
 
-Workflow, common case: create_item(language, description) → render_item(item_id) → update_item(item_id, modification) → render_item(item_id) to iterate. Add list_languages / get_language_info at the front ONLY when the catalog below is insufficient (see above). render_item is the preferred user-facing retrieval tool: it keeps language-private code and compiled data out of the model transcript while still hydrating supported host widgets. Use get_item only when a caller explicitly needs the raw language-private src/data for programmatic work. To reuse content in a new request: get_spec(item_id) → create_item(language, spec + intent framing).
+Workflow, common case: create_item(language, description) → render_item(item_id) → update_item(item_id, modification) → render_item(item_id) to iterate. Add list_languages / get_language_info at the front ONLY when the catalog is insufficient (see above). render_item is the preferred user-facing retrieval tool: it keeps language-private code and compiled data out of the model transcript while still hydrating supported host widgets. Use get_item only when a caller explicitly needs the raw language-private src/data for programmatic work. To reuse content in a new request: get_spec(item_id) → create_item(language, spec + intent framing).
 
 create_item and update_item start generation and return immediately with status "generating"; normally follow them with render_item(item_id) to retrieve and display the result. render_item and get_item both wait for completion and return status "ready", "failed", or "generating" (call the same retrieval tool again).
 
 When you create a SECOND or later item for the same user, pass the earlier item's id as create_item's continue_from_item_id. Their items then stay together and one sign-in link saves all of them; without it, each item is saved separately.`;
+
+/** The instructions a session gets when no catalog is cached. */
+export const SERVER_INSTRUCTIONS = `${LEAD_WITHOUT_CATALOG}\n\n${INSTRUCTIONS_BODY}`;
 
 /**
  * Instructions with the catalog inlined.
@@ -113,9 +136,11 @@ When you create a SECOND or later item for the same user, pass the earlier item'
  * whole catalog as "id — description" is ~1.3KB / ~330 tokens, so carrying it in
  * the instructions is far cheaper than fetching it, every session, forever.
  *
- * Each line is the description PLUS any LIMIT sentences pulled out of the routing
- * hint. Both halves are load-bearing and they answer different questions:
- * the description says what a language MAKES, the limits say what it REFUSES.
+ * Each language gets its description in the catalog AND any LIMIT sentences pulled
+ * out of its routing hint. Both halves are load-bearing and they answer different
+ * questions: the description says what a language MAKES, the limits say what it
+ * REFUSES. They are printed apart — descriptions in the head, limits at the tail —
+ * because only the head survives a truncating host (INSTRUCTIONS_HEAD_BUDGET).
  *
  * Shipping descriptions alone was tried first and regressed immediately. With only
  * "L0180 — Quizzes and assessment items" in front of it, the model routed
@@ -165,19 +190,33 @@ function limitSentences(hint?: string | null, maxChars = 400): string {
 }
 
 export function buildServerInstructions(catalog?: Language[] | null): string {
-  if (!catalog || catalog.length === 0) return SERVER_INSTRUCTIONS;
-  const lines = catalog
-    .filter((l) => isDiscoverable(l.id))
-    .map((l) => {
-      const limits = limitSentences(l.routingHint);
-      return `L${l.id} — ${l.description}${limits ? ` ${limits}` : ""}`;
-    })
+  const listed = (catalog ?? []).filter((l) => isDiscoverable(l.id));
+  if (listed.length === 0) return SERVER_INSTRUCTIONS;
+  // Descriptions in the head, limits at the tail: the limit sentences run to
+  // ~1KB and alone would push the catalog past the cut (see
+  // INSTRUCTIONS_HEAD_BUDGET). Losing them costs little — the server's scope
+  // gate re-routes an over-routed request — while losing the catalog cost every
+  // Claude session the reason to call us at all.
+  const catalogLines = listed.map((l) => `L${l.id} — ${l.description}`).join("\n");
+  const limitLines = listed
+    .map((l) => ({ id: l.id, limits: limitSentences(l.routingHint) }))
+    .filter((l) => l.limits)
+    .map((l) => `L${l.id} — ${l.limits}`)
     .join("\n");
-  if (!lines) return SERVER_INSTRUCTIONS;
-  return `${SERVER_INSTRUCTIONS}
+  const head = `${LEAD_WITH_CATALOG}
 
-Catalog (current; each line is "id — what it makes"). Route from this directly when the fit is obvious:
-${lines}`;
+Catalog (id — what it makes):
+${catalogLines}`;
+  if (head.length > INSTRUCTIONS_HEAD_BUDGET) {
+    console.warn(
+      `[instructions] head is ${head.length} chars, over the ${INSTRUCTIONS_HEAD_BUDGET} budget; ` +
+        "truncating hosts will lose the end of the catalog — shorten catalog descriptions"
+    );
+  }
+  const tail = limitLines
+    ? `\n\nLanguage limits (what each one does NOT do — check before routing):\n${limitLines}`
+    : "";
+  return `${head}\n\n${INSTRUCTIONS_BODY}${tail}`;
 }
 
 // --- Tool Definitions ---
