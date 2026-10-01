@@ -54,6 +54,7 @@ import { buildChallengeResponse } from "./challenge.js";
 import { startSseKeepalive } from "./sse-keepalive.js";
 import type { AuthContext } from "./api.js";
 import { withUpstreamTiming, getCachedFullCatalog, warmCatalog } from "./api.js";
+import { watchBadRequests } from "./bad-request-log.js";
 import {
   effectiveSession,
   identify,
@@ -1177,6 +1178,7 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
 
   // MCP endpoint (Streamable HTTP)
   if (url.pathname === "/mcp") {
+    watchBadRequests(req, res);
     const bearerToken = extractBearerToken(req);
 
     // Transport-level per-request auth check. Validate an OAuth bearer BEFORE reusing
