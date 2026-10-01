@@ -1411,6 +1411,16 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
           // whose key is the token hash and already stable.
           if (!bearerToken) sessionMeta.transportNamespace = deriveSessionNamespace(sid);
           logConnect(identityFor(sid), sessionMeta);
+          // Whether a widget is offered is decided per session from what THIS initialize
+          // declared — and a client that re-initializes after a 404 may reuse its cached tool
+          // list and never call tools/list, which is the only other place this was logged.
+          // Client-declared product metadata only, never user content.
+          const caps = ((message.params as { capabilities?: Record<string, unknown> } | undefined)?.capabilities ?? {});
+          const ext = Object.keys((caps.extensions as Record<string, unknown> | undefined) ?? {});
+          console.log(
+            `[widget] initialize host=${typeof kind === "string" ? kind : "?"} declares_ui_extension=${ext.includes(EXTENSION_ID)}` +
+              ` extensions=[${ext.join(",")}] caps=[${Object.keys(caps).join(",")}]`
+          );
         } else {
           const method = (message as { method?: string }).method;
           const sid = transport.sessionId;
