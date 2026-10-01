@@ -24,9 +24,24 @@ export function watchBadRequests(
     return writeHead(code, ...rest);
   }) as typeof res.writeHead;
 
+  // The body may arrive through write() before a bare end() (the SDK streams its response),
+  // so collect it from both, capped: an error body is small, and nothing else is kept.
+  const is400 = () => (status || res.statusCode) === 400;
+  let body = "";
+  const keep = (chunk: unknown) => {
+    if (!is400() || body.length >= 2000 || chunk == null || typeof chunk === "function") return;
+    body += (Buffer.isBuffer(chunk) ? chunk.toString("utf8") : chunk instanceof Uint8Array ? Buffer.from(chunk).toString("utf8") : String(chunk)).slice(0, 2000 - body.length);
+  };
+  const write = res.write.bind(res) as (...a: unknown[]) => boolean;
+  res.write = ((chunk: unknown, ...rest: unknown[]) => {
+    keep(chunk);
+    return write(chunk, ...rest);
+  }) as typeof res.write;
+
   const end = res.end.bind(res) as (...a: unknown[]) => ServerResponse;
   res.end = ((chunk?: unknown, ...rest: unknown[]) => {
-    if ((status || res.statusCode) === 400) {
+    keep(chunk);
+    if (is400()) {
       const header = (name: string) => {
         const v = req.headers[name];
         return Array.isArray(v) ? v[0] : v;
@@ -39,7 +54,7 @@ export function watchBadRequests(
           protocolVersion: header("mcp-protocol-version") ?? null,
           accept: (header("accept") ?? "").slice(0, 60),
           client: (header("user-agent") ?? "").split(/[\s/]/)[0].slice(0, 40),
-          message: errorMessage(chunk),
+          message: errorMessage(body),
         }),
       );
     }
@@ -47,9 +62,8 @@ export function watchBadRequests(
   }) as typeof res.end;
 }
 
-function errorMessage(chunk: unknown): string | null {
-  if (chunk === undefined || chunk === null || typeof chunk === "function") return null;
-  const text = Buffer.isBuffer(chunk) ? chunk.toString("utf8") : String(chunk);
+function errorMessage(text: string): string | null {
+  if (!text) return null;
   try {
     const body = JSON.parse(text);
     const msg = body?.error?.message ?? body?.error ?? null;

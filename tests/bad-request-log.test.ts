@@ -41,6 +41,24 @@ test("a 400 is logged with the SDK's message and the request's shape", async () 
   }
 });
 
+test("a body written with write() before a bare end() is still read", async () => {
+  const lines: string[] = [];
+  const server = createServer((req, res) => {
+    watchBadRequests(req, res, (l) => lines.push(l));
+    res.writeHead(400, { "Content-Type": "application/json" });
+    res.write(JSON.stringify({ jsonrpc: "2.0", error: { code: -32000, message: "Bad Request: Mcp-Session-Id header is required" }, id: null }));
+    res.end();
+  });
+  await new Promise<void>((r) => server.listen(0, r));
+  const { port } = server.address() as AddressInfo;
+  try {
+    await (await fetch(`http://localhost:${port}/mcp`, { method: "POST", body: "{}" })).text();
+    assert.equal(JSON.parse(lines[0]).message, "Bad Request: Mcp-Session-Id header is required");
+  } finally {
+    server.close();
+  }
+});
+
 test("other statuses are not logged", async () => {
   for (const status of [200, 202, 404]) {
     const s = await serve(status, "{}");
