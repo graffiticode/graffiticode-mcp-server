@@ -1215,6 +1215,17 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
       return;
     }
 
+    // A session id we do not hold: 404, as the MCP spec requires, so the client starts a new
+    // session by itself. Sessions live in memory, so every deploy or restart forgets them all;
+    // without this the request fell through to the SDK, which answered 400 "Server not
+    // initialized", and Claude.ai read that as a dead connector and made the user reconnect by
+    // hand. (`initialize` carries no session id, so it never lands here.)
+    if (sessionId && req.method !== "DELETE") {
+      res.writeHead(404, { "Content-Type": "application/json" });
+      res.end(JSON.stringify({ jsonrpc: "2.0", error: { code: -32001, message: "Session not found" }, id: null }));
+      return;
+    }
+
     // Handle DELETE for session termination
     if (req.method === "DELETE") {
       if (sessionId && transports.has(sessionId)) {
