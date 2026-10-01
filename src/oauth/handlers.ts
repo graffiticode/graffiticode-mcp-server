@@ -487,6 +487,30 @@ export async function handleCallback(
 /**
  * Exchange Google ID token for Firebase ID token and refresh token
  */
+/**
+ * The auth service refused the sign-in itself — most often "No Graffiticode account for this
+ * email" — as opposed to failing. Answered as OAuth `invalid_grant` (400) with the service's
+ * own message, which a client can show the person; a 500 says only that the server broke.
+ */
+export class GrantRefused extends Error {}
+
+/** The refusal message the auth service sent, from its JSON envelope or as plain text. */
+export function refusalMessage(text: string): string {
+  try {
+    const body = JSON.parse(text) as { error?: { message?: string } | string; message?: string };
+    const msg = typeof body.error === "string" ? body.error : body.error?.message ?? body.message;
+    if (msg) return String(msg).slice(0, 300);
+  } catch {
+    /* not JSON */
+  }
+  return text.slice(0, 300) || "Sign-in was refused.";
+}
+
+/** Logs never carry an email address (CLAUDE.md privacy contract), even inside a message. */
+export function redactEmails(text: string): string {
+  return text.replace(/[^\s@<>"',;()]+@[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)+/g, "<email>");
+}
+
 async function exchangeGoogleTokenForFirebaseToken(googleIdToken: string): Promise<{
   firebaseIdToken: string;
   firebaseRefreshToken: string;
@@ -503,6 +527,9 @@ async function exchangeGoogleTokenForFirebaseToken(googleIdToken: string): Promi
 
   if (!authResponse.ok) {
     const error = await authResponse.text();
+    if (authResponse.status === 401 || authResponse.status === 403) {
+      throw new GrantRefused(refusalMessage(error));
+    }
     throw new Error(`Failed to authenticate with Google: ${error}`);
   }
 
@@ -769,6 +796,12 @@ async function handleAuthorizationCodeGrant(
       scope: authCode.scope,
     });
   } catch (error) {
+    if (error instanceof GrantRefused) {
+      // Expected, and the person can act on it: no stack, and no email in the log.
+      console.warn(`[oauth] token exchange refused by auth: ${redactEmails(error.message)}`);
+      sendError(res, 400, { error: "invalid_grant", error_description: error.message });
+      return;
+    }
     console.error("Token exchange error:", error);
     sendError(res, 500, {
       error: "server_error",
