@@ -1440,7 +1440,25 @@ async function handleRequest(req: IncomingMessage, res: ServerResponse) {
 // or an outage there was enough to take the instance down for every user: the
 // service runs pinned at a single instance, so one bad callback is a full outage.
 // Answer 500 and keep serving instead.
+/**
+ * Warm the catalog from inside a request, not at startup. Cloud Run allocates CPU only while
+ * a request is in flight, so a fetch started at boot runs starved: on 2026-09-30 the startup
+ * warm-up failed on every new instance (`warm failed after 26586ms`, its own 25s abort never
+ * firing), and until listLanguages gained per-caller deadlines, every list_languages call
+ * waited on it. Started here, the first request of an instance kicks it off with CPU behind
+ * it. Re-armed while nothing is cached, so a failed warm-up is retried by a later request
+ * rather than leaving every session's instructions without the catalog.
+ */
+let catalogWarming: Promise<void> | null = null;
+function warmCatalogOnRequest(): void {
+  if (catalogWarming || getCachedFullCatalog()) return;
+  catalogWarming = warmCatalog({ type: "freePlan", sessionId: "request-warm" }).finally(() => {
+    catalogWarming = null;
+  });
+}
+
 const httpServer = createServer((req, res) => {
+  warmCatalogOnRequest();
   handleRequest(req, res).catch((err) => {
     console.error(`[http] unhandled error for ${req.method} ${req.url}: ${(err as Error)?.stack ?? err}`);
     if (res.headersSent) {
@@ -1453,10 +1471,7 @@ const httpServer = createServer((req, res) => {
 });
 
 httpServer.listen(PORT, () => {
-  // Prefetch the catalog so the FIRST session's instructions already carry it.
-  // Best-effort and unawaited: a cold cache only means those instructions tell the
-  // model to call list_languages(), which is exactly today's behavior.
-  void warmCatalog({ type: "freePlan", sessionId: "startup-warm" });
+  // The catalog is warmed by the first request, not here — see warmCatalogOnRequest.
   console.log(`Graffiticode MCP Server (hosted) running on http://localhost:${PORT}`);
   console.log(`\nEndpoints:`);
   console.log(`  MCP:     http://localhost:${PORT}/mcp`);
