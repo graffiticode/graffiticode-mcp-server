@@ -1946,28 +1946,25 @@ export async function handleListLanguages(
   ctx: ToolContext,
   args: { domain?: string; search?: string }
 ): Promise<unknown> {
-  // Always fetch the full catalog (cached & warmed on connect), filter client-side.
-  // This avoids per-search-term cache misses that were causing timeouts in ChatGPT.
-  const languages = await apiListLanguages({ auth: ctx.auth });
-
   const { domain, search } = args;
-  const searchLower = search?.toLowerCase();
+  // A search goes to the console, which ranks it: it splits the query into words, scores
+  // names above keywords above prose, applies the vendor gate, and caps the list. Filtering
+  // the cached catalog here instead matched the WHOLE search string as one substring, so
+  // any phrase ("fetch csv data and summarize") returned nothing — the first list_languages
+  // call of every ChatGPT session observed on 2026-10-04 came back empty and had to be
+  // retried. (Searches were moved client-side when the console's search fanned out to every
+  // language server and timed out; it no longer does — it scores static catalog data.)
+  // listLanguages caches each search and, past its deadline, answers with the last full
+  // catalog, so a slow console degrades to "everything" rather than to an error.
+  const trimmed = search?.trim();
+  const languages = trimmed
+    ? await apiListLanguages({ auth: ctx.auth, search: trimmed })
+    : await apiListLanguages({ auth: ctx.auth });
 
   return {
     languages: languages
       .filter(lang => isDiscoverable(lang.id))
-      .filter(lang => {
-        if (domain && !lang.domains?.includes(domain)) return false;
-        if (searchLower) {
-          const haystack = [
-            lang.name,
-            lang.description,
-            lang.routingHint,
-          ].filter(Boolean).join(" ").toLowerCase();
-          if (!haystack.includes(searchLower)) return false;
-        }
-        return true;
-      })
+      .filter(lang => !domain || lang.domains?.includes(domain))
       .map(lang => ({
         id: `L${lang.id}`,
         name: lang.name,
