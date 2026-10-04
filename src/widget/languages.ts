@@ -66,10 +66,10 @@ export const NATIVE_LANGUAGES: NativeLanguage[] = [
   // packages were built in their own repos but had never been pushed, which was
   // the only thing blocking them.
   { id: "L0159", pkg: "@graffiticode/l0159" },
-  // L0169 is the known-bad one: added and reverted 2026-08-31 because it did not
-  // mount in production. Nothing about it has been fixed since — it is here because
-  // the catalog lists it, and it is the first entry that should be checked by hand.
-  { id: "L0169", pkg: "@graffiticode/l0169" },
+  // L0169 left 2026-10-04. It never mounted in production (added and reverted 2026-08-31,
+  // then re-added only because the catalog listed it), and it is deprecated for L0183, which
+  // renders natively below. Its items now get the content card, the fallback they were
+  // already landing on after a failed mount — minus the 0.3MB bundle and the grace period.
   { id: "L0170", pkg: "@graffiticode/l0170" },
   // L0175 has a published base package too (`@graffiticode/l0175`), but that one is
   // the COMPILER: no `Form`, no `style.css`, so pointing at it fails the build. The

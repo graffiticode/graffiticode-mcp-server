@@ -276,7 +276,7 @@ const CASES: Case[] = [
   // content"). A model that picks L0179 here is obeying that hint, so expecting L0166 asserted
   // that routing must IGNORE a deprecation notice we deliberately publish.
   { prompt: "A spreadsheet problem where students compute column totals with SUM.", expect: "L0179" },
-  { prompt: "A concept web where students link the causes of the Great Depression.", expect: "L0169" },
+  { prompt: "A concept web where students link the causes of the Great Depression.", expect: "L0183" },
   { prompt: "A bar chart of quarterly revenue for four regions.", expect: "L0173" },
   // The three ChatGPT directory starter prompts, VERBATIM. They belong here because a
   // storefront prompt has to route on its own words: the person typing it copied it off a
@@ -305,7 +305,7 @@ const CASES: Case[] = [
       "and a grand total, formatted as currency.",
     expect: "L0179",
   },
-  { tag: "starter", prompt: "Create a concept web explaining how rain forms.", expect: "L0169" },
+  { tag: "starter", prompt: "Create a concept web explaining how rain forms.", expect: "L0183" },
   {
     tag: "starter",
     prompt:
