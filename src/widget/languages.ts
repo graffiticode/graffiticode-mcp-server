@@ -86,6 +86,9 @@ export const NATIVE_LANGUAGES: NativeLanguage[] = [
   // L0184 charts (succeeds L0173, which stays for its existing items). 0.2.1 or later:
   // 0.2.0's bundle lost its ECharts registration to tree-shaking and drew nothing.
   { id: "L0184", pkg: "@graffiticode/l0184-view" },
+  // L0185 fetch and shape data (succeeds L0170, which stays for its existing items). Read-only:
+  // a record table or a JSON tree of the transformed data; the Form never calls `apply`.
+  { id: "L0185", pkg: "@graffiticode/l0185-view" },
 
   // L0014 authors TransLaTeX rule sets. It is INTERNAL: the catalog does not list it, so
   // nothing routes a request to it. It is here for an item rendered by id, where the

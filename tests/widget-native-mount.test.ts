@@ -223,6 +223,42 @@ test("L0182 mounts and shows the ideas and the ranked response", async () => {
   assert.doesNotMatch(text, /No response yet/, "the response must render, not the empty state");
 });
 
+/** L0185 is read-only: a list of flat records draws as a table of the data, nothing added. */
+test("L0185 mounts and shows records as a table", async () => {
+  const dom = new JSDOM(`<!doctype html><html><body><div id="root"></div></body></html>`, {
+    url: "https://mcp.graffiticode.org/",
+    pretendToBeVisual: true,
+  });
+  const g = globalThis as unknown as Record<string, unknown>;
+  g.window = dom.window;
+  g.document = dom.window.document;
+  Object.defineProperty(globalThis, "navigator", { value: dom.window.navigator, configurable: true });
+  g.HTMLElement = dom.window.HTMLElement;
+  g.Element = dom.window.Element;
+  g.Node = dom.window.Node;
+  g.MutationObserver = dom.window.MutationObserver;
+  g.requestAnimationFrame = (cb: () => void) => setTimeout(cb, 0);
+  g.cancelAnimationFrame = (id: number) => clearTimeout(id);
+
+  const mod = (await import("../dist/widget/lang/L0185.mjs")) as {
+    mount: (el: unknown, data: unknown) => void;
+  };
+  const root = dom.window.document.getElementById("root")!;
+  mod.mount(root, {
+    data: [
+      { region: "West", orders: 2, revenue: 320.5 },
+      { region: "North", orders: 2, revenue: 175.25 },
+    ],
+    errors: [],
+  });
+  await new Promise((r) => setTimeout(r, 50));
+
+  assert.equal(root.querySelectorAll("th").length, 3);
+  const text = root.textContent ?? "";
+  assert.match(text, /320\.5/);
+  assert.match(text, /2 records · 3 fields/);
+});
+
 /**
  * A five-question quiz renders as a quiz, not as its own payload.
  *

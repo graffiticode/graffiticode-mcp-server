@@ -20,6 +20,7 @@
   },
   "dependencies": {
     "@graffiticode/l0000-view": "^0.3.0",
+    "@graffiticode/l0185-view": "^0.1.0",
     "@modelcontextprotocol/ext-apps": "^1.7.2",
     "@modelcontextprotocol/sdk": "^1.29.0",
     "jose": "^4.15.9"
