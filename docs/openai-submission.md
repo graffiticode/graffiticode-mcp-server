@@ -42,7 +42,9 @@ widget, and the expected tool-call path is shorter).
   logged `codex-mcp-client` and `openai-mcp`. Check the `[widget] tools/list` log line during
   the review window and record it here.
 - **Legal:** privacy `https://mcp.graffiticode.org/privacy`, terms
-  `https://mcp.graffiticode.org/terms`, support `support@graffiticode.org`.
+  `https://mcp.graffiticode.org/terms`, support `support@graffiticode.org` (the plugin
+  manifest's `supportURL` is `mailto:support@graffiticode.org`, set in
+  `graffiticode-skills/plugin.meta.json`).
 - **Listing copy:** [`openai-listing-copy.md`](./openai-listing-copy.md) is the canonical,
   versioned source for every public publisher field (category, tagline, description, starter
   prompts). The portal is **not** the source of truth — change both in the same sitting.
