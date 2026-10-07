@@ -66,3 +66,20 @@ test("a one-pixel wobble is not forwarded; a real resize is", () => {
 
   assert.deepEqual(sent, [300 + HEIGHT_PAD_PX, 360 + HEIGHT_PAD_PX]);
 });
+
+test("notifyIntrinsicHeight is called as a method of window.openai", () => {
+  // The host's implementation is a method and may read `this`. Passing it around
+  // detached threw "Cannot read properties of undefined" inside render.
+  const sent: number[] = [];
+  const openai = {
+    sent,
+    notifyIntrinsicHeight(this: { sent: number[] }, h: number) { this.sent.push(h); },
+  };
+  (dom.window as unknown as Record<string, unknown>).openai = openai;
+  const host = new SkybridgeHost();
+  docHeight = 200;
+  assert.doesNotThrow(() => host.notifyHeight(contentHeight()));
+  docHeight = 250;
+  assert.doesNotThrow(() => fire());
+  assert.deepEqual(sent, [200 + HEIGHT_PAD_PX, 250 + HEIGHT_PAD_PX]);
+});

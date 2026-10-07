@@ -169,21 +169,23 @@ export class SkybridgeHost implements HostAdapter {
   notifyHeight(px: number): void {
     const o = windowOpenai() as { notifyIntrinsicHeight?: (h: number) => void } | undefined;
     if (!o?.notifyIntrinsicHeight) return;
-    this.send(o.notifyIntrinsicHeight, px);
+    this.send(o, px);
     if (!this.ro) {
       // Same measurement as the renderer's reports (see measure.ts) — two
       // disagreeing reporters are what made the frame jitter.
-      this.ro = new ResizeObserver(() => this.send(o.notifyIntrinsicHeight!, contentHeight()));
+      this.ro = new ResizeObserver(() => this.send(o, contentHeight()));
       this.ro.observe(document.body);
     }
   }
 
-  private send(notify: (h: number) => void, px: number): void {
+  private send(o: { notifyIntrinsicHeight?: (h: number) => void }, px: number): void {
     // A sub-pixel wobble is not a resize; forwarding it only invites the host to
     // re-lay out and the observer to fire again.
     if (this.lastHeight !== undefined && Math.abs(px - this.lastHeight) <= 1) return;
     this.lastHeight = px;
-    notify(px);
+    // Called ON window.openai, never detached: it is the host's method and may use
+    // `this`. A detached call throws inside render, after the mount.
+    o.notifyIntrinsicHeight?.(px);
   }
 }
 
