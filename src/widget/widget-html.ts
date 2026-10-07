@@ -48,6 +48,13 @@ function loadBundle(): string {
 
 const STYLES = `
   * { margin: 0; padding: 0; box-sizing: border-box; }
+  /* A frame scrollbar that comes and goes changes the content's width, and
+     anything whose height depends on width (L0179's horizontally scrolling grid)
+     then feeds back into the next height report — the spreadsheet jitter.
+     Reserving the gutter makes the width independent of the scrollbar. Not
+     overflow: hidden — a host that caps the frame height would clip the content
+     with no way to reach it. */
+  html { scrollbar-gutter: stable; }
   body { font-family: system-ui, -apple-system, sans-serif; background: #fff; color: #111827; padding: 4px; }
   body.dark { background: #1f2937; color: #f9fafb; }
   #content.loading { display: flex; align-items: center; justify-content: center; height: 160px; color: #6b7280; }

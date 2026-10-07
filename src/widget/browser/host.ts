@@ -9,6 +9,7 @@
  * Not compiled by tsc (browser-only) — bundled by scripts/build-widget.mjs.
  */
 import { App } from "@modelcontextprotocol/ext-apps";
+import { contentHeight } from "./measure.js";
 
 export interface ToolResult {
   structuredContent: Record<string, unknown>;
@@ -70,6 +71,7 @@ class ExtAppsHost implements HostAdapter {
 export class SkybridgeHost implements HostAdapter {
   private toolCb?: (r: ToolResult) => void;
   private ro?: ResizeObserver;
+  private lastHeight?: number;
 
   private read(): ToolResult | null {
     const o = windowOpenai();
@@ -167,11 +169,21 @@ export class SkybridgeHost implements HostAdapter {
   notifyHeight(px: number): void {
     const o = windowOpenai() as { notifyIntrinsicHeight?: (h: number) => void } | undefined;
     if (!o?.notifyIntrinsicHeight) return;
-    o.notifyIntrinsicHeight(px);
+    this.send(o.notifyIntrinsicHeight, px);
     if (!this.ro) {
-      this.ro = new ResizeObserver(() => o.notifyIntrinsicHeight!(document.body.scrollHeight));
+      // Same measurement as the renderer's reports (see measure.ts) — two
+      // disagreeing reporters are what made the frame jitter.
+      this.ro = new ResizeObserver(() => this.send(o.notifyIntrinsicHeight!, contentHeight()));
       this.ro.observe(document.body);
     }
+  }
+
+  private send(notify: (h: number) => void, px: number): void {
+    // A sub-pixel wobble is not a resize; forwarding it only invites the host to
+    // re-lay out and the observer to fire again.
+    if (this.lastHeight !== undefined && Math.abs(px - this.lastHeight) <= 1) return;
+    this.lastHeight = px;
+    notify(px);
   }
 }
 

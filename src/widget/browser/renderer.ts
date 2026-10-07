@@ -10,6 +10,7 @@
  * Not compiled by tsc (browser-only) — bundled by scripts/build-widget.mjs.
  */
 import type { HostAdapter, ToolResult } from "./host.js";
+import { contentHeight } from "./measure.js";
 import {
   contentToMarkdown,
   describeItem,
@@ -91,7 +92,7 @@ export function startRenderer(host: HostAdapter): void {
   }, FIRST_RESULT_DEADLINE_MS);
 
   function reportHeight(): void {
-    host.notifyHeight(document.body.scrollHeight + 24);
+    host.notifyHeight(contentHeight());
   }
 
   /**
