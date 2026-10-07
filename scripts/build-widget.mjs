@@ -167,7 +167,11 @@ const CHANGES = new Set(["update", "response"]);
 // l0000-view's \`formModel\` (see src/widget/languages.ts): under "loaded" the Form keeps
 // rendering the model it was mounted with, while edits still update the live model that
 // scoring reads. The widget's only external load is the mount itself.
-const FORM_MODEL = ${JSON.stringify(formModel)};
+// The package's own export wins (l0179-view >= 0.3.4 declares it); the registry entry is the
+// fallback for a package that predates the export.
+const FORM_MODEL = lang["formModel"] === "loaded" || lang["formModel"] === "live"
+  ? lang["formModel"]
+  : ${JSON.stringify(formModel)};
 
 // Structural equality, as l0000-view's View uses it: an action that changes nothing must
 // return the SAME state, or every caret move hands the Form a new model identity — which

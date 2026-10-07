@@ -19,8 +19,9 @@ export interface NativeLanguage {
   /** npm package exporting the presentational `Form` component. */
   pkg: string;
   /**
-   * Which model the Form renders from — l0000-view's `formModel`, which the HOST
-   * chooses (L0179 re-exports the shared `View` and declares nothing).
+   * Which model the Form renders from — l0000-view's `formModel`. A package that
+   * exports `formModel` (l0179-view >= 0.3.4) is read directly and overrides this;
+   * this is the fallback for one that predates the export (l0166).
    *
    * `"live"` (default): a controlled Form, which must see its own edits come back.
    * `"loaded"`: an uncontrolled Form that seeds itself from the model once and owns
@@ -74,7 +75,8 @@ export const NATIVE_LANGUAGES: NativeLanguage[] = [
   // to a static preview — the wrong way round for the language 8 of 17 recent
   // items were authored in. Same `({ state })` Form contract as l0166.
   { id: "L0173", pkg: "@graffiticode/l0173" },
-  { id: "L0179", pkg: "@graffiticode/l0179-view", formModel: "loaded" },
+  // formModel comes from the package itself (l0179-view >= 0.3.4 exports it).
+  { id: "L0179", pkg: "@graffiticode/l0179-view" },
 
   // Added 2026-09-01. The first three were on npm already; the five `-view`
   // packages were built in their own repos but had never been pushed, which was
