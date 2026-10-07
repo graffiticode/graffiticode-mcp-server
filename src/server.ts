@@ -52,6 +52,7 @@ import {
 import { formatToolResult } from "./tool-result.js";
 import { buildChallengeResponse } from "./challenge.js";
 import { startSseKeepalive } from "./sse-keepalive.js";
+import { FreePlanLimitError, buildFreePlanLimitText } from "./free-plan-limit.js";
 import type { AuthContext } from "./api.js";
 import { withUpstreamTiming, getCachedFullCatalog, warmCatalog } from "./api.js";
 import { watchBadRequests } from "./bad-request-log.js";
@@ -848,6 +849,14 @@ function createMcpServer(authProvider: AuthProvider, sessionMeta: SessionMeta = 
           ],
           isError: true,
           _meta: { "mcp/www_authenticate": [buildWwwAuthenticate(error.reason)] },
+        };
+      }
+      // A Graffiticode free-plan refusal: name it as ours and say not to retry,
+      // so it can't be mistaken for the host's own limit (see free-plan-limit.ts).
+      if (error instanceof FreePlanLimitError) {
+        return {
+          content: [{ type: "text", text: buildFreePlanLimitText(error) }],
+          isError: true,
         };
       }
       return {

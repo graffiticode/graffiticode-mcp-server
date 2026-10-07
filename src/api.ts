@@ -3,6 +3,7 @@
  */
 
 import { AsyncLocalStorage } from "async_hooks";
+import { FreePlanLimitError, parseFreePlanError, parseFreePlanErrorBody } from "./free-plan-limit.js";
 
 const CONSOLE_API_URL = process.env.GRAFFITICODE_CONSOLE_URL || "https://console.graffiticode.org/api";
 
@@ -48,7 +49,7 @@ export type AuthContext =
 
 interface GraphQLResponse<T> {
   data?: T;
-  errors?: Array<{ message: string }>;
+  errors?: Array<{ message: string; extensions?: Record<string, unknown> }>;
 }
 
 function buildAuthHeaders(auth: AuthContext): Record<string, string> {
@@ -138,12 +139,20 @@ async function graphqlRequest<T>(
 
     if (!response.ok) {
       const error = await response.text();
-      throw new Error(`GraphQL request failed: ${error}`);
+      // A free-plan refusal from the request gate (e.g. the API burst guard)
+      // comes back as a non-2xx JSON body; surface it typed, not as a blob.
+      throw parseFreePlanErrorBody(error) ?? new Error(`GraphQL request failed: ${error}`);
     }
 
     const result = await response.json() as GraphQLResponse<T>;
 
     if (result.errors && result.errors.length > 0) {
+      // Quota and generation-burst refusals inside resolvers carry the same
+      // payload on the error's extensions.
+      for (const e of result.errors) {
+        const limit = parseFreePlanError(e.extensions, e.message);
+        if (limit) throw limit;
+      }
       throw new Error(`GraphQL error: ${result.errors[0].message}`);
     }
 
@@ -685,7 +694,9 @@ export async function warmCatalog(auth: AuthContext): Promise<void> {
 
 /** The one error list_languages surfaces: worded so a model tells the user rather than retrying. */
 class CatalogUnavailable extends Error {}
-function catalogUnavailable(err: unknown): CatalogUnavailable {
+function catalogUnavailable(err: unknown): CatalogUnavailable | FreePlanLimitError {
+  // A free-plan refusal is not an outage: pass it through so it reads as ours.
+  if (err instanceof FreePlanLimitError) return err;
   const why = (err as Error)?.message ?? String(err);
   return new CatalogUnavailable(
     "The Graffiticode language catalog is temporarily unavailable " +
