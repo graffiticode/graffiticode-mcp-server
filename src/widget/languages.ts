@@ -18,6 +18,20 @@ export interface NativeLanguage {
   id: string;
   /** npm package exporting the presentational `Form` component. */
   pkg: string;
+  /**
+   * Which model the Form renders from — l0000-view's `formModel`, which the HOST
+   * chooses (L0179 re-exports the shared `View` and declares nothing).
+   *
+   * `"live"` (default): a controlled Form, which must see its own edits come back.
+   * `"loaded"`: an uncontrolled Form that seeds itself from the model once and owns
+   * its editing state after. L0166's spreadsheet Form (which L0179 injects) is one:
+   * its TableEditor rebuilds the whole ProseMirror grid and puts the caret back in
+   * A1 whenever `interaction.cells` changes identity, and its own cell `update`
+   * produces a fresh `cells` on every commit. Fed live, the grid re-seeds on every
+   * caret move — it visibly jitters and swallows what was typed (ChatGPT desktop,
+   * 2026-10-06).
+   */
+  formModel?: "live" | "loaded";
 }
 
 /**
@@ -54,13 +68,13 @@ export interface NativeLanguage {
  * one matters for an interactive language.
  */
 export const NATIVE_LANGUAGES: NativeLanguage[] = [
-  { id: "L0166", pkg: "@graffiticode/l0166" },
+  { id: "L0166", pkg: "@graffiticode/l0166", formModel: "loaded" },
   // L0173 renders charts; L0179 supersedes L0166 and needed its own bundle, since
   // the DEPRECATED dialect rendered natively while its live replacement fell back
   // to a static preview — the wrong way round for the language 8 of 17 recent
   // items were authored in. Same `({ state })` Form contract as l0166.
   { id: "L0173", pkg: "@graffiticode/l0173" },
-  { id: "L0179", pkg: "@graffiticode/l0179-view" },
+  { id: "L0179", pkg: "@graffiticode/l0179-view", formModel: "loaded" },
 
   // Added 2026-09-01. The first three were on npm already; the five `-view`
   // packages were built in their own repos but had never been pushed, which was

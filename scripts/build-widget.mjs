@@ -126,7 +126,7 @@ console.log("Bundled dist/widget/widget.bundle.js");
  * this, Form receives the envelope, sees no `type`/`interaction`, and renders raw
  * JSON instead of the chart/spreadsheet.
  */
-function entrySource(pkg) {
+function entrySource(pkg, formModel = "live") {
   return `
 import { createElement, Fragment, useEffect, useMemo, useReducer, useState } from "react";
 import { createRoot } from "react-dom/client";
@@ -164,23 +164,51 @@ function unwrapEnvelope(resp) {
 
 // Counts the learner's real changes, which is what clears a check.
 const CHANGES = new Set(["update", "response"]);
+// l0000-view's \`formModel\` (see src/widget/languages.ts): under "loaded" the Form keeps
+// rendering the model it was mounted with, while edits still update the live model that
+// scoring reads. The widget's only external load is the mount itself.
+const FORM_MODEL = ${JSON.stringify(formModel)};
+
+// Structural equality, as l0000-view's View uses it: an action that changes nothing must
+// return the SAME state, or every caret move hands the Form a new model identity — which
+// an uncontrolled Form like L0179's grid reads as "re-seed", and a re-seed reports the
+// caret move again.
+const deepEqual = (a, b) => {
+  if (a === b) return true;
+  if (typeof a !== typeof b || a === null || b === null || typeof a !== "object") return false;
+  if (Array.isArray(a) !== Array.isArray(b)) return false;
+  if (Array.isArray(a)) return a.length === b.length && a.every((v, i) => deepEqual(v, b[i]));
+  const ak = Object.keys(a);
+  return ak.length === Object.keys(b).length &&
+    ak.every((k) => Object.prototype.hasOwnProperty.call(b, k) && deepEqual(a[k], b[k]));
+};
+
 const tracked = (prev, action) => {
   const data = reducer(prev.data, action);
-  const changed = CHANGES.has(action.type) && JSON.stringify(data) !== JSON.stringify(prev.data);
-  return { data, changes: prev.changes + (changed ? 1 : 0) };
+  if (data === prev.data || deepEqual(data, prev.data)) return prev;
+  return {
+    data,
+    renderData: FORM_MODEL === "live" || action.type === "init" ? data : prev.renderData,
+    changes: prev.changes + (CHANGES.has(action.type) ? 1 : 0),
+  };
 };
 
 // \`apply\` is the useReducer dispatch, exactly as in l0000-view's View — that is what
 // makes the controlled Forms re-render, and with them score.
 function Root({ initialData, errors }) {
-  const [{ data, changes }, apply] = useReducer(tracked, { data: initialData, changes: 0 });
+  const [{ data, renderData, changes }, apply] = useReducer(tracked, {
+    data: initialData,
+    renderData: initialData,
+    changes: 0,
+  });
   const [checked, setChecked] = useState(false);
   useEffect(() => setChecked(false), [changes]);
+  // Scored from the live model, which under "loaded" is not what the Form renders.
   const result = useMemo(
     () => (typeof langScore === "function" && errors.length === 0 ? langScore(data) : undefined),
     [data, errors],
   );
-  const shown = checked && result ? { ...data, showValidationUI: true } : data;
+  const shown = checked && result ? { ...renderData, showValidationUI: true } : renderData;
   const state = useMemo(() => ({ data: shown, errors, apply }), [shown, errors]);
   const form = createElement(Form, { state });
   if (!result) return form;
@@ -234,11 +262,11 @@ const WOFF2_ONLY = {
 await mkdir("dist/widget/lang", { recursive: true });
 
 await Promise.all(
-  NATIVE_LANGUAGES.map(({ id, pkg }) =>
+  NATIVE_LANGUAGES.map(({ id, pkg, formModel }) =>
     build({
       ...SHARED,
       stdin: {
-        contents: entrySource(pkg),
+        contents: entrySource(pkg, formModel),
         resolveDir: process.cwd(),
         sourcefile: `${id}-entry.js`,
         loader: "js",
