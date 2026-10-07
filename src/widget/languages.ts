@@ -105,6 +105,9 @@ export const NATIVE_LANGUAGES: NativeLanguage[] = [
   // L0185 fetch and shape data (succeeds L0170, which stays for its existing items). Read-only:
   // a record table or a JSON tree of the transformed data; the Form never calls `apply`.
   { id: "L0185", pkg: "@graffiticode/l0185-view" },
+  // L0186 FigJam boards (succeeds L0172, which stays for its existing items). Read-only: an SVG
+  // preview of the board, one tab per page; the plugin, not the widget, draws into FigJam.
+  { id: "L0186", pkg: "@graffiticode/l0186-view" },
 
   // L0014 authors TransLaTeX rule sets. It is INTERNAL: the catalog does not list it, so
   // nothing routes a request to it. It is here for an item rendered by id, where the
