@@ -1,3 +1,5 @@
+> **This repository has moved.** Development now happens in [graffiticode/graffiticode-app](https://github.com/graffiticode/graffiticode-app) under `packages/mcp-server`, with full history. Please open issues and pull requests there. This repository will be archived once deploys run from the monorepo.
+
 # Graffiticode MCP Server Documentation
 
 The Graffiticode MCP server connects AI assistants and applications to a growing catalog of domain-specific tools. Each tool is powered by a Graffiticode language — a specialized DSL optimized for a particular task domain. You interact with these languages entirely through natural language: describe what you want to create, and a language-specific AI generates the result.
